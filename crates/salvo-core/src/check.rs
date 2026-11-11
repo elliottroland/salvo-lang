@@ -3022,6 +3022,154 @@ fn map_rooted_value_refs(t: &Ty, respell: &mut dyn FnMut(&str, &[u32], &[String]
     }
 }
 
+/// [qual-depend-field] Whether a qualifier is a **claim a join may drop**:
+/// one with a place or a constant in its value block. A borrow (`proj`,
+/// `ref`) is ownership rather than a fact, and an effect is neither, so
+/// those are never dropped.
+fn droppable_claim(q: &Qual) -> bool {
+    !q.effect && !crate::types::is_proj_name(&q.name) && q.args.iter().any(|a| matches!(a, Ty::ValueRef { .. } | Ty::Const(_)))
+}
+
+/// [qual-depend-field] `t` without the claims about a value in `dead` (the
+/// identities nothing in scope at a join can name), wherever they are: at
+/// the top, on a union's arms, in a type argument or a tuple element. A
+/// union one of whose arms lost a claim is joined again
+/// (`join_dropped_arms`), so `Idx(s) Int | Idx(t) Int` is `Int`. Answers
+/// whether anything was dropped.
+fn drop_claims_about(t: &Ty, dead: &[Identity]) -> (Ty, bool) {
+    if dead.is_empty() {
+        return (t.clone(), false);
+    }
+    let about_dead = |q: &Qual| {
+        let mut refs = Vec::new();
+        q.args.iter().for_each(|a| rooted_value_refs(a, &mut refs));
+        refs.iter().any(|(_, (r, a))| dead.iter().any(|(dr, da)| crate::types::same_identity(r, a, dr, da)))
+    };
+    let all = |ts: &[Ty]| -> (Vec<Ty>, bool) {
+        let parts: Vec<(Ty, bool)> = ts.iter().map(|e| drop_claims_about(e, dead)).collect();
+        let dropped = parts.iter().any(|(_, d)| *d);
+        (parts.into_iter().map(|(e, _)| e).collect(), dropped)
+    };
+    match t {
+        Ty::Qualified { quals, base } => {
+            let (base, mut dropped) = drop_claims_about(base, dead);
+            let mut kept = Vec::new();
+            for q in quals {
+                if droppable_claim(q) && about_dead(q) {
+                    dropped = true;
+                    continue;
+                }
+                let (args, d) = all(&q.args);
+                dropped |= d;
+                kept.push(Qual { effect: q.effect, name: q.name.clone(), args });
+            }
+            (base.qualify(kept), dropped)
+        }
+        Ty::Named { name, args } => {
+            let (args, dropped) = all(args);
+            (Ty::Named { name: name.clone(), args }, dropped)
+        }
+        Ty::Union(arms) => {
+            let parts: Vec<(Ty, bool)> = flat_arms(arms.clone()).iter().map(|a| drop_claims_about(a, dead)).collect();
+            match parts.iter().any(|(_, d)| *d) {
+                true => (Ty::union_of(join_dropped_arms(parts)), true),
+                false => (t.clone(), false),
+            }
+        }
+        Ty::Tuple(elems) => {
+            let (elems, dropped) = all(elems);
+            (Ty::Tuple(elems), dropped)
+        }
+        Ty::Array(e) => {
+            let (e, dropped) = drop_claims_about(e, dead);
+            (Ty::Array(Box::new(e)), dropped)
+        }
+        other => (other.clone(), false),
+    }
+}
+
+/// [qual-depend-field] `t` with every droppable claim (`droppable_claim`)
+/// erased, wherever it is: the shape two arms must share for one to absorb
+/// the other at a join.
+fn erase_claims(t: &Ty) -> Ty {
+    match t {
+        Ty::Qualified { quals, base } => erase_claims(base).qualify(
+            quals
+                .iter()
+                .filter(|q| !droppable_claim(q))
+                .map(|q| Qual { effect: q.effect, name: q.name.clone(), args: q.args.iter().map(erase_claims).collect() })
+                .collect(),
+        ),
+        Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(erase_claims).collect() },
+        Ty::Union(arms) => Ty::Union(arms.iter().map(erase_claims).collect()),
+        Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(erase_claims).collect()),
+        Ty::Array(e) => Ty::Array(Box::new(erase_claims(e))),
+        other => other.clone(),
+    }
+}
+
+/// [qual-depend-field] The join of two types of one shape
+/// (`erase_claims` agrees): `a` keeping, at each position, only the claims
+/// `b` holds there too (`same_claim`, by identity).
+fn common_claims(a: &Ty, b: &Ty) -> Ty {
+    let zip = |xs: &[Ty], ys: &[Ty]| -> Vec<Ty> { xs.iter().zip(ys).map(|(x, y)| common_claims(x, y)).collect() };
+    match (a, b) {
+        (Ty::Qualified { .. }, _) | (_, Ty::Qualified { .. }) => {
+            let kept: Vec<Qual> = a
+                .quals()
+                .iter()
+                .filter(|q| !droppable_claim(q) || b.quals().iter().any(|o| crate::types::same_claim(q, o)))
+                .cloned()
+                .collect();
+            common_claims(a.strip_quals(), b.strip_quals()).qualify(kept)
+        }
+        (Ty::Named { name, args: xs }, Ty::Named { args: ys, .. }) if xs.len() == ys.len() => Ty::Named { name: name.clone(), args: zip(xs, ys) },
+        (Ty::Union(xs), Ty::Union(ys)) if xs.len() == ys.len() => Ty::Union(zip(xs, ys)),
+        (Ty::Tuple(xs), Ty::Tuple(ys)) if xs.len() == ys.len() => Ty::Tuple(zip(xs, ys)),
+        (Ty::Array(x), Ty::Array(y)) => Ty::Array(Box::new(common_claims(x, y))),
+        _ => a.clone(),
+    }
+}
+
+/// The arms of a join with every unqualified union among them spread into
+/// its own arms (as `Ty::union_of` flattens), so a claim is dropped and
+/// absorbed per arm: `(Idx(s) Int)?` joined with `Idx(a.str) Int` is the
+/// arms `Idx(s) Int`, `None` and `Idx(a.str) Int`.
+fn flat_arms(arms: Vec<Ty>) -> Vec<Ty> {
+    arms.into_iter()
+        .flat_map(|a| match a {
+            Ty::Union(inner) => flat_arms(inner),
+            other => vec![other],
+        })
+        .collect()
+}
+
+/// [qual-depend-field] The arms of a join after its unreachable claims were
+/// dropped (each with whether it lost one): an arm that lost a claim is no
+/// longer claimed there, so another arm of its shape (`erase_claims`) joins
+/// it with only the claims both hold (`common_claims`), whatever the order
+/// of the arms. The join of `Idx(a.str) Int` and an `Idx(s) Int` whose `s`
+/// has ended is `Int`, and so is that of `a.pos`, `b.pos` and such an
+/// index. Arms of a shape no arm lost a claim in are left as they are, as
+/// two claims about two values that are both still named are.
+fn join_dropped_arms(arms: Vec<(Ty, bool)>) -> Vec<Ty> {
+    // The shapes an arm lost a claim in, first, so the result does not
+    // depend on the order of the arms.
+    let lost: Vec<Ty> = arms.iter().filter(|(_, d)| *d).map(|(t, _)| erase_claims(t)).collect();
+    let mut out: Vec<(Ty, Ty)> = Vec::new();
+    for (t, _) in arms {
+        let shape = erase_claims(&t);
+        if lost.contains(&shape) {
+            if let Some(slot) = out.iter_mut().find(|(_, s)| *s == shape) {
+                slot.0 = common_claims(&slot.0, &t);
+                continue;
+            }
+        }
+        out.push((t, shape));
+    }
+    out.into_iter().map(|(t, _)| t).collect()
+}
+
 /// [qual-depend-field] Whether a fate link's claim path is **marked**: it
 /// opens with `Step::Element`, standing for a derivation the analysis cannot
 /// spell from the root (an element, a value a held borrow is stored beside),
@@ -19157,9 +19305,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let joined = join_narrowed(&narrowed_states);
                 // [qual-depend-field] Spelled as it names its value after
                 // the branches, whose locals have ended (for a variable that
-                // is still there).
+                // is still there); a claim nothing names then is dropped.
                 let joined = match self.locals.get(frame_idx).is_some_and(|f| f.contains_key(name)) {
-                    true => self.respell_claims(joined, &narrowed_states),
+                    true => self.respell_claims(joined, &narrowed_states).0,
                     false => joined,
                 };
                 // Fate links union across branches [fate-link].
@@ -20801,15 +20949,18 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Builds a union, recording the wrapper size when one is needed.
     /// [qual-depend-field] The join of paths: a claim is spelled as it names
     /// its value here (`respell_claims`), and arms that are one type under
-    /// two spellings of a claim are one arm (`Ty::union_of`).
+    /// two spellings of a claim are one arm (`Ty::union_of`). A claim
+    /// nothing here names is dropped, and an arm that lost one absorbs the
+    /// arms of its shape (`join_dropped_arms`).
     fn mk_union(&mut self, arms: Vec<Ty>) -> Ty {
         if !arms.iter().any(Self::ty_has_value_ref) {
             return Ty::union_of(arms);
         }
+        let arms = flat_arms(arms);
         let pool = arms.clone();
         let pool: Vec<&Ty> = pool.iter().collect();
         let arms = arms.into_iter().map(|a| self.respell_claims(a, &pool)).collect();
-        Ty::union_of(arms)
+        Ty::union_of(join_dropped_arms(arms))
     }
 
     // ================= name resolution =================
@@ -32557,26 +32708,42 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// nothing after it, or another value. Such a spelling takes one of the
     /// same identity that names it here — another path's (`pool`, the types
     /// joined), else one built from a local in scope (`spell_here`). A claim
-    /// no name in scope reaches keeps its spelling; its identity is what
-    /// every comparison reads.
-    fn respell_claims(&self, ty: Ty, pool: &[&Ty]) -> Ty {
+    /// no name in scope reaches is **dropped** (user decision 2026-11-11):
+    /// no call could use it, so the join keeps the plain type
+    /// (`drop_claims_about`). A claim whose root a local in scope still is,
+    /// or holds a fate link to, may be reachable by a path `spell_here`
+    /// does not build, so it is kept under the spelling it had. Answers
+    /// whether a claim was dropped.
+    fn respell_claims(&self, ty: Ty, pool: &[&Ty]) -> (Ty, bool) {
         if !Self::ty_has_value_ref(&ty) {
-            return ty;
+            return (ty, false);
         }
         let mut spellings: Vec<(String, Identity)> = Vec::new();
         for t in pool {
             rooted_value_refs(t, &mut spellings);
         }
-        map_rooted_value_refs(&ty, &mut |path, roots, at| {
+        let tied = |roots: &[u32]| {
+            self.locals
+                .iter()
+                .flat_map(|f| f.values())
+                .any(|v| roots.contains(&v.id) || v.links.iter().any(|l| roots.contains(&l.root_id)))
+        };
+        let mut dead: Vec<Identity> = Vec::new();
+        let respelled = map_rooted_value_refs(&ty, &mut |path, roots, at| {
             if self.spelled_here(path, roots, at) {
                 return None;
             }
-            spellings
+            let found = spellings
                 .iter()
                 .find(|(p, (r, a))| crate::types::same_identity(r, a, roots, at) && self.spelled_here(p, roots, at))
                 .map(|(p, _)| p.clone())
-                .or_else(|| self.spell_here(roots, at))
-        })
+                .or_else(|| self.spell_here(roots, at));
+            if found.is_none() && !tied(roots) {
+                dead.push((roots.to_vec(), at.to_vec()));
+            }
+            found
+        });
+        drop_claims_about(&respelled, &dead)
     }
 
     /// [qual-const] The constants each fixed parameter's argument is, when it

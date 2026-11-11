@@ -2257,10 +2257,29 @@ Conventions:
     b`), so it takes a spelling of the same identity that names it there —
     another path's, else a local in scope with a tail of the projection
     below it (`a.str`; `spell_here`, the shortest, then by name). Display
-    only: the identity is what every comparison reads. A claim no name in
-    scope reaches keeps the spelling it had (agent's call, to confirm: the
-    alternatives are dropping the claim, which nothing could then use, or
-    printing a marker; ROADMAP §0bh).
+    only: the identity is what every comparison reads.
+  * **A join drops a claim nothing in scope names** (user decision
+    2026-11-11): a claim about a value no name at the join reaches — one
+    only a branch could name, its `let s = "abc"` ended with it — could
+    never be used by a call, so the join keeps the plain type: `if c { let
+    s = "abc"; 0 as! Idx(s) } else { let t = "xyz"; 0 as! Idx(t) }` is
+    `Int`, as is the same with both branches' `s`, and a later `s` is not
+    taken for either. It goes wherever it sits — an optional's arm, a type
+    argument, a tuple element (`(Idx(s) Int)?` is `Int?`, a `List<Idx(s)
+    Int>` is `List<Int>`) — and a borrow (`proj`, `ref`) or an effect is
+    never dropped. A claim whose root a local in scope still is, or holds a
+    fate link to, is kept under its old spelling, since a path the
+    respelling does not build may reach it.
+    An arm that lost a claim absorbs every arm of its shape, keeping only
+    the claims all of them hold (`join_dropped_arms`, in any arm order), so
+    the join of `a.pos` and such an `Idx(s) Int` is `Int`, and so is that of
+    `a.pos`, `b.pos` and one: one path has no claim, so the join has none
+    (agent's call within the decision). A claim some name reaches is
+    respelled as above, and two claims about two values both still named
+    stay two (ROADMAP §0bh), as does a claimed arm beside an arm that never
+    had a claim (`if c { a.pos } else { 0 }`), so a nested join is not
+    associative: `if c { a.pos } else { if d { b.pos } else { <ended> } }`
+    joins the inner `if` to `Int` and the outer to `Idx(a.str) Int | Int`.
   * **A literal checks the pair**: the field's claim is about the value the
     literal gives the sibling (or, unwritten, the spread's field), and the
     value must carry it — `Cursor { str: s, pos: 0 as! Idx(t) }` is refused,

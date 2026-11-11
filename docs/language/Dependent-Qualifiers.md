@@ -277,6 +277,27 @@ fn pick(cursor: Cursor, first: Bool) -> Int {
 Indexes of two cursors stay two claims: `if c { a.at } else { b.at }` is an
 index of `a.items` or of `b.items`, which is not an index of either one.
 
+A claim about a value that only one branch could name ends with that
+branch. Nothing after the `if` can name the value, so no call could use the
+claim, and the join drops it: below, `i` is a plain `Int`. The same holds
+where one branch's claim is still named and another's is about a value that
+ended (that path's claim is gone, so no claim holds on every path), and
+wherever the claim sits, so an `(Idx(word) Int)?` joins to an `Int?` and a
+list of such indexes to a `List<Int>`.
+
+```salvo
+fn either(c: Bool) -> Int {
+    let i = if c {
+        let word = "salvo"
+        0 as! Idx(word)
+    } else {
+        let other = "kiwi"
+        1 as! Idx(other)
+    }
+    return i                                  // a plain `Int`
+}
+```
+
 Building the value checks the pair: `Cursor { items: xs, at: i }` needs `i`
 to be an index of `xs`, a spread supplies the sibling when it is not
 written, and a literal that replaces `items` while taking `at` from the

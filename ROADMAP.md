@@ -600,13 +600,16 @@ Found building [type-query] and [type-assert] (COMPLETED.md).
   (`type?` shows it; identity is unaffected). The join now respells what
   it joins (`respell_claims`); a call result could take the argument's
   spelling the same way.
-- **DECISION (agent's call, to confirm): a joined claim that no name in
-  scope reaches keeps the spelling it had.** The join respells a claim
-  rooted at a branch's ended local to one that names the value after it
-  (`a.str`), but a value only the branch could name (`let s = "abc"` inside
-  it) has none, so `Idx(s)` still prints the ended `s`. The alternatives:
-  drop such a claim at the join (nothing in scope could use it, but a claim
-  disappearing is less plain than a stale name), or print a marker.
+- **Two claims about two values both still named stay two at a value
+  join**: the user's 2026-11-11 decision (COMPLETED.md) drops a joined claim
+  no name in scope reaches, which makes the branch-local half of the next
+  item moot (its `assert!(i is Idx(s))` repro now joins to `Int`); `if c {
+  a.pos } else { b.pos }` is still `Idx(a.str) Int | Idx(b.str) Int`, and
+  what that value join should be is open, as is the reachable mixed case
+  `if c { a.pos } else { 0 }` (`Idx(a.str) Int | Int`, the `a.pos` branch
+  refused). The nested `if c { a.pos } else { if d { b.pos } else {
+  <ended> } }` gives that refused join too (the inner `if` is `Int`), so a
+  rule for it would also settle that one.
 - **Open defect: a value joined from two claims on one base is usable as
   neither**: `if c { a.pos } else { b.pos }` over two cursors is
   `Idx(a.str) Int | Idx(b.str) Int` (correctly two claims), but no `Int`

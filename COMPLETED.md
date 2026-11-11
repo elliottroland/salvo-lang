@@ -150,6 +150,87 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — A join drops a claim nothing in scope names ([qual-depend-field])
+
+**User decision (2026-11-11)**, closing the DECISION ROADMAP §0bh recorded
+with the join above: when a join (an `if`/`when`/`?:` value, a variable's
+state after branches, the facts kept after a guard) produces a claim that
+no name in scope at the join reaches, because it is about a value that
+ended with its branch (`let s = "abc"` inside it), the claim is dropped and
+the plain type stays. A claim about a value nothing can name can never be
+used by a call, so tying the values together is moot; the type stays
+honest and no stale spelling prints. Before, `if c { let s = "abc"; 0 as!
+Idx(s) } else { let t = "xyz"; 0 as! Idx(t) }` was `Idx(s) Int | Idx(t)
+Int`, the same with both branches' `s` (and a later `s`) printed `Idx(s)
+Int | Idx(s) Int` and failed `type!(p: Idx(s) Int)` with a message naming
+the same type twice; both are `Int` now.
+
+- **How**: `respell_claims` collects the identities it finds no spelling
+  for (neither the claim's own, another path's, nor `spell_here`'s), and
+  `drop_claims_about` removes every claim about one of them, wherever it
+  sits (top level, union arms, type arguments, tuple elements, arrays). A
+  borrow (`proj`, `ref`) and an effect are never dropped
+  (`droppable_claim`): a borrow is ownership, not a fact. A claim whose
+  root a local in scope still is, or holds a fate link to, is kept under
+  its old spelling even when `spell_here` builds none (it tries only tails
+  of the identity's first projection, and none through a `?` marker), so
+  a gap in the respelling cannot lose a claim a call could use (a
+  gpu-reviewer find). `mk_union` and `merge_fallthrough` use it, so every
+  join site the respelling covers is covered. `mk_union` also builds a few
+  unions that are not joins (an `is` test's matched and remaining arms, a
+  re-typing's, an actor's message union); a claim reaching those already
+  unreachable would be dropped there too, which no test reaches.
+- **The mixed case (agent's call within the decision)**: one path's claim
+  is still named (`a.pos`), the other's is not (`let s = …; 0 as!
+  Idx(s)`). The second arm has no usable claim, and the union of a claimed
+  and an unclaimed arm is not claimed, so the join is `Int`: an arm that
+  lost a claim absorbs every arm of its shape (`erase_claims` agrees),
+  keeping only the claims all of them hold (`common_claims`, by
+  `same_claim`); `join_dropped_arms` does it, over the arms flattened first
+  (`flat_arms`) so an optional's arm meets a plain one. It collects the
+  shapes that lost a claim before folding, so the result does not depend
+  on arm order: the first version folded in one pass, and `when { c {
+  a.pos } d { b.pos } else { <ended> } }` came out `Int | Idx(b.str) Int`
+  with the ended arm last and `Int` with it first (a gpu-reviewer find).
+  Left at `Idx(a.str) Int | Int`, the join would have refused the `a.pos`
+  branch ("matches multiple arms"), which is what `if c { a.pos } else { 0
+  }` still does: that reachable mixed case, and two claims about two values
+  both still named (`if c { a.pos } else { b.pos }`), are unchanged, and
+  the latter's open defect in ROADMAP §0bh loses its branch-local half (the
+  `assert!(i is Idx(s))` repro there now joins to `Int` and is accepted).
+  So the rule is not associative: `if c { a.pos } else { if d { b.pos }
+  else { <ended> } }` joins the inner `if` to `Int`, and the outer is the
+  reachable mixed case; recorded in ROADMAP §0bh with the open question.
+- **Nested positions**: `(Idx(s) Int)?` joined with `a.pos` is `Int?`;
+  `List(0 as! Idx(s))` with `List(0 as! Idx(t))`, or with `List(a.pos)`,
+  is `NonEmpty List<Int>`; `(Int, Idx(s) Int)` from both branches is
+  `(Int, Int)`. A union whose arm lost a claim is joined again
+  (`Ty::union_of`), so a nested `Idx(s) Int | Idx(t) Int` cannot leave
+  `Int | Int`.
+- **Checked, no change needed**: a claim inside a tuple did not follow the
+  tuple before either (`let pair = (s, 0 as! Idx(s))`, `let (str, i) =
+  pair`, then `at(str, i)` finds no overload: `str` is not `s`'s identity),
+  so dropping a branch-local claim in a joined tuple loses nothing a call
+  could use. Shadowing is refused, so a stale spelling only arises from a
+  scope that ended, which is at a join.
+- **Tests**: checker data `flow/joins.sv` gains the two repros (`type[Int]`
+  and the `type!` mismatch against `Int`), the mixed case in both orders,
+  a three-way `when` with two claims still named and one ended in both
+  orders, nested positions (optional, two lists, a tuple), the facts after
+  a guard on both paths, a variable's state over two branch-local claims,
+  and a no-change case: a claim spelled with branch locals but about a
+  value still in scope is kept (`Idx(s) Int`). On the parent's checker the
+  repros, the mixed and three-way cases and the nested positions all fail
+  (the old unions, and `+` and `first` finding no overload over them); the
+  guard, the variable's state and the no-change case pass there too. Run
+  data `qualifiers/sibling_field_claims.sv`'s
+  `a_claim_nothing_names_is_dropped_at_the_join`: the dropped, mixed and
+  nested joins lower to plain `Int`s and run on both backends (its `+` over
+  `first` of a joined list would not check on the parent).
+  `place_tests::a_join_spells_its_claims_where_it_is` pinned no stale
+  spelling and is unchanged. 778 tests under nextest (the new cases are
+  data).
+
 ### 2026-11-11 — A join keeps one claim per fact, spelled where it is ([qual-depend-field] [type-union] [when-value])
 
 The defect recorded in ROADMAP §0bh: over `struct Cursor { str: proj Str,

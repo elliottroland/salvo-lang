@@ -160,3 +160,68 @@ fn main() [use] -> None {
 //= vvv
 //= vv
 //= vv at 6
+
+// A claim about a value that ended with its branch is dropped at the join:
+// the joined index is a plain `Int`, and it lowers and runs as one, alone,
+// beside a claim still named, in an optional and in a list.
+
+//--- a_claim_nothing_names_is_dropped_at_the_join
+struct Cursor {
+    str: proj Str
+    pos: Idx(str) Int
+}
+
+fn plain(i: Int) [] -> Str => i {
+    return "${i}"
+}
+
+fn ended(c: Bool) [] -> Int {
+    let p = if c {
+        let s = "abc"
+        2 as! Idx(s)
+    } else {
+        let t = "xy"
+        1 as! Idx(t)
+    }
+    return p
+}
+
+fn mixed(cursor: Cursor, c: Bool) [] -> Int => cursor {
+    let p = if c {
+        cursor.pos
+    } else {
+        let s = "abc"
+        0 as! Idx(s)
+    }
+    return p
+}
+
+fn nested(cursor: Cursor, c: Bool) [] -> Int => cursor {
+    let o = if c {
+        let s = "abc"
+        let x: (Idx(s) Int)? = 2 as! Idx(s)
+        x
+    } else {
+        cursor.pos
+    }
+    let xs = if c {
+        List(cursor.pos)
+    } else {
+        let s = "abc"
+        List(1 as! Idx(s))
+    }
+    return (o ?: 0) * 10 + first(xs)
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let text = "salvo"
+    let cursor = Cursor { str: text, pos: 3 as! Idx(text) }
+    println("${plain(ended(true))} ${plain(ended(false))}")
+    println("${mixed(cursor, true)} ${mixed(cursor, false)}")
+    println("${nested(cursor, true)} ${nested(cursor, false)}")
+}
+//= stdout
+//= 2 1
+//= 3 0
+//= 23 31

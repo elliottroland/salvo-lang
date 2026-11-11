@@ -208,4 +208,178 @@ fn match_arms(a: Cursor, side: Left | Right) [] -> Char => a {
     return at(a.str, p)
 }
 
+// A claim about a value nothing in scope at the join can name is dropped
+// there (user decision 2026-11-11): no call could use it, so the join is the
+// plain type, not a claim spelled with a local that has ended.
+fn branch_locals_drop(c: Bool) [] -> Int {
+    let p = if c {
+        let s = "abc"
+        0 as! Idx(s)
+    } else {
+        let t = "xyz"
+        0 as! Idx(t)
+    }
+    //~ type[Int]
+    type?(p)
+    type!(p: Int)
+    return p
+}
+
+// The same spelling in both branches is two values, both ended; a later
+// `s` is a third, and the join is not about it.
+fn one_spelling_both_ended(c: Bool) [] -> Int {
+    let p = if c {
+        let s = "abc"
+        0 as! Idx(s)
+    } else {
+        let s = "abc"
+        0 as! Idx(s)
+    }
+    let s = "other"
+    let _n = size(s)
+    //~ type[Int]
+    type?(p)
+    //~ error[type-assert:mismatch]
+    type!(p: Idx(s) Int)
+    return p
+}
+
+// One branch's claim is still named, the other's is not: the other arm has
+// no claim, so neither has the join, in either order.
+fn reachable_and_ended(a: Cursor, c: Bool) [] -> Int => a {
+    let p = if c {
+        a.pos
+    } else {
+        let s = "abc"
+        0 as! Idx(s)
+    }
+    //~ type[Int]
+    type?(p)
+    let q = if c {
+        let s = "abc"
+        0 as! Idx(s)
+    } else {
+        a.pos
+    }
+    //~ type[Int]
+    type?(q)
+    return p + q
+}
+
+// Inside an optional, a list and a tuple, the dropped claim leaves the type
+// around it whole.
+fn nested_positions_drop(a: Cursor, c: Bool) [] -> Int => a {
+    let o = if c {
+        let s = "abc"
+        let x: (Idx(s) Int)? = 0 as! Idx(s)
+        x
+    } else {
+        a.pos
+    }
+    //~ type[Int?]
+    type?(o)
+    let xs = if c {
+        let s = "abc"
+        List(0 as! Idx(s))
+    } else {
+        let t = "xyz"
+        List(0 as! Idx(t))
+    }
+    //~ type[NonEmpty List<Int>]
+    type?(xs)
+    let ys = if c {
+        List(a.pos)
+    } else {
+        let s = "abc"
+        List(0 as! Idx(s))
+    }
+    //~ type[NonEmpty List<Int>]
+    type?(ys)
+    let _pair = if c {
+        let s = "abc"
+        (size(s), 0 as! Idx(s))
+    } else {
+        let s = "xyz"
+        (size(s), 0 as! Idx(s))
+    }
+    //~ type[(Int, Int)]
+    type?(_pair)
+    return first(xs) + first(ys) + (o ?: 0)
+}
+
+// Three ways, two claims still named and one ended: the ended path has no
+// claim, so the join has none, whichever arm comes first.
+fn three_ways_one_ended(a: Cursor, b: Cursor, c: Bool, d: Bool) [] -> Int => a, b {
+    let p = when {
+        c { a.pos }
+        d { b.pos }
+        else {
+            let s = "abc"
+            0 as! Idx(s)
+        }
+    }
+    //~ type[Int]
+    type?(p)
+    let q = when {
+        c {
+            let s = "abc"
+            0 as! Idx(s)
+        }
+        d { a.pos }
+        else { b.pos }
+    }
+    //~ type[Int]
+    type?(q)
+    return p + q
+}
+
+// The facts kept after a guard on every path drop the same way.
+fn guard_facts_drop(c: Bool, i: Int) [] -> Int {
+    if c {
+        let s = "abc"
+        if !(i is Idx(s)) {
+            return 0
+        }
+    } else {
+        let t = "xyz"
+        if !(i is Idx(t)) {
+            return 1
+        }
+    }
+    //~ type[Int]
+    type?(i)
+    return i
+}
+
+// A variable's state after branches drops the same way.
+fn assignments_drop(c: Bool) [] -> Int {
+    let v = 0
+    if c {
+        let s = "abc"
+        v = 0 as! Idx(s)
+    } else {
+        let t = "xyz"
+        v = 0 as! Idx(t)
+    }
+    //~ type[Int]
+    type?(v)
+    return v
+}
+
+// A claim spelled with a branch's local but about a value still in scope is
+// kept, respelled with a name that reaches it.
+fn reachable_claim_kept(c: Bool) [] -> Char {
+    let s = "abc"
+    let p = if c {
+        let t = s
+        0 as! Idx(t)
+    } else {
+        let u = s
+        0 as! Idx(u)
+    }
+    //~ type[Idx(s) Int]
+    type?(p)
+    return at(s, p)
+}
+
 fn main() {}
