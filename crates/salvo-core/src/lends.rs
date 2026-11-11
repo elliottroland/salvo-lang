@@ -285,6 +285,8 @@ impl<'p> Walk<'_, '_, 'p> {
             // [assert-fn] An assertion lends nothing: it answers `None` (or
             // `Never`), and its parts are only read.
             Expr::Assert { .. } | Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::WhyNot { .. } => None,
+            // [type-query] [assert-type] `None`, and nothing at run time.
+            Expr::TypeQuery { .. } | Expr::AssertType { .. } => None,
             // [assert-op] `subject ?: unreachable!()` is the subject,
             // unwrapped: what it lends.
             e if e.presence_unwrapped().is_some() => self.lends_of_expr(e.presence_unwrapped().unwrap()),

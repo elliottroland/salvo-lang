@@ -38,8 +38,9 @@ A few things work differently from the languages you may know:
   flat ([Terminal `...` scopes](#terminal--scopes)).
 
 The sections below take each construct in turn, then the operators that join
-expressions (`|>`, `?:`, `?>`), and finally re-typing, which drops a
-qualifier from a value.
+expressions (`|>`, `?:`, `?>`), then re-typing, which drops a qualifier from
+a value, and finally `type?` and `assert!(x: T)`, which show and check what a
+place's type is at a given line.
 
 ## If/elif/else blocks
 
@@ -491,3 +492,53 @@ The rules:
   `NonEmpty List<Int>` takes an empty list, and reads without `NonEmpty`
   afterwards. `Mut` is no exception: a `Mut Str` variable takes a plain `Str`,
   and reads as a `Str` until a `Mut Str` is assigned.
+
+## Finding out a type: `type?` and `assert!(x: T)`
+
+Narrowing, re-typing, mutation and loops all change what a place's type is
+from one line to the next. Two compiler forms let you see it. `type?(place)`
+asks: the compiler reports the place's type at that point, as a warning that
+fails nothing, and the program does not change. `assert!(place: T)` states
+it: the program does not compile unless the place's type is exactly `T`. It is
+TypeScript's hover type, or a `static_assert` on the type, written in the
+program.
+
+```salvo
+struct Parsing canbe Mut {
+    str: proj Str
+    pos: Idx(str) Int
+}
+
+fn step(parsing: Mut Parsing) [] -> None => parsing: Mut {
+    let { str, pos } = parsing
+    type?(pos)                          // warning: type of `pos`: Idx(str) Int
+    type?(parsing.pos)                  // warning: type of `parsing.pos`: Idx(parsing.str) Int
+    assert!(pos: Idx(parsing.str) Int)  // holds: `str` is `parsing.str`
+    pos++
+    assert!(pos: Int)                   // the step left the claim behind
+    if pos is Idx(str) {
+        parsing.pos = pos
+    }
+}
+```
+
+- **The argument is a place**: a variable, a field path such as
+  `parsing.pos`, or a destructured binding, borrowed or not. A call, a
+  literal or a subscript is refused: bind the value to a local first.
+- **Neither form does anything at run time.** Both are `None`, nothing is
+  evaluated, and no code is generated for them. The place is not read: it is
+  not moved, borrowed or narrowed, a linear value is not ended, and a local
+  named only in them is still reported as unused.
+- **The type is the whole type**, every qualifier included (`proj`, `Mut`,
+  claims such as `Idx(str)`), written with a borrow first and the rest in name
+  order. The order you write them in `assert!` does not matter.
+- **A claim is compared by the value it is about**, not by its spelling: in
+  the example, `Idx(str)` and `Idx(parsing.str)` are one claim, because the
+  destructured `str` is `parsing.str`. A claim about another cursor's `str`
+  fails the assertion even when it prints the same.
+- **Exact means exact**: `assert!` checks the type, it does not test or
+  convert (`is` tests; `x := -Q` drops). A `-Q` or `+Q` list is refused, and
+  so is a message, since the check never fails at run time.
+- **Inside a loop**, the compiler may walk the body twice, the second time
+  with what the first walk left at the end of the body. `type?` reports what
+  the last walk saw, once.

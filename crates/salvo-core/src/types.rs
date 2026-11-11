@@ -867,6 +867,45 @@ pub fn same_claim(a: &Qual, b: &Qual) -> bool {
         })
 }
 
+/// [assert-type] Whether two types are **the same type exactly**: the same
+/// base and the same set of qualifiers, in whatever order, down through type
+/// arguments, qualifier arguments, union arms (in any order), tuple
+/// elements and fn types. Two rooted place arguments agree by identity, as
+/// [`same_claim`] has it (`Idx(str)` of a destructured `str` is
+/// `Idx(parsing.str)`); a root-free one agrees only with a root-free one of
+/// the same spelling. Nothing is a subtype here: `NonEmpty List<Int>` is
+/// not `List<Int>`.
+pub fn same_type(a: &Ty, b: &Ty) -> bool {
+    fn all(a: &[Ty], b: &[Ty]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_type(x, y))
+    }
+    fn same_set<T>(a: &[T], b: &[T], same: impl Fn(&T, &T) -> bool) -> bool {
+        a.len() == b.len() && a.iter().all(|x| b.iter().any(|y| same(x, y))) && b.iter().all(|y| a.iter().any(|x| same(x, y)))
+    }
+    fn same_qual(a: &Qual, b: &Qual) -> bool {
+        a.name == b.name && a.effect == b.effect && all(&a.args, &b.args)
+    }
+    match (a, b) {
+        (Ty::Qualified { quals: qa, base: ba }, Ty::Qualified { quals: qb, base: bb }) => same_set(qa, qb, same_qual) && same_type(ba, bb),
+        (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => na == nb && all(aa, ab),
+        (Ty::Union(xa), Ty::Union(xb)) => same_set(xa, xb, same_type),
+        (Ty::Tuple(xa), Ty::Tuple(xb)) => all(xa, xb),
+        (Ty::Array(x), Ty::Array(y)) => same_type(x, y),
+        (
+            Ty::Fn { params: pa, ret: ra, contract: ca, effects: ea },
+            Ty::Fn { params: pb, ret: rb, contract: cb, effects: eb },
+        ) => all(pa, pb) && same_type(ra, rb) && ca == cb && same_set(ea, eb, same_type),
+        (Ty::ValueRef { path: pa, roots: ra, at: aa }, Ty::ValueRef { path: pb, roots: rb, at: ab }) => {
+            if ra.is_empty() || rb.is_empty() {
+                ra.is_empty() && rb.is_empty() && pa == pb
+            } else {
+                same_identity(ra, aa, rb, ab)
+            }
+        }
+        _ => a == b,
+    }
+}
+
 /// The subtype relation. `Unknown` is compatible in both directions so that
 /// unchecked code never produces cascading errors.
 pub fn is_subtype(a: &Ty, b: &Ty) -> bool {

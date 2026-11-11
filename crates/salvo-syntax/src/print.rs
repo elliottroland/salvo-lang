@@ -2190,11 +2190,31 @@ impl Printer<'_> {
             }
             Expr::Assert { cond, message, .. } => {
                 self.push("assert!(");
-                self.expr(cond, 0);
+                // [assert-type] A `:` right inside `assert!(` is a type
+                // assertion's, so a re-typing there is parenthesized.
+                self.expr(cond, if matches!(**cond, Expr::Retype { .. }) { 1 } else { 0 });
                 if let Some(m) = message {
                     self.push(", ");
                     self.expr(m, 0);
                 }
+                self.push(")");
+            }
+            // [assert-type] `assert!(place: T)`.
+            Expr::AssertType { place, ty, .. } => {
+                self.push("assert!(");
+                self.expr(place, 1);
+                self.push(": ");
+                match ty {
+                    Some(t) => self.ty(t),
+                    // Refused at the parse; a module that parsed has none.
+                    None => self.push("?"),
+                }
+                self.push(")");
+            }
+            // [type-query] `type?(place)`.
+            Expr::TypeQuery { place, .. } => {
+                self.push("type?(");
+                self.expr(place, 0);
                 self.push(")");
             }
             Expr::Unreachable { message, .. } => {

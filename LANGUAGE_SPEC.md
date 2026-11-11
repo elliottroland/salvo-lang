@@ -431,7 +431,9 @@ Conventions:
   `assert!(cond)` / `assert!(cond, "why")`, `unreachable!()` /
   `unreachable!("why")`, and `todo!()` / `todo!("why")` (user decision
   2026-10-12). A third form, `whynot?(x is Q)`, answers a message instead
-  of trapping, and is spelled with `?` for it [qual-whynot].
+  of trapping, and is spelled with `?` for it [qual-whynot]; `type?(place)`
+  answers the place's type to the author [type-query]. `assert!(place: T)`
+  is the static form, decided by its `:` [assert-type].
   * `assert!` has type `None` and continues when the condition holds;
     `unreachable!` has type **`Never`**, so it stands where any value is
     expected and ends the path exactly as `throw` and `return` do
@@ -497,6 +499,72 @@ Conventions:
     build modes, and every language surveyed that made assertions optional
     (Java's `-ea`, Kotlin's inherited `assert`) ended up with a vocabulary nobody
     trusts.
+* [type-query] **`type?(place)` reports a place's current type** (user
+  decisions 2026-11-11, A): a compiler form spelled like `whynot?`
+  [qual-whynot] — `type` is a keyword, so the parser reads `type` `?` `(`
+  where an expression starts (`Expr::TypeQuery`). The argument is a
+  **place** (a local, a field path such as `parsing.pos`, a destructured
+  binding; borrowed places included), `Place::of_expr` and `narrowable`, so
+  a subscript or a call is `type-query:not-a-place` and is not checked; an
+  unknown name is the read's own `name-ident-resolve:unknown`.
+  * **What it reports**: a diagnostic of its own kind, `Severity::Type`, id
+    `type-query:type`, text `` type of `place`: T `` where `T` is the
+    place's type as a read of it gives it (`check_expr`), every qualifier
+    included in canonical order — `Ty`'s display: a borrow (`proj`/`ref`)
+    first, the rest sorted by name as `Ty::qualify` keeps them — and a
+    claim spelled as the place was read (`Idx(parsing.str) Int`). It is
+    **shown as a warning** everywhere it is rendered (`severity_label`, the
+    CLI's text and JSON, the language server) and never fails a build or
+    changes an exit code (`is_error` is false); tests assert it by its kind
+    ([test-data]'s `//~ type[T]`).
+  * **Flow-neutral**: not a read for [var-unused] (the place's `used` flag
+    is put back, so a local only asked about is still unused), not a
+    lambda's capture [fate-lambda] (the captures it would record are cut
+    back), not a use, move, borrow or fate link, no narrowing; it discharges
+    nothing. The syntax analyses that follow uses (`expr_mentions`,
+    deduction, `lends`, reachability [mod-used-only]) see nothing in it. A
+    fn or handler named by itself is a value, not a place
+    (`type-query:not-a-place`), and is not checked, so no reference to it is
+    recorded.
+  * **Nothing at run time** [backend-never-wrong]: it is `None`, lowered to
+    `ExprKind::Unit` as a value and to no statement at all as one, so no
+    backend sees the place.
+  * **In a loop, the last walk is reported**: the checker walks a loop body
+    again when the first walk changed what it knows (`check_loop_body_in`),
+    and what reports the walk's state — a `type` diagnostic, and a type
+    assertion's verdict [assert-type] — is the second walk's: the first
+    walk's are dropped (a nested loop has settled its own), so a report is
+    made once, and an assertion that holds on the last walk does not fail
+    on the first. The second walk is the checker's final word on the body:
+    there is no third.
+* [assert-type] **`assert!(place: T)` checks, when compiling, that a place's
+  type is exactly `T`** (user decisions 2026-11-11, B): the re-typing's
+  shape [qual-retype], but a check rather than a re-typing, and distinct
+  from the runtime `assert!(cond)` [assert-fn] by its `:` — the parser
+  reads the operand without the re-typing postfix and a `:` right inside
+  `assert!(` makes the form (`Expr::AssertType`), so a re-typing inside a
+  runtime assertion keeps its parentheses (`assert!((o: -Ok) is Int)`, as
+  the printer writes it).
+  * **Exact**: the base and the whole qualifier set, borrows, `Mut` and
+    claims included, in any order (`types::same_type`; union arms in any
+    order too); no subtyping, so `NonEmpty List<Int>` is not `List<Int>`.
+  * **`T` is read as a `let` annotation is** (`validate_type`, `lower_type`,
+    `root_annotation`), so a claim's place names the locals in scope,
+    rooted as an `is` test's are (`claim_identity_of_path`): `Idx(str)`
+    over a destructured `str` and `Idx(parsing.str)` are one claim, judged
+    by the rooted identity [qual-depend-field] (`same_identity`), never by
+    spelling, and `Idx(b.str)` is another cursor's.
+  * **It changes nothing**: no `qualifies` call, no narrowing, nothing at
+    run time (lowered as `type?` is), and the place is read as `type?`
+    reads it [type-query].
+  * **Refused**: a type that is not the place's, `assert-type:mismatch`,
+    showing both in `type?`'s canonical form (and saying so when they print
+    alike but their claims are about other values); a `-Q` or `+Q` list,
+    `assert-type:signed`, at the parse (a `-` before a number is a negative
+    literal type, `assert!(x: -1)`); a message, `assert-type:message`
+    (it never fails at run time); a non-place, `assert-type:not-a-place`.
+  * There is no trailing-assertion form and no `has`/`lacks` form: a type
+    assertion states the exact type (user decision 2026-11-11, D).
 * [op-elvis] `subject ?: rhs` is the **first-arm pick** (user decision
   2026-10-14, simplifying the earlier positional-pick form that also had
   `??:`/`:?`). The expression's value is the subject union's **first arm**
@@ -2125,7 +2193,12 @@ Conventions:
     when the pattern does not bind it (`root_sibling_claims`). The two are
     one identity, so either index serves either string. A temporary has no
     identity, so its field reads with no claim at all (`make().pos` is an
-    `Int`).
+    `Int`). A **written** claim — a `let` annotation's, a type
+    assertion's [assert-type] — roots each whole path as an `is` test does
+    (`root_annotation` through `claim_identity_of_path`, 2026-11-11): before,
+    it rooted the first name and stepped below it, so over a cursor holding
+    `s` in its `proj` field `let j: Idx(cursor.str) Int = cursor.pos` was
+    refused, the read's claim being about `s`.
   * **One claim per fact**: `Ty::qualify` dedups dependent claims by
     identity, whatever their spelling (`same_claim`), so a re-established
     claim does not stack beside the read one (the demo's hover showed
@@ -4152,6 +4225,9 @@ Conventions:
   (`_spare`). Parameters are exempt — a signature often dictates them, and
   an effect or handler member implementing a declared interface cannot drop
   one — as are handler state fields and everything in std.
+  * Naming a local in `type?(x)` or `assert!(x: T)` is not a read either
+    (user decision 2026-11-11, agent's call within it): those read nothing
+    [type-query], so a local only asked about is still unused.
   * A *warning*, not an error: the program is still well-defined. It is the
     first diagnostic Salvo emits routinely at that severity, so anything
     reading `Checked::errors` must filter by severity to mean "errors".
@@ -12897,6 +12973,13 @@ replaced the working document TESTING.md).
   the program reports [diag-id]; `// FILE:` and `//---` split files and
   programs. This is not a language feature: a user's tests are `test`
   blocks [test-decl]. The format is `tests/check/README.md`.
+  * **`//~ type[T]`** (user decision 2026-11-11) asserts the `type`
+    diagnostic a `type?(place)` reports [type-query] on the next line: the
+    one annotation whose payload is a type rather than an id. It is parsed
+    as a type (brackets balance, for an effect list) and compared as one
+    (`salvo_testkit::data::canonical_type`: qualifier lists and union arms
+    sorted, `T?` as `T | None`), never as text. The exactness rule holds:
+    every `type` diagnostic must be annotated, like a warning.
 * [test-run-data] **The compiler repository's compile-and-run tests are data
   files too** (user decisions 2026-10-28, TESTS.md C3, TD8, TD9): `.sv`
   programs under `crates/salvo-cli/tests/run/<area>/`, emitted by every
@@ -14483,7 +14566,9 @@ replaced the working document TESTING.md).
     something the author probably did not intend without rejecting the
     program, which is what a redundant selector needs [fn-overload-at].
     `salvo analyze` counts warnings separately and exits 0 when there are no
-    errors.
+    errors. A third kind, `Severity::Type`, is what `type?` reports
+    [type-query]: rendered as a warning (and counted with them), kept apart
+    so a test can assert it.
 * [diag-id] **Every diagnostic has an id, `<rule label>:<name>`** (user
   decisions 2026-10-28, TESTS.md TD1, TD2, TD7): the rule it reports and the
   way that rule failed (`op-unique-shape:bare-type-param`). The text comes

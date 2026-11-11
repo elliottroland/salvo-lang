@@ -4598,7 +4598,8 @@ fn to_lsp_diagnostic(diag: &FileDiagnostic, content: &str, span: Span) -> Diagno
         range: span_to_range(content, span),
         severity: Some(match diag.severity {
             Severity::Error => DiagnosticSeverity::ERROR,
-            Severity::Warning => DiagnosticSeverity::WARNING,
+            // [type-query] A type report shows as a warning: never an error.
+            Severity::Warning | Severity::Type => DiagnosticSeverity::WARNING,
         }),
         source: Some("salvo".to_string()),
         // [diag-id] The id, so a quickfix keys on what the diagnostic is

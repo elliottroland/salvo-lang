@@ -3579,6 +3579,12 @@ impl<'s> Parser<'s> {
         Some(Type::Union { arms, span })
     }
 
+    /// [test-data] The whole token stream as one type (`crate::parse_type`).
+    pub fn parse_whole_type(&mut self) -> Option<Type> {
+        let ty = self.parse_type()?;
+        self.at_eof().then_some(ty)
+    }
+
     /// [type-union-spread] One arm of a union: a `...T` spread, or an ordinary
     /// postfix type. The spread's inner type is a full postfix type, but the
     /// checker requires it to be a bare generic name.
@@ -5789,6 +5795,40 @@ impl<'s> Parser<'s> {
         Some(Retype { kind, span })
     }
 
+    /// [assert-type] The rest of `assert!(place: T)`, from its `:`: the type
+    /// (`-Q`/`+Q` lists are refused, and skipped to the `)`), and the `)`.
+    /// A message is refused: the form is checked when compiling.
+    fn parse_assert_type(&mut self, place: Expr, start: Span, saved_depth: u32) -> Option<Expr> {
+        self.bump(); // `:`
+        // A `-` before a number is a negative literal type (`assert!(x: -1)`),
+        // not a drop.
+        let negative_literal = self.at(&TokenKind::Minus) && matches!(self.peek_at(1).kind, TokenKind::Int { .. } | TokenKind::Float { .. });
+        let ty = if matches!(self.kind(), TokenKind::Minus | TokenKind::Plus) && !negative_literal {
+            let at = self.peek().span;
+            self.error(messages::assert_type_signed(), at);
+            let mut depth = 0usize;
+            while !self.at_eof() {
+                match self.kind() {
+                    TokenKind::LParen => depth += 1,
+                    TokenKind::RParen if depth == 0 => break,
+                    TokenKind::RParen => depth -= 1,
+                    _ => {}
+                }
+                self.bump();
+            }
+            None
+        } else {
+            Some(self.parse_type()?)
+        };
+        if let Some(comma) = self.eat(&TokenKind::Comma) {
+            let message = self.parse_expr()?;
+            self.error(messages::assert_type_message(), comma.span.to(message.span()));
+        }
+        let end = self.expect(&TokenKind::RParen)?.span;
+        self.group_depth = saved_depth;
+        Some(Expr::AssertType { place: Box::new(place), ty, span: start.to(end) })
+    }
+
     /// Attempts `(a, b) -> ...`; rolls back and returns `None` when the
     /// parens are not a lambda parameter list.
     fn try_parse_paren_lambda(&mut self) -> Option<Expr> {
@@ -7245,8 +7285,20 @@ impl<'s> Parser<'s> {
                 self.expect(&TokenKind::LParen)?;
                 let saved_depth = self.group_depth;
                 self.group_depth += 1;
+                // [assert-type] `assert!(place: T)` is decided by its `:`:
+                // the operand is read without the re-typing postfix, whose
+                // `:` this form takes (`assert!((x: -Ok) is Int)` keeps its
+                // parentheses).
                 let cond = if assert {
-                    Some(Box::new(self.parse_expr()?))
+                    let lambda = if self.at(&TokenKind::LParen) { self.try_parse_paren_lambda() } else { None };
+                    let first = match lambda {
+                        Some(l) => l,
+                        None => self.parse_binary(0).and_then(|e| self.newline_postfix(e))?,
+                    };
+                    if self.at(&TokenKind::Colon) && self.same_line() {
+                        return self.parse_assert_type(first, start, saved_depth);
+                    }
+                    Some(Box::new(first))
                 } else {
                     None
                 };
@@ -7292,6 +7344,24 @@ impl<'s> Parser<'s> {
                     self.error(messages::qual_whynot_not_is_test(), test.span());
                 }
                 Some(Expr::WhyNot { test: Box::new(test), span: start.to(end) })
+            }
+            // [type-query] `type?(place)`: `type` is a keyword, so `type?(`
+            // is read where an expression starts and nowhere else (a
+            // declaration's `type` is never followed by `?`). Spelled like
+            // `whynot?`: `?` marks a form that answers rather than stops.
+            TokenKind::KwType
+                if matches!(self.peek_at(1).kind, TokenKind::Question)
+                    && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
+            {
+                let start = self.bump().span;
+                self.bump(); // `?`
+                self.expect(&TokenKind::LParen)?;
+                let saved_depth = self.group_depth;
+                self.group_depth += 1;
+                let place = self.parse_expr()?;
+                let end = self.expect(&TokenKind::RParen)?.span;
+                self.group_depth = saved_depth;
+                Some(Expr::TypeQuery { place: Box::new(place), span: start.to(end) })
             }
             // [expr-escape] The three escapes are **expressions** of type
             // `Never` (user decision 2026-09-21), so a tail position can hold

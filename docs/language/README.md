@@ -152,7 +152,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Qualifiers](Qualifiers.md) | claims in a type: `Mut`, predicates, constructive qualifiers, state versus provenance, refinements |
 | [Dependent Qualifiers](Dependent-Qualifiers.md) | claims about one value's relation to another (`Idx`, `KeyOf`, `NotSame`), and the total operations that consume them |
 | [Generics and Aliases](Generics-and-Aliases.md) | generic types and type aliases |
-| [Control Flow](Control-Flow.md) | `if`, `when`, `while`, `for`, and dropping a qualifier with `x: -Q` |
+| [Control Flow](Control-Flow.md) | `if`, `when`, `while`, `for`, dropping a qualifier with `x: -Q`, and finding out a type with `type?` |
 
 ### Functions and behaviour
 

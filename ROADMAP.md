@@ -550,6 +550,34 @@ Found building [qual-depend-field] (COMPLETED.md).
 - **`append(Mut Str, Char)` is not declared** (the demo's
   `number_str.append(char)`); `append(s, "${c}")` is the spelling today.
 
+### 0bh — What `type?` and `assert!(x: T)` left (2026-11-11)
+
+Found building [type-query] and [assert-type] (COMPLETED.md).
+
+- **DECISION: the agent's calls inside the user's decisions, to confirm.**
+  (a) A local named only in `type?(x)` or `assert!(x: T)` is still
+  *unused* ([var-unused]: neither reads it). (b) `assert!(x: T, "why")` is
+  refused (`assert-type:message`): the check never fails at run time, so a
+  message would never be shown; the alternative is to show it in the
+  compile error. (c) Union arms compare in any order (`same_type`, and the
+  data runner's `canonical_type`): `Int | Str` is `Str | Int`, though arm
+  order is the runtime arm identity [type-union-arm-identity]; the
+  alternative is positional arms. (d) A subscript (`xs[i]`) is not a place
+  for these forms (`Place::narrowable`), since its index is an expression
+  that would have to be checked; the alternative is to accept it and report
+  the element type.
+- **The data runner compares a claim by its spelling**: `//~ type[Idx(str)
+  Int]` cannot tell two values spelled alike apart (the message is text).
+  `assert!` is the identity check; if a test needs both, a `type` report
+  would carry the `Ty` itself rather than text.
+- **A fn type's effect list is not sorted by `canonical_type`**, so an
+  annotation must write a fn type's effects in the order `Ty` prints them.
+- **A `type?` in a comptime-expanded fn reports once per copy**, under each
+  copy's origin prefix (`check_type_query` pushes directly; warnings in a
+  copy are held and merged by `copy_warnings`). Not probed with a test.
+- **Not built**: `type?` of an expression's type (a call's result) — the
+  user's decision is places only; a hover already shows a sub-expression's.
+
 ### 0bf — What named-union bodies left (2026-11-10)
 
 Found building [type-union-body] (COMPLETED.md); none is new with the body

@@ -1047,6 +1047,35 @@ messages! {
     qual_whynot_not_is_test = "qual-whynot:not-is-test" () =>
         "`whynot?` explains an `is` test — `whynot?(port is InRange(1, 65535))`";
 
+    // [type-query]
+    /// The `type` diagnostic a `type?(place)` reports: the place's current
+    /// type. The data runner reads the type after the first `` `: ``.
+    type_query_type = "type-query:type" (place: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
+        "type of `{place}`: {ty}"
+    );
+    /// A `type?` whose argument is not a place.
+    type_query_not_a_place = "type-query:not-a-place" () =>
+        "`type?` reports the type of a place — a local, a field path such as \
+         `parsing.pos`, or a destructured binding: bind this value to a local first";
+
+    // [assert-type]
+    /// A type assertion whose type is not the place's.
+    assert_type_mismatch = "assert-type:mismatch" (place: &dyn std::fmt::Display, actual: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, note: &dyn std::fmt::Display) => format!(
+        "`{place}` is `{actual}`, not `{expected}`{note}"
+    );
+    /// A type assertion whose list adds or drops a qualifier.
+    assert_type_signed = "assert-type:signed" () =>
+        "`assert!(x: T)` checks the whole type `x` has and changes nothing: write the \
+         type itself, without `-` or `+` (a drop is `x := -Q`, a test `x is Q`)";
+    /// A type assertion on something that is not a place.
+    assert_type_not_a_place = "assert-type:not-a-place" () =>
+        "`assert!(x: T)` checks the type of a place — a local, a field path such as \
+         `parsing.pos`, or a destructured binding: bind this value to a local first";
+    /// A type assertion with a message.
+    assert_type_message = "assert-type:message" () =>
+        "`assert!(x: T)` is checked when compiling and never fails at run time, so it \
+         takes no message";
+
     // [struct-field-canbe-mut]
     /// `canbe` on a field type followed by something other than `Mut`.
     struct_field_canbe_mut_not_mut = "struct-field-canbe-mut:not-mut" (name: &str) => format!(

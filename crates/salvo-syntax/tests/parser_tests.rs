@@ -148,6 +148,29 @@ fn snapshot_corpus_imports() {
     insta::assert_debug_snapshot!(parse_clean(&corpus("imports.sv")));
 }
 
+/// [type-query] [assert-type] `type?(place)` and `assert!(place: T)`.
+#[test]
+fn snapshot_corpus_type_queries() {
+    insta::assert_debug_snapshot!(parse_clean(&corpus("type_queries.sv")));
+}
+
+/// [assert-type] The `:` right inside `assert!(` decides the form: a type
+/// assertion, whose type is a whole type; an `is` test is the runtime
+/// assertion, unchanged, and a re-typing inside one is parenthesized.
+#[test]
+fn an_assertion_is_decided_by_its_colon() {
+    use salvo_syntax::ast::Expr;
+    let e = parse_expr_stmt("assert!(p.pos: proj Idx(p.str) Int | None)");
+    let Expr::AssertType { place, ty: Some(ty), .. } = e else { panic!("expected a type assertion, got {e:?}") };
+    assert!(matches!(*place, Expr::Field { .. }));
+    assert_eq!(salvo_syntax::print::type_text(&ty), "proj Idx(p.str) Int | None");
+    assert!(matches!(parse_expr_stmt("assert!(x is Int)"), Expr::Assert { .. }));
+    let Expr::Assert { cond, .. } = parse_expr_stmt("assert!((x: -Ok) is Int)") else { panic!("expected an assertion") };
+    assert!(matches!(*cond, Expr::Is { .. }));
+    let Expr::TypeQuery { place, .. } = parse_expr_stmt("type?(a.b)") else { panic!("expected a type query") };
+    assert!(matches!(*place, Expr::Field { .. }));
+}
+
 // --- Tuple indexing [expr-tuple-index] ---
 
 /// Parses one expression statement out of a function body, as the parser

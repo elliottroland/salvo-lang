@@ -882,6 +882,16 @@ impl<'b, 'p> Binder<'b, 'p> {
                 }
             }
             Expr::WhyNot { test, .. } => self.expr(test),
+            // [type-query] The place is a name like any other.
+            Expr::TypeQuery { place, .. } => self.expr(place),
+            // [assert-type] And the type's place arguments, as an
+            // annotation's.
+            Expr::AssertType { place, ty, .. } => {
+                self.expr(place);
+                if let Some(t) = ty {
+                    self.type_values(t);
+                }
+            }
             Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
                 if let Some(m) = message {
                     self.expr(m);

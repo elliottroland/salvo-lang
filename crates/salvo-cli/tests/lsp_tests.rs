@@ -969,6 +969,60 @@ export struct Square {
     assert_eq!(loc["range"]["start"]["line"], json!(10), "{loc}");
 }
 
+/// [type-query] A `type?` shows in the editor as a warning carrying its id,
+/// and hover and completion read the program as they would without it.
+#[test]
+fn a_type_query_is_a_warning_in_the_editor() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_type_query");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    // Line numbers matter below; keep this source in sync with them.
+    let source = "\
+fn main() {
+    let s = \"abc\"
+    let n = size(s)
+    type?(n)
+    assert!(n: Int)
+    let _m = size(s) + n
+}
+";
+    std::fs::write(root.join("main.sv"), source).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "method": "textDocument/didOpen",
+            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": source}}
+        }),
+    );
+    let params = expect_diagnostics(&lsp.rx);
+    let diags = params["diagnostics"].as_array().unwrap();
+    assert_eq!(diags.len(), 1, "{diags:?}");
+    assert_eq!(diags[0]["severity"], json!(2), "a warning: {diags:?}");
+    assert_eq!(diags[0]["code"], json!("type-query:type"), "{diags:?}");
+    assert_eq!(diags[0]["message"], json!("type of `n`: Int"), "{diags:?}");
+    assert_eq!(diags[0]["range"]["start"]["line"], json!(3), "{diags:?}");
+    // `n` inside `type?(n)` and inside the assertion hovers as the local.
+    let h = hover(&mut lsp, 2, &uri, 3, 10);
+    assert!(h.contains("Int"), "{h}");
+    let h = hover(&mut lsp, 3, &uri, 4, 12);
+    assert!(h.contains("Int"), "{h}");
+    // `size` below them hovers and completes as before.
+    let h = hover(&mut lsp, 4, &uri, 5, 15);
+    assert!(h.contains("fn size"), "{h}");
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": uri}, "position": {"line": 5, "character": 15}}
+        }),
+    );
+    let response = expect_response(&lsp.rx, 5);
+    let labels: Vec<&str> = response["result"].as_array().unwrap_or_else(|| panic!("no completion list: {response}")).iter().filter_map(|i| i["label"].as_str()).collect();
+    assert!(labels.contains(&"size"), "{labels:?}");
+}
+
 /// Doc comments in hover [doc-comment] [doc-markdown] [doc-symbol-ref]
 /// [doc-struct-fields] [doc-hover-narrowed]: fn docs, struct docs with a
 /// per-field section, `[symbol]` references, and a variable's type as

@@ -22,7 +22,7 @@
 use std::collections::{HashMap, HashSet};
 
 use salvo_syntax::ast::{self, *};
-use salvo_syntax::diag::IntoMessage;
+use salvo_syntax::diag::{IntoMessage, Severity};
 use salvo_syntax::known;
 use salvo_syntax::messages::{self, Message};
 use salvo_syntax::Span;
@@ -17821,7 +17821,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Unreachable { .. } => true,
             // [assert-fn] `todo!()` diverges like `unreachable!()`.
             Expr::Todo { .. } => true,
-            Expr::Assert { .. } | Expr::WhyNot { .. } => false,
+            Expr::Assert { .. } | Expr::WhyNot { .. } | Expr::TypeQuery { .. } | Expr::AssertType { .. } => false,
             // [op-elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
@@ -17931,6 +17931,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // a `fn` whose only tail is `unreachable!()` has no missing return
             // [fn-must-return], which `expr_exits` above answers.
             Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Assert { .. } | Expr::WhyNot { .. } => false,
+            Expr::TypeQuery { .. } | Expr::AssertType { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             Expr::Pipe { .. } | Expr::SafePipe { .. } => false,
             Expr::SafeNav { .. } => false,
@@ -18557,6 +18558,110 @@ impl<'p, 'r> Checker<'p, 'r> {
         opt_str
     }
 
+    // ================= type queries [type-query] [assert-type] =================
+
+    /// [type-query] [assert-type] The current type of `place`, as reading it
+    /// would give, without the read counting: the place is not marked used
+    /// [var-unused], and nothing reads, moves, borrows, links or narrows it
+    /// (the forms lower to nothing). A local, a field path or a destructured
+    /// binding; anything else is `not_a_place`, and is not checked, so a
+    /// call in it decides nothing. `None` when there is no type to show:
+    /// the name is unknown (reported as any read of it is) or the type is
+    /// [type-unknown-lenient].
+    fn place_type_unread(&mut self, place: &'p Expr, not_a_place: Message) -> Option<(Place, Ty)> {
+        let Some(p) = Place::of_expr(place).filter(|p| p.narrowable()) else {
+            self.error(place.span(), not_a_place);
+            return None;
+        };
+        let Some(was) = self.lookup(&p.root).map(|v| v.used) else {
+            // A fn or a handler by name is a value but not a place, and
+            // checking it would record a reference to it; anything else
+            // (an unknown name, a type) is reported as a read of it would be.
+            let mut root = place;
+            while let Expr::Field { base, .. } | Expr::TupleIndex { base, .. } = root {
+                root = base;
+            }
+            let value = match root {
+                Expr::Ident(id) => {
+                    self.scope.handlers.contains_key(id.name.as_str()) || {
+                        let written = self.written_scope(id);
+                        !self.overloads_in(written, &id.name).is_empty() || !self.available_members(&id.name).is_empty()
+                    }
+                }
+                _ => false,
+            };
+            if value {
+                self.error(place.span(), not_a_place);
+            } else {
+                self.check_expr(place, None);
+            }
+            return None;
+        };
+        // A read inside a lambda would capture the local [fate-lambda]: the
+        // captures recorded so far are all that is kept.
+        let captured: Vec<usize> = self.lambda_ctx.iter().map(|c| c.captures.len()).collect();
+        let ty = self.check_expr(place, None);
+        if let Some(var) = self.lookup_mut(&p.root) {
+            var.used = was;
+        }
+        for (ctx, n) in self.lambda_ctx.iter_mut().zip(captured) {
+            ctx.captures.truncate(n);
+        }
+        (!ty.is_unknown()).then_some((p, ty))
+    }
+
+    /// [type-query] `type?(place)`: reports the place's type, every
+    /// qualifier included and in canonical order (`Ty`'s display: a borrow
+    /// first, the rest by name), as a `type` diagnostic. `None`, and
+    /// nothing at run time. In a loop body the walk's last pass is the one
+    /// reported (`check_loop_body_in`).
+    fn check_type_query(&mut self, place: &'p Expr, span: Span) -> Ty {
+        if let Some((p, ty)) = self.place_type_unread(place, messages::type_query_not_a_place()) {
+            let m = messages::type_query_type(&p, &ty);
+            let (file, span, msg, decl) = self.render_origin(span, m.text);
+            self.out.errors.push(FileDiagnostic::type_report(file, span, (Some(m.id), msg)).in_decl(decl));
+        }
+        Ty::none()
+    }
+
+    /// [assert-type] `assert!(place: T)`: the place's type must be `T`
+    /// exactly — the base and every qualifier, borrows and `Mut` included,
+    /// in any order ([`crate::types::same_type`]). `T` is read as a `let`
+    /// annotation is, so a claim's place names the locals in scope, rooted
+    /// as an `is` test's are ([qual-depend-field]: `Idx(str)` and
+    /// `Idx(parsing.str)` agree when they are one value). A check only: it
+    /// narrows, adds and drops nothing, and lowers to nothing.
+    fn check_assert_type(&mut self, place: &'p Expr, ty: Option<&'p ast::Type>, span: Span) -> Ty {
+        let errors_before = self.out.errors.len();
+        let expected = ty.map(|t| {
+            let saved = std::mem::replace(&mut self.let_pattern, true);
+            self.validate_type(t);
+            self.let_pattern = saved;
+            let lowered = self.lower_type(t);
+            if Self::ty_has_value_ref(&lowered) {
+                self.root_annotation(&lowered)
+            } else {
+                lowered
+            }
+        });
+        let refused = self.out.errors[errors_before..].iter().any(|d| d.is_error());
+        let actual = self.place_type_unread(place, messages::assert_type_not_a_place());
+        let (Some((p, actual)), Some(expected)) = (actual, expected) else {
+            return Ty::none();
+        };
+        if refused || expected.is_unknown() || crate::types::same_type(&actual, &expected) {
+            return Ty::none();
+        }
+        let (shown, wanted) = (actual.to_string(), expected.to_string());
+        let note = match (shown == wanted, Self::ty_has_value_ref(&actual)) {
+            (false, _) => "",
+            (true, true) => ": they print alike, but their claims are about other values",
+            (true, false) => ": they print alike, but differ in what a type does not print (a fn type's contract)",
+        };
+        self.error(span, messages::assert_type_mismatch(&p, &actual, &expected, &note));
+        Ty::none()
+    }
+
     /// [qual-whynot] Records the text form of a predicate test's subject when
     /// the message of one of its qualifiers shows it (a `[subject]` in its
     /// `@whynot`, or no `@whynot`, whose default does). A subject with no
@@ -18798,6 +18903,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         cond: Option<&'p Expr>,
     ) -> (Ty, Option<TailInfo>) {
         let entry = self.snapshot_narrows();
+        let first_start = self.out.errors.len();
         let result = self.with_narrows_in(narrows, keep_writes, |c| {
             let r = c.check_branch_block(body, bindings.clone());
             c.join_continue_states();
@@ -18828,8 +18934,19 @@ impl<'p, 'r> Checker<'p, 'r> {
                 r
             });
             let second_pass: Vec<FileDiagnostic> = self.out.errors.split_off(before);
+            // [type-query] [assert-type] What reports the walk's state — a
+            // `type?`'s type, a type assertion's verdict — is the last
+            // walk's: the first walk's are dropped, every one the second
+            // makes is kept (a first walk's `assert-type:mismatch` may hold
+            // on the second; a nested loop has already settled its own).
+            // Nothing outside the loop holds an index past `first_start`
+            // that the drop could move: a speculative check that cuts back
+            // cuts below it.
+            let states = |e: &FileDiagnostic| e.severity == Severity::Type || e.id.is_some_and(|id| id.starts_with("assert-type:"));
+            let first: Vec<FileDiagnostic> = self.out.errors.split_off(first_start);
+            self.out.errors.extend(first.into_iter().filter(|e| !states(e)));
             for e in second_pass {
-                if !seen.contains(&(e.file, e.span, e.message.clone())) {
+                if states(&e) || !seen.contains(&(e.file, e.span, e.message.clone())) {
                     self.out.errors.push(e);
                 }
             }
@@ -23352,6 +23469,8 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         Expr::WhyNot { test, .. } => collect_assigned_expr(test, out),
+        // [type-query] [assert-type] A place, never assigned.
+        Expr::TypeQuery { .. } | Expr::AssertType { .. } => {}
         // [op-elvis] Both sides may hold assignments (a block-valued branch).
         Expr::Elvis { subject, rhs, .. } => {
             collect_assigned_expr(subject, out);
@@ -23600,6 +23719,8 @@ pub(crate) fn expr_mentions(expr: &Expr, name: &str) -> bool {
             message.as_ref().is_some_and(|m| expr_mentions(m, name))
         }
         Expr::WhyNot { test, .. } => expr_mentions(test, name),
+        // [type-query] [assert-type] Not a use of the place: nothing reads it.
+        Expr::TypeQuery { .. } | Expr::AssertType { .. } => false,
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
         }
@@ -25453,6 +25574,10 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             // [qual-whynot] `whynot?(x is Q)`: the test, and a `Str?`.
             Expr::WhyNot { test, span } => self.check_whynot(test, *span),
+            // [type-query] `type?(place)`: reports the place's type; `None`.
+            Expr::TypeQuery { place, span } => self.check_type_query(place, *span),
+            // [assert-type] `assert!(place: T)`: a check when compiling; `None`.
+            Expr::AssertType { place, ty, span } => self.check_assert_type(place, ty.as_ref(), *span),
             // [op-inc-dec] All four forms do the same thing to the operand — a
             // step of one on an `Int` place — so the checker ignores the
             // direction and the fixity; they only decide the expression's
@@ -32085,11 +32210,14 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
     /// [qual-depend] Fills an annotation's root-free `ValueRef`s naming a
-    /// local in scope with that local's fate roots.
+    /// local in scope with that local's fate roots — [qual-depend-field] each
+    /// whole path rooted as an `is` test's is (`claim_identity_of_path`), so
+    /// `Idx(cursor.str)` over a cursor holding `s` in its `proj` field is a
+    /// claim about `s`, as the read `cursor.pos` is.
     fn root_annotation(&self, ty: &Ty) -> Ty {
         fn paths(t: &Ty, out: &mut Vec<String>) {
             match t {
-                Ty::ValueRef { path, roots, .. } if roots.is_empty() => out.push(path.split('.').next().unwrap_or(path).to_string()),
+                Ty::ValueRef { path, roots, .. } if roots.is_empty() => out.push(path.clone()),
                 Ty::Qualified { quals, base } => {
                     for q in quals {
                         for a in &q.args {
@@ -32111,7 +32239,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         paths(ty, &mut names);
         let mut map: HashMap<String, Identity> = HashMap::new();
         for n in names {
-            let Some(identity) = self.claim_identity(&Place::root(n.clone())) else { continue };
+            let Some(identity) = self.claim_identity_of_path(&n) else { continue };
             map.insert(n, identity);
         }
         Self::substitute_value_refs(ty, &map)
@@ -32184,6 +32312,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn substitute_value_refs(ty: &Ty, map: &HashMap<String, Identity>) -> Ty {
         match ty {
             Ty::ValueRef { path, roots, .. } if roots.is_empty() => {
+                // [qual-depend-field] A whole path the caller rooted itself
+                // (an annotation's, `root_annotation`).
+                if let Some((roots, at)) = map.get(path.as_str()) {
+                    return Ty::ValueRef { path: path.clone(), roots: roots.clone(), at: at.clone() };
+                }
                 let mut parts = path.split('.');
                 let base = parts.next().unwrap_or(path);
                 match map.get(base) {

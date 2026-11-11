@@ -420,6 +420,10 @@ impl<'a, 'p> Lower<'a, 'p> {
                 Expr { ty: Ty::none(), span, kind: ExprKind::Assert { cond: Box::new(c), message: m, at: self.location(span) } }
             }
             AExpr::WhyNot { test, .. } => self.why_not(test, span),
+            // [type-query] [assert-type] The checker's business only: the
+            // value is `None` and nothing is evaluated, so no backend sees
+            // the place [backend-never-wrong].
+            AExpr::TypeQuery { .. } | AExpr::AssertType { .. } => Expr { ty: Ty::none(), span, kind: ExprKind::Unit },
             AExpr::Unreachable { message, .. } => {
                 let m = message.as_ref().map(|m| Box::new(self.expr(m)));
                 Expr { ty: self.ty_of(span), span, kind: ExprKind::Unreachable { message: m, at: self.location(span) } }

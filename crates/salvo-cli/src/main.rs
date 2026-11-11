@@ -796,7 +796,8 @@ fn diagnostics_json(diagnostics: &[FileDiagnostic], program: &Program) -> String
         let (line, col) = salvo_syntax::span::line_col(&file.content, diag.span.start);
         let severity = match diag.severity {
             Severity::Error => "error",
-            Severity::Warning => "warning",
+            // [type-query] A type report renders as a warning.
+            Severity::Warning | Severity::Type => "warning",
         };
         out.push_str(if i == 0 { "\n" } else { ",\n" });
         out.push_str(&format!(

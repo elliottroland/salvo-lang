@@ -182,6 +182,13 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.control.salvo",
         "the trapping assertions",
     ),
+    // [qual-whynot] [type-query] `whynot?(x is Q)` and `type?(place)`: the
+    // compiler forms spelled with `?`, which answer rather than stop.
+    (
+        "\\\\b(?:whynot|type)\\\\?(?=\\\\()",
+        "keyword.other.salvo",
+        "the answering compiler forms",
+    ),
     // `mailbox { capacity: n }`: the handler's queue slot, named before a block.
     (
         "\\\\bmailbox(?=\\\\s*\\\\{)",
@@ -450,9 +457,9 @@ pub fn tm_grammar() -> String {
           "match": "\\b({control})\\b"
         }},
         {{
-          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword",
+          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword; [type-query] `type?(` is the type query",
           "name": "keyword.declaration.salvo",
-          "match": "\\b({declaration})\\b(?!\\s*:)"
+          "match": "\\b({declaration})\\b(?!\\s*:|\\?\\()"
         }},
         {{
           "name": "keyword.other.salvo",

@@ -713,6 +713,17 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             v.visit_span(span);
             walk_expr(v, test);
         }
+        Expr::TypeQuery { place, span } => {
+            v.visit_span(span);
+            walk_expr(v, place);
+        }
+        Expr::AssertType { place, ty, span } => {
+            v.visit_span(span);
+            walk_expr(v, place);
+            if let Some(t) = ty {
+                walk_type(v, t);
+            }
+        }
         Expr::Unreachable { message, span } | Expr::Todo { message, span } => {
             v.visit_span(span);
             if let Some(m) = message {

@@ -2253,6 +2253,23 @@ pub enum Expr {
         test: Box<Expr>,
         span: Span,
     },
+    /// [type-query] `type?(place)`: the checker reports the place's current
+    /// type as a `type` diagnostic. Evaluates to `None` and lowers to
+    /// nothing; the place is not read, moved, borrowed or narrowed. A
+    /// compiler form spelled like `whynot?`.
+    TypeQuery {
+        place: Box<Expr>,
+        span: Span,
+    },
+    /// [assert-type] `assert!(place: T)`: a check, when compiling, that the
+    /// place's current type is exactly `T`. Changes nothing and lowers to
+    /// nothing. `ty` is `None` where the parser refused what followed the
+    /// `:` (a `-Q` or `+Q` list), having reported it.
+    AssertType {
+        place: Box<Expr>,
+        ty: Option<Type>,
+        span: Span,
+    },
     /// `i++` — postfix increment.
     /// [op-inc-dec] `i++`, `++i`, `i--`, `--i`: a step of one on a place, in
     /// either fixity. One node rather than four variants — every consumer
@@ -2778,6 +2795,8 @@ impl Expr {
             | Expr::Unreachable { span, .. }
             | Expr::Todo { span, .. }
             | Expr::WhyNot { span, .. }
+            | Expr::TypeQuery { span, .. }
+            | Expr::AssertType { span, .. }
             | Expr::IncDec { span, .. }
             | Expr::If { span, .. }
             | Expr::When { span, .. }

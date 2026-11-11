@@ -71,10 +71,20 @@ impl FileDiagnostic {
     /// deliberately degrades instead of failing (a suppressed refinement
     /// conflict [qual-refn]).
     pub fn warning(file: usize, span: Span, message: impl IntoMessage) -> Self {
+        Self::of(file, span, Severity::Warning, message)
+    }
+
+    /// [type-query] What a `type?(place)` reports: the place's type, a
+    /// diagnostic of its own kind that never fails a build.
+    pub fn type_report(file: usize, span: Span, message: impl IntoMessage) -> Self {
+        Self::of(file, span, Severity::Type, message)
+    }
+
+    fn of(file: usize, span: Span, severity: Severity, message: impl IntoMessage) -> Self {
         let (id, message) = message.into_message();
         FileDiagnostic {
             file,
-            severity: Severity::Warning,
+            severity,
             message: shown(message),
             span,
             suggested_imports: Vec::new(),

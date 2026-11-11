@@ -101,3 +101,4 @@ area!(control);
 area!(ownership);
 area!(fate);
 area!(syntax);
+area!(flow);

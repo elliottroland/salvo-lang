@@ -56,3 +56,20 @@ pub fn parse_module(source: &str) -> (ast::Module, Vec<Diagnostic>) {
     diagnostics.extend(parser.into_diagnostics());
     (module, diagnostics)
 }
+
+/// [test-data] Parses `source` as one type, the whole text: `None` when it
+/// is not one (a parse error, or text after the type). For tools that read a
+/// written type outside a program, such as the checker data's
+/// `//~ type[…]` annotation.
+pub fn parse_type(source: &str) -> Option<ast::Type> {
+    let lexed = lexer::lex(source);
+    if lexed.diagnostics.iter().any(|d| d.is_error()) {
+        return None;
+    }
+    let mut parser = parser::Parser::new(source, lexed.tokens, lexed.comments);
+    let ty = parser.parse_whole_type();
+    if parser.into_diagnostics().iter().any(|d| d.is_error()) {
+        return None;
+    }
+    ty
+}

@@ -1063,6 +1063,8 @@ impl<'p> Walk<'_, 'p> {
                 }
             }
             Expr::WhyNot { test, .. } => self.expr(test),
+            // [type-query] [assert-type] Flow-neutral: the place is not used.
+            Expr::TypeQuery { .. } | Expr::AssertType { .. } => {}
             // [op-elvis] The picked value leaves through the expression, so the
             // subject is used the way a returned value is; the right side is
             // an ordinary expression.

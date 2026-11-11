@@ -9,6 +9,10 @@ use crate::span::Span;
 pub enum Severity {
     Error,
     Warning,
+    /// [type-query] What a `type?(place)` reports: the place's type. Its own
+    /// kind, so tests can assert it, and shown as a warning everywhere it is
+    /// rendered (the CLI, the language server): it never fails a build.
+    Type,
 }
 
 #[derive(Clone, Debug)]
@@ -59,7 +63,8 @@ pub fn ids_shown() -> bool {
 pub fn severity_label(severity: Severity, id: Option<&str>) -> String {
     let sev = match severity {
         Severity::Error => "error",
-        Severity::Warning => "warning",
+        // [type-query] A type report renders as a warning.
+        Severity::Warning | Severity::Type => "warning",
     };
     match id.filter(|_| ids_shown()) {
         Some(id) => format!("{sev}[{id}]"),

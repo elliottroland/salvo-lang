@@ -12,6 +12,10 @@
 //!   one line. The diagnostics a program produces must be exactly the
 //!   annotated ones — same file, line, severity and id, as many of each — so
 //!   a file with no annotations checks clean, warnings included.
+//! - [type-query] `//~ type[T]` asserts a `type` diagnostic (a `type?`'s)
+//!   whose type is `T`: the one annotation whose payload is a type, not an
+//!   id, compared as a type ([`canonical_type`]) and held in [`Expect::id`].
+//!   Exactly, like the rest: an unannotated `type?` fails the file.
 //! - `// FILE: name.sv` starts another file of the same program; before the
 //!   first, the file is `main.sv`. `//--- name` starts another program,
 //!   checked on its own: for what must not share a program with the rest (a
@@ -37,6 +41,8 @@ pub struct Expect {
     /// 1-based, within its file's text.
     pub line: usize,
     pub severity: &'static str,
+    /// The diagnostic's id; for a `type` report, its type in
+    /// [`canonical_type`]'s spelling.
     pub id: String,
 }
 
@@ -179,12 +185,28 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
         }
         if let Some(rest) = t.strip_prefix("//~") {
             let rest = rest.trim();
+            // [test-data] [type-query] `//~ type[T]`: a `type` diagnostic
+            // whose type is `T`, compared as a type. Brackets balance, since
+            // a type may hold some (an effect list).
+            if let Some(r) = rest.strip_prefix("type[") {
+                let Some(close) = closing_bracket(r) else {
+                    return Err(format!("line {n}: unclosed `[` in `{t}`"));
+                };
+                if !r[close + 1..].trim().is_empty() {
+                    return Err(format!("line {n}: nothing follows an annotation's type: `{t}`"));
+                }
+                let Some(ty) = canonical_type(&r[..close]) else {
+                    return Err(format!("line {n}: `{}` is not a type", &r[..close]));
+                };
+                pending.push((n, "type", ty));
+                continue;
+            }
             let (severity, rest) = if let Some(r) = rest.strip_prefix("error[") {
                 ("error", r)
             } else if let Some(r) = rest.strip_prefix("warning[") {
                 ("warning", r)
             } else {
-                return Err(format!("line {n}: an annotation is `//~ error[id]` or `//~ warning[id]`, not `{t}`"));
+                return Err(format!("line {n}: an annotation is `//~ error[id]`, `//~ warning[id]` or `//~ type[T]`, not `{t}`"));
             };
             let Some((id, tail)) = rest.split_once(']') else {
                 return Err(format!("line {n}: unclosed `[` in `{t}`"));
@@ -209,6 +231,85 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
     Ok(cases)
 }
 
+/// [test-data] Where the `]` closing an annotation's `[` is, in the text
+/// after the `[`: brackets nest.
+fn closing_bracket(text: &str) -> Option<usize> {
+    let mut depth = 0usize;
+    for (i, c) in text.char_indices() {
+        match c {
+            '[' => depth += 1,
+            ']' if depth == 0 => return Some(i),
+            ']' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// [test-data] [type-query] A written type in one spelling, so two that
+/// differ only in qualifier order, union arm order, `T?` against `T | None`
+/// or whitespace compare equal: parsed, each qualifier list and union
+/// sorted, and printed. `None` when the text is not a type.
+pub fn canonical_type(text: &str) -> Option<String> {
+    use salvo_syntax::ast::{Type, TypeRef};
+    fn sort_refs(refs: &mut [TypeRef]) {
+        for r in refs.iter_mut() {
+            canon_ref(r);
+        }
+        refs.sort_by_key(|r| r.to_string());
+    }
+    fn canon_ref(r: &mut TypeRef) {
+        for a in r.args.iter_mut().chain(r.value_args.iter_mut()) {
+            canon(a);
+        }
+    }
+    fn canon(t: &mut Type) {
+        match t {
+            Type::Named { qualifiers, base } => {
+                sort_refs(qualifiers);
+                canon_ref(base);
+            }
+            Type::QualifiedGroup { qualifiers, base, .. } => {
+                sort_refs(qualifiers);
+                canon(base);
+            }
+            Type::Nullable { inner, span } => {
+                let none = salvo_syntax::parse_type("None").expect("`None` is a type");
+                let mut arms = vec![(**inner).clone(), none];
+                arms.iter_mut().for_each(canon);
+                *t = flat_union(arms, *span);
+            }
+            Type::Union { arms, span } => {
+                let mut arms = std::mem::take(arms);
+                arms.iter_mut().for_each(canon);
+                *t = flat_union(arms, *span);
+            }
+            Type::Spread { inner, .. } | Type::Array { elem: inner, .. } => canon(inner),
+            Type::Tuple { elems, .. } => elems.iter_mut().for_each(canon),
+            Type::Fn { params, ret, .. } => {
+                params.iter_mut().for_each(canon);
+                canon(ret);
+            }
+            Type::Literal { .. } => {}
+        }
+    }
+    fn flat_union(arms: Vec<Type>, span: salvo_syntax::Span) -> Type {
+        let mut flat: Vec<Type> = Vec::new();
+        for a in arms {
+            match a {
+                Type::Union { arms, .. } => flat.extend(arms),
+                other => flat.push(other),
+            }
+        }
+        flat.sort_by_key(salvo_syntax::print::type_text);
+        flat.dedup_by_key(|a| salvo_syntax::print::type_text(a));
+        Type::Union { arms: flat, span }
+    }
+    let mut ty = salvo_syntax::parse_type(text.trim())?;
+    canon(&mut ty);
+    Some(salvo_syntax::print::type_text(&ty))
+}
+
 /// What checking `case` reported, in the annotations' terms.
 pub fn diagnostics(case: &Case) -> (Vec<Expect>, Vec<String>) {
     let files: Vec<(&str, &str)> = case.files.iter().map(|(n, c)| (n.as_str(), c.as_str())).collect();
@@ -222,14 +323,19 @@ pub fn diagnostics(case: &Case) -> (Vec<Expect>, Vec<String>) {
         } else {
             salvo_syntax::span::line_col(&file.content, d.span.start).0 as usize
         };
-        let e = Expect {
-            file: if file.is_std { format!("<std>/{}", file.name) } else { file.name.clone() },
-            line,
-            severity: match d.severity {
-                Severity::Error => "error",
-                Severity::Warning => "warning",
-            },
-            id: d.id.unwrap_or("?").to_string(),
+        let name = if file.is_std { format!("<std>/{}", file.name) } else { file.name.clone() };
+        let e = match d.severity {
+            // [type-query] A type report is compared by its type, read
+            // back from the message (`type of `x`: T`) and canonicalised as
+            // an annotation's is.
+            Severity::Type => {
+                // A type holds no backtick, so its text follows the last
+                // `` `: `` (an origin prefix may hold others).
+                let shown = d.message.rsplit_once("`: ").map(|(_, t)| t).unwrap_or(&d.message);
+                Expect { file: name, line, severity: "type", id: canonical_type(shown).unwrap_or_else(|| shown.to_string()) }
+            }
+            Severity::Error => Expect { file: name, line, severity: "error", id: d.id.unwrap_or("?").to_string() },
+            Severity::Warning => Expect { file: name, line, severity: "warning", id: d.id.unwrap_or("?").to_string() },
         };
         shown.push(format!("{e}: {}", d.message));
         got.push(e);
@@ -437,5 +543,21 @@ mod tests {
         assert_eq!((e[1].path.as_deref(), e[1].absent), (Some("main.rs"), true));
         assert_eq!((e[2].text.as_str(), e[2].count), ("z ", Some(2)));
         assert_eq!(emits[0].refused, ["rs-x:y"]);
+    }
+
+    /// [test-data] [type-query] `//~ type[T]` holds a type, brackets and
+    /// all, compared in one spelling whatever the order of its qualifiers
+    /// and arms.
+    #[test]
+    fn a_type_annotation_is_compared_as_a_type() {
+        let cases = parse("fn a() {}\n//~ type[(Int) [Log, Console] -> Mut  Ok Str]\ntype?(x)\n").unwrap();
+        assert_eq!(cases[0].expected[0].severity, "type");
+        assert_eq!(cases[0].expected[0].id, canonical_type("(Int) [Log, Console] -> Ok Mut Str").unwrap());
+        assert_eq!(canonical_type("proj Idx(str)  Mut Int"), canonical_type("Mut Idx(str) proj Int"));
+        assert_eq!(canonical_type("Int?"), canonical_type("None | Int"));
+        assert_ne!(canonical_type("Idx(str) Int"), canonical_type("Idx(parsing.str) Int"));
+        assert!(parse("//~ type[Int\nfn a() {}\n").is_err(), "unclosed");
+        assert!(parse("//~ type[Int] more\nfn a() {}\n").is_err(), "a tail");
+        assert!(parse("//~ type[Int |]\nfn a() {}\n").is_err(), "not a type");
     }
 }
