@@ -150,6 +150,70 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — A join keeps one claim per fact, spelled where it is ([qual-depend-field] [type-union] [when-value])
+
+The defect recorded in ROADMAP §0bh: over `struct Cursor { str: proj Str,
+pos: Idx(str) Int }`, `let p = if c { let { str, pos } = a; pos } else {
+a.pos }` was `Idx(str) Int | Idx(a.str) Int`, and each branch was refused
+("matches multiple arms … qualify the value"). The two are one claim
+(`same_claim`: one identity), but `Ty::union_of` deduplicated arms with
+`==`, and `==` compares a `ValueRef`'s spelling.
+
+- **The fix**: `union_of` dedups arms by a new `types::same_but_spelling`
+  (`==`, except that rooted place arguments compare by `same_identity`),
+  and the checker's `mk_union` and
+  `merge_fallthrough` respell the claims they join (`respell_claims`): a
+  spelling that does not name its value at the join (the branch's `str` has
+  ended) takes another path's spelling of the same identity that does, else
+  one built from a local in scope (`spell_here`: a local with a tail of the
+  projection below it, the shortest, then by name). Display only; every
+  comparison reads the identity. Every join through `mk_union` is covered —
+  an `if`'s or a `when`'s value (so `?:`, the `when` it lowers to, and
+  match arms), the narrowings an `||` joins and the facts after a guard
+  (`join_path_facts`) — and a variable's state after the branches through
+  `merge_fallthrough`. Returns and a list literal's elements were already
+  right (checked against one type by the identity-aware subtype relation).
+  Two claims about two values stay two: `if c { a.pos } else { b.pos }` is
+  `Idx(a.str) Int | Idx(b.str) Int`, and a variable's state over those paths
+  keeps neither.
+- **Rejected: dedup by `same_type`**, the comparison `type!` uses, which was
+  the first version. It also takes union arms and effect lists as sets, so
+  `List<A | B>` and `List<B | A>` would have become one arm, though a
+  nested union's arm order is its runtime identity (a gpu-reviewer find).
+- **What the existing code did for a claim rooted at an ended local**: it
+  kept the spelling, so after the join `p` printed `Idx(str)`, and in a
+  later block where `str` was another cursor's it still printed `Idx(str)`
+  (identity was right: `type!(p: Idx(str) Int)` failed there, and
+  `salvo_testkit::data`'s own test pinned the misleading text). Nothing
+  resolves a rooted claim by its spelling (`root_annotation` and the call
+  substitutions fill root-free templates only); one exception reads it, the
+  `ref` handle's stale-claim test (`path.split('.').next() == name`), where
+  a respelled path can only strip a claim a mutation through a handle of
+  that name reaches (the conservative direction). Now the join prints
+  `Idx(a.str)`. A claim no name in scope reaches (about a string made
+  inside the branch) keeps its old spelling: the agent's call, recorded as a
+  DECISION in ROADMAP §0bh with the alternatives.
+- **Found, not fixed** (ROADMAP §0bh): a claim a call returns through a held
+  borrow (`-> Idx(cursor.str) Int` at a caller whose cursor holds `text`) is
+  about `c2` at `str` where `c2.str` is `text`, so the total read refuses
+  it; a substituted claim prints the callee's parameter name; and a value
+  joined from two claims on one base (`Idx(a.str) Int | Idx(b.str) Int`) is
+  taken by no `Int` parameter, and refused outright when both claims are
+  about branch-local values.
+- **Tests**: checker data `flow/joins.sv` (the repro, both orders, a
+  three-way `when`, two cursors not merging as a value and as a variable's
+  state, one spelling over two values, every spelling out of scope with
+  another `str` in scope after, assignments in an `if` with and without an
+  `else`, `?:`, `||`, returns, list elements, match arms; the repro, the
+  other order, the three-way `when`, `?:`, `||` and the match arms fail on
+  the parent commit); `place_tests`'
+  `a_join_spells_its_claims_where_it_is` (the printed spelling, which an
+  annotation cannot see); run data `qualifiers/sibling_field_claims.sv`'s
+  `a_joined_index_reads_totally` (an `if`, a `when`, an assignment and a
+  return reading through the only overload, the total one, on both
+  backends); `salvo_testkit::data`'s test of the misleading spelling now
+  expects `Idx(a.str)`. 778 tests under nextest.
+
 ### 2026-11-11 — A write to a narrowed local writes the local ([ir-narrow] [op-inc-dec] [kt-mutability] [rs-narrow-mut])
 
 The Kotlin defect recorded in ROADMAP §0bg (`if o is Int { o++ }` on an `Int?`
@@ -42421,6 +42485,22 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **`==` on a `Ty` compares a claim's spelling** (2026-11-11,
+  [qual-depend-field]): `Ty::ValueRef`'s `path` is part of the derived
+  `PartialEq`, so any dedup, `contains` or "all paths agree" test written
+  with `==` treats one claim spelled two ways as two types. `union_of` did,
+  and an `if` over `pos` and `a.pos` became a union of two arms that each
+  branch's value matched twice. Where the question is the fact, use
+  `types::same_but_spelling` or `same_type` (types: the second also takes
+  union arms and qualifiers as sets) or `same_claim` (qualifiers). A
+  spelling is also
+  scoped: a type that outlives the block it was read in can name a local
+  that has ended, so a join respells (`respell_claims`).
+- **A binary probe of the parent commit outlives the probe** (2026-11-11):
+  checking out the sources, `cargo build`ing and putting the change back
+  leaves `target/debug/salvo` built *without* the change until the next
+  `cargo build`; a `cargo test -p salvo-core` in between rebuilds the tests,
+  not the binary. Rebuild before reading the binary's output again.
 - **A narrowing is a copy, and a scope is not a path** (2026-11-11,
   [ir-narrow]): the IR builder binds a narrowed name to a `Narrow` local, a
   copy of the storage taken at the test. Rebinding the name to the storage

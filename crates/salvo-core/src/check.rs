@@ -2983,6 +2983,45 @@ fn value_ref_paths(t: &Ty, out: &mut Vec<String>) {
     }
 }
 
+/// [qual-depend-field] Every rooted place argument in `t`: its spelling and
+/// identity.
+fn rooted_value_refs(t: &Ty, out: &mut Vec<(String, Identity)>) {
+    match t {
+        Ty::ValueRef { path, roots, at } if !roots.is_empty() => out.push((path.clone(), (roots.clone(), at.clone()))),
+        Ty::Qualified { quals, base } => {
+            quals.iter().for_each(|q| q.args.iter().for_each(|a| rooted_value_refs(a, out)));
+            rooted_value_refs(base, out);
+        }
+        Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => args.iter().for_each(|a| rooted_value_refs(a, out)),
+        Ty::Array(e) => rooted_value_refs(e, out),
+        _ => {}
+    }
+}
+
+/// [qual-depend-field] `t` with each rooted place argument respelled where
+/// `respell` (given its spelling and identity) answers a new spelling; the
+/// identity is kept.
+fn map_rooted_value_refs(t: &Ty, respell: &mut dyn FnMut(&str, &[u32], &[String]) -> Option<String>) -> Ty {
+    match t {
+        Ty::ValueRef { path, roots, at } if !roots.is_empty() => match respell(path, roots, at) {
+            Some(path) => Ty::ValueRef { path, roots: roots.clone(), at: at.clone() },
+            None => t.clone(),
+        },
+        Ty::Qualified { quals, base } => Ty::Qualified {
+            quals: quals
+                .iter()
+                .map(|q| Qual { effect: q.effect, name: q.name.clone(), args: q.args.iter().map(|a| map_rooted_value_refs(a, respell)).collect() })
+                .collect(),
+            base: Box::new(map_rooted_value_refs(base, respell)),
+        },
+        Ty::Named { name, args } => Ty::Named { name: name.clone(), args: args.iter().map(|a| map_rooted_value_refs(a, respell)).collect() },
+        Ty::Union(arms) => Ty::Union(arms.iter().map(|a| map_rooted_value_refs(a, respell)).collect()),
+        Ty::Tuple(elems) => Ty::Tuple(elems.iter().map(|e| map_rooted_value_refs(e, respell)).collect()),
+        Ty::Array(e) => Ty::Array(Box::new(map_rooted_value_refs(e, respell))),
+        other => other.clone(),
+    }
+}
+
 /// [qual-depend-field] Whether a fate link's claim path is **marked**: it
 /// opens with `Step::Element`, standing for a derivation the analysis cannot
 /// spell from the root (an element, a value a held borrow is stored beside),
@@ -19116,6 +19155,13 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
                 let narrowed_states: Vec<&Ty> = states.iter().map(|s| &s.narrowed).collect();
                 let joined = join_narrowed(&narrowed_states);
+                // [qual-depend-field] Spelled as it names its value after
+                // the branches, whose locals have ended (for a variable that
+                // is still there).
+                let joined = match self.locals.get(frame_idx).is_some_and(|f| f.contains_key(name)) {
+                    true => self.respell_claims(joined, &narrowed_states),
+                    false => joined,
+                };
                 // Fate links union across branches [fate-link].
                 let mut links: Vec<FateLink> = Vec::new();
                 for s in &states {
@@ -20753,9 +20799,17 @@ impl<'p, 'r> Checker<'p, 'r> {
 
 
     /// Builds a union, recording the wrapper size when one is needed.
+    /// [qual-depend-field] The join of paths: a claim is spelled as it names
+    /// its value here (`respell_claims`), and arms that are one type under
+    /// two spellings of a claim are one arm (`Ty::union_of`).
     fn mk_union(&mut self, arms: Vec<Ty>) -> Ty {
-        let ty = Ty::union_of(arms);
-        ty
+        if !arms.iter().any(Self::ty_has_value_ref) {
+            return Ty::union_of(arms);
+        }
+        let pool = arms.clone();
+        let pool: Vec<&Ty> = pool.iter().collect();
+        let arms = arms.into_iter().map(|a| self.respell_claims(a, &pool)).collect();
+        Ty::union_of(arms)
     }
 
     // ================= name resolution =================
@@ -32452,6 +32506,77 @@ impl<'p, 'r> Checker<'p, 'r> {
             map.insert(n, identity);
         }
         Self::substitute_value_refs(ty, &map)
+    }
+
+    /// [qual-depend-field] Whether a rooted claim argument spelled `path`
+    /// names its value (`roots` at `at`) where the checker is now: the
+    /// spelling, read here as a written claim's is (`claim_identity_of_path`),
+    /// is that identity.
+    fn spelled_here(&self, path: &str, roots: &[u32], at: &[String]) -> bool {
+        self.claim_identity_of_path(path).is_some_and(|(r, a)| crate::types::same_identity(&r, &a, roots, at))
+    }
+
+    /// [qual-depend-field] A spelling of the identity `roots` at `at` that
+    /// names it here: a local in scope with a tail of the identity's
+    /// projection below it (`a.str`, or `t` for a `let t = a.str`), the
+    /// shortest, then the first by name. `None` when no local reaches it.
+    fn spell_here(&self, roots: &[u32], at: &[String]) -> Option<String> {
+        let segs: Vec<&str> = match at.first() {
+            Some(a) if !a.is_empty() => a.split('.').collect(),
+            _ => Vec::new(),
+        };
+        let mut names: Vec<&String> = self.locals.iter().flat_map(|f| f.keys()).collect();
+        names.sort();
+        names.dedup();
+        let mut best: Option<(usize, String)> = None;
+        for name in names {
+            if !name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            for k in 0..=segs.len() {
+                let tail = &segs[k..];
+                if tail.iter().any(|s| s.starts_with('?')) {
+                    continue;
+                }
+                let path = std::iter::once(name.as_str()).chain(tail.iter().copied()).collect::<Vec<_>>().join(".");
+                if best.as_ref().is_some_and(|(n, _)| *n <= tail.len()) {
+                    continue;
+                }
+                if self.spelled_here(&path, roots, at) {
+                    best = Some((tail.len(), path));
+                }
+            }
+        }
+        best.map(|(_, p)| p)
+    }
+
+    /// [qual-depend-field] `ty` with each rooted claim argument spelled so it
+    /// names its value at a join, where the branches it came from have
+    /// ended: a claim is one fact under any spelling, but a spelling rooted
+    /// at a branch's local (the `str` of a `let { str, pos } = a`) names
+    /// nothing after it, or another value. Such a spelling takes one of the
+    /// same identity that names it here — another path's (`pool`, the types
+    /// joined), else one built from a local in scope (`spell_here`). A claim
+    /// no name in scope reaches keeps its spelling; its identity is what
+    /// every comparison reads.
+    fn respell_claims(&self, ty: Ty, pool: &[&Ty]) -> Ty {
+        if !Self::ty_has_value_ref(&ty) {
+            return ty;
+        }
+        let mut spellings: Vec<(String, Identity)> = Vec::new();
+        for t in pool {
+            rooted_value_refs(t, &mut spellings);
+        }
+        map_rooted_value_refs(&ty, &mut |path, roots, at| {
+            if self.spelled_here(path, roots, at) {
+                return None;
+            }
+            spellings
+                .iter()
+                .find(|(p, (r, a))| crate::types::same_identity(r, a, roots, at) && self.spelled_here(p, roots, at))
+                .map(|(p, _)| p.clone())
+                .or_else(|| self.spell_here(roots, at))
+        })
     }
 
     /// [qual-const] The constants each fixed parameter's argument is, when it

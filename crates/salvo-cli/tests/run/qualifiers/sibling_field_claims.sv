@@ -78,3 +78,85 @@ fn main() [use] -> None {
 //= [+]
 //= [y]
 //= last: y at 14
+
+// An index joined from two spellings of one claim — a `pos` destructured
+// beside its `str`, and the field read `cursor.pos` — is one claim, so it
+// reads through the total overload, the only one there is.
+
+//--- a_joined_index_reads_totally
+struct Cursor {
+    str: proj Str
+    pos: Idx(str) Int
+}
+
+fn read_char(str: Str, index: Idx(str) Int) [] -> Char => str, index {
+    return char_at(str, index)
+}
+
+fn by_if(cursor: Cursor, parts: Bool) [] -> Char => cursor {
+    let p = if parts {
+        let { str, pos } = cursor
+        let _n = size(str)
+        pos
+    } else {
+        cursor.pos
+    }
+    return read_char(cursor.str, p)
+}
+
+fn by_when(cursor: Cursor, n: Int) [] -> Char => cursor {
+    let p = when {
+        n == 0 { cursor.pos }
+        n == 1 {
+            let { str, pos } = cursor
+            let _n = size(str)
+            pos
+        }
+        else {
+            let { pos } = cursor
+            pos
+        }
+    }
+    let { str } = cursor
+    return read_char(str, p)
+}
+
+fn by_assignment(cursor: Cursor, parts: Bool) [] -> Char => cursor {
+    let p = cursor.pos
+    if parts {
+        let { str, pos } = cursor
+        let _n = size(str)
+        p = pos
+    }
+    return read_char(cursor.str, p)
+}
+
+fn by_return(cursor: Cursor, parts: Bool) [] -> Idx(cursor.str) Int => cursor {
+    if parts {
+        let { str, pos } = cursor
+        let _n = size(str)
+        return pos
+    }
+    return cursor.pos
+}
+
+fn returned(cursor: Cursor) [] -> Str => cursor {
+    let i = by_return(cursor, true)
+    let j = by_return(cursor, false)
+    return "${read_char(cursor.str, i)}${read_char(cursor.str, j)} at ${i + j}"
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let text = "salvo"
+    let cursor = Cursor { str: text, pos: 3 as! Idx(text) }
+    println("${by_if(cursor, true)}${by_if(cursor, false)}")
+    println("${by_when(cursor, 0)}${by_when(cursor, 1)}${by_when(cursor, 2)}")
+    println("${by_assignment(cursor, true)}${by_assignment(cursor, false)}")
+    println(returned(cursor))
+}
+//= stdout
+//= vv
+//= vvv
+//= vv
+//= vv at 6

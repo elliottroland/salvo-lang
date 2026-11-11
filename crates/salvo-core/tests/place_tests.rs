@@ -11,7 +11,9 @@
 //! T1). This one stays, over its prelude, until a defect is fixed (ROADMAP
 //! §0ar): assigning `None` to a narrowed `Str?` field also reports
 //! `var-no-widen:assign-mismatch` ("cannot assign `None` to `Str`"), which
-//! [var-no-widen] says it must not; the test below filters it out.
+//! [var-no-widen] says it must not; the test below filters it out. The
+//! last test is about how a join *spells* a claim, which an annotation does
+//! not see (it judges a claim by its value).
 
 use std::path::Path;
 
@@ -146,4 +148,39 @@ fn assignment_to_the_place_invalidates() {
 "#,
     );
     assert_eq!(errs.len(), 1, "expected the read after assignment to fail: {errs:?}");
+}
+
+/// [qual-depend-field] [type-query] A join spells a claim as it names its
+/// value **after** the branches: the `str` a branch destructured ended with
+/// it, so the join is `Idx(a.str)`, whichever spelling each branch read, and
+/// a later `str` (another cursor's) is not taken for it. What a `//~ type[T]`
+/// annotation cannot see, since it is judged by the value a claim is about,
+/// not by its spelling (`tests/check/flow/joins.sv` has the claims).
+#[test]
+fn a_join_spells_its_claims_where_it_is() {
+    let src = "struct Cursor canbe Mut {\n    str: proj Str\n    pos: Idx(str) Int\n}\n\n\
+               fn f(a: Cursor, b: Cursor, c: Bool) [] -> Int => a, b {\n    \
+               let p = if c {\n        let { str, pos } = a\n        let _n = size(str)\n        pos\n    } else {\n        a.pos\n    }\n    \
+               type?(p)\n    \
+               let q = if c {\n        let { str, pos } = a\n        let _n = size(str)\n        pos\n    } else {\n        let { str, pos } = a\n        let _n = size(str)\n        pos\n    }\n    \
+               let { str, pos } = b\n    \
+               type?(q)\n    \
+               let r = pos\n    \
+               if c {\n        r = b.pos\n    }\n    \
+               type?(r)\n    \
+               return p + q + r + size(str)\n}\n\nfn main() {}\n";
+    let out = salvo_testkit::front::check_main(src);
+    let user = out.program.files.iter().position(|f| !f.is_std).expect("main.sv");
+    let shown: Vec<&str> = out.diagnostics().filter(|d| d.file == user).map(|d| d.message.as_str()).collect();
+    assert_eq!(
+        shown,
+        [
+            "type of `p`: Idx(a.str) Int",
+            "type of `q`: Idx(a.str) Int",
+            // `str` and `b.str` both name it here: the first path's spelling
+            // is kept.
+            "type of `r`: Idx(b.str) Int",
+        ],
+        "{shown:#?}"
+    );
 }

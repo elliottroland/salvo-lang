@@ -606,10 +606,11 @@ mod tests {
     }
 
     /// [test-data] [type-query] Two cursors each destructured into a local
-    /// `str`: the first's index prints `Idx(str)` where `str` is the
-    /// second's. An annotation spelled as the report is printed is about
-    /// the wrong value there, and fails; one naming a local that is not in
-    /// scope at the `type?` fails saying so.
+    /// `str`: an annotation `Idx(str)` on the first's index, where `str` is
+    /// the second's, is about the wrong value there, and fails (the report
+    /// printed `Idx(str)` there until the join respelled it `Idx(a.str)`,
+    /// [qual-depend-field]); one naming a local that is not in scope at the
+    /// `type?` fails saying so.
     #[test]
     fn a_type_annotation_spelled_alike_but_about_another_value_fails() {
         let head = "fn f(a: Cursor, b: Cursor) [] -> None => a, b {\n    \
@@ -621,7 +622,7 @@ mod tests {
         );
         let failure = checked(&shadowed).expect("`Idx(str)` is about `b.str` at the `type?`");
         assert!(failure.contains("expected, not reported:\n  main.sv:18: type[Idx(str) Int]"), "{failure}");
-        assert!(failure.contains("type[Idx(str) Int (held by no annotation here)]"), "{failure}");
+        assert!(failure.contains("type[Idx(a.str) Int (held by no annotation here)]"), "{failure}");
         let out_of_scope = format!("{head}    //~ type[Idx(str) Int]\n    type?(_p)\n}}\n");
         let failure = checked(&out_of_scope).expect("no `str` is in scope at the `type?`");
         assert!(failure.contains("annotated types that mean nothing at their `type?`:\n  main.sv:16: type[Idx(str) Int]: `str` names no local here"), "{failure}");

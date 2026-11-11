@@ -585,13 +585,38 @@ Found building [type-query] and [type-assert] (COMPLETED.md).
   `expr-cond-bool:not-bool` and `assert!(flag: Bool)` is an ordinary
   run-time assertion of `flag`. Making it a parse error would need the
   special case the rename removed.
-- **Open defect: an `if` whose branches give one claim in two spellings
-  makes a union of the two**: `let p = if c { let { str, pos } = a; pos }
-  else { a.pos }` over `struct Cursor { str: proj Str, pos: Idx(str) Int }`
-  is `Idx(str) Int | Idx(a.str) Int`, and each branch is refused
-  ("matches multiple arms … qualify the value"), though `Idx(str)` and
-  `Idx(a.str)` are one identity there. The join should merge claims by
-  identity (`same_claim`), as `type!` compares them.
+- **Open defect: a claim a call returns through a held borrow is about the
+  wrong value**: over `fn by_return(cursor: Cursor) -> Idx(cursor.str) Int`,
+  a caller's `let c2 = Cursor { str: text, pos: 0 as! Idx(text) }` then
+  `read_char(c2.str, by_return(c2))` (`read_char(str: Str, index: Idx(str)
+  Int)`) finds no overload: the substituted claim is `c2` at `str`
+  (`substitute_value_refs` steps below the argument's identity), while
+  `c2.str` is `text` itself, the borrow the literal's `proj` field holds
+  [qual-depend-field]. With `cursor` a parameter of the caller the two
+  agree. The substitution should root the whole path as
+  `claim_identity_of_path` does. Found 2026-11-11 building the join.
+- **A substituted claim prints the callee's spelling**: the same call's
+  result is `Idx(cursor.str) Int` at a caller that has no `cursor`
+  (`type?` shows it; identity is unaffected). The join now respells what
+  it joins (`respell_claims`); a call result could take the argument's
+  spelling the same way.
+- **DECISION (agent's call, to confirm): a joined claim that no name in
+  scope reaches keeps the spelling it had.** The join respells a claim
+  rooted at a branch's ended local to one that names the value after it
+  (`a.str`), but a value only the branch could name (`let s = "abc"` inside
+  it) has none, so `Idx(s)` still prints the ended `s`. The alternatives:
+  drop such a claim at the join (nothing in scope could use it, but a claim
+  disappearing is less plain than a stale name), or print a marker.
+- **Open defect: a value joined from two claims on one base is usable as
+  neither**: `if c { a.pos } else { b.pos }` over two cursors is
+  `Idx(a.str) Int | Idx(b.str) Int` (correctly two claims), but no `Int`
+  parameter takes it (`get(a.items, i)` finds no overload, the optional
+  one included), and when both claims are about branch-local values
+  (`if c { let s = "ab"; let i = 0; assert!(i is Idx(s)); i } else { … }`
+  with another `s`) each branch's value is refused ("no arm of `Idx(s) Int
+  | Idx(s) Int` accepts …"). The arms erase to one runtime arm `Int`; a
+  variable's state over the same paths keeps neither claim (`Int`). The
+  value join could do what the state join does.
 - **A `type?` in a comptime-expanded fn reports once per copy**, under each
   copy's origin prefix (`check_type_query` pushes directly; warnings in a
   copy are held and merged by `copy_warnings`). Not probed with a test;

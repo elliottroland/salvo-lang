@@ -703,11 +703,14 @@ impl Ty {
 
     /// Builds a normalized union: flattens nested unions, drops `Never`
     /// arms, deduplicates (keeping first occurrence). Returns the single arm
-    /// directly when only one remains.
+    /// directly when only one remains. [qual-depend-field] Two arms are one
+    /// when they are one type spelled two ways (`same_but_spelling`): a
+    /// claim spelled `Idx(str) Int` and `Idx(a.str) Int` about one value is
+    /// one arm.
     pub fn union_of(arms: Vec<Ty>) -> Ty {
         let mut flat: Vec<Ty> = Vec::new();
         let push = |ty: Ty, flat: &mut Vec<Ty>| {
-            if ty == Ty::Never || flat.contains(&ty) {
+            if ty == Ty::Never || flat.iter().any(|f| same_but_spelling(f, &ty)) {
                 return;
             }
             flat.push(ty);
@@ -865,6 +868,37 @@ pub fn same_claim(a: &Qual, b: &Qual) -> bool {
             }
             _ => x == y,
         })
+}
+
+/// [qual-depend-field] [type-union] Whether two types are **one type spelled
+/// two ways**: equal (`==`) everywhere, except that two *rooted* place
+/// arguments agree by identity ([`same_identity`]) whatever their spelling.
+/// What a union's arms dedup by: unlike [`same_type`], nothing else is
+/// compared as a set, so `List<A | B>` and `List<B | A>` stay two arms (a
+/// nested union's arm order is its runtime identity
+/// [type-union-arm-identity]).
+pub fn same_but_spelling(a: &Ty, b: &Ty) -> bool {
+    fn all(a: &[Ty], b: &[Ty]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| same_but_spelling(x, y))
+    }
+    match (a, b) {
+        (Ty::ValueRef { roots: ra, at: aa, .. }, Ty::ValueRef { roots: rb, at: ab, .. }) if !ra.is_empty() && !rb.is_empty() => {
+            same_identity(ra, aa, rb, ab)
+        }
+        (Ty::Qualified { quals: qa, base: ba }, Ty::Qualified { quals: qb, base: bb }) => {
+            qa.len() == qb.len()
+                && qa.iter().zip(qb).all(|(x, y)| x.name == y.name && x.effect == y.effect && all(&x.args, &y.args))
+                && same_but_spelling(ba, bb)
+        }
+        (Ty::Named { name: na, args: aa }, Ty::Named { name: nb, args: ab }) => na == nb && all(aa, ab),
+        (Ty::Union(xa), Ty::Union(xb)) | (Ty::Tuple(xa), Ty::Tuple(xb)) => all(xa, xb),
+        (Ty::Array(x), Ty::Array(y)) => same_but_spelling(x, y),
+        (
+            Ty::Fn { params: pa, ret: ra, contract: ca, effects: ea },
+            Ty::Fn { params: pb, ret: rb, contract: cb, effects: eb },
+        ) => all(pa, pb) && same_but_spelling(ra, rb) && ca == cb && all(ea, eb),
+        _ => a == b,
+    }
 }
 
 /// [type-assert] Whether two types are **the same type exactly**: the same

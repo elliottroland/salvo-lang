@@ -29,8 +29,9 @@ fn destructured_and_read_are_one(cursor: Mut Cursor) [] -> None => cursor {
 }
 
 // Two cursors, each destructured into a local `str` in its own block: the
-// index from the first prints `Idx(str)` in the second block, where `str`
-// is the other cursor's. The annotation names the value.
+// index from the first is about `a.str` (the join spells it so), and in the
+// second block, where `str` is the other cursor's, an `Idx(str)` is not it.
+// The annotation names the value.
 fn two_cursors_one_spelling(a: Cursor, b: Cursor) [] -> None => a, b {
     let _p = if size(a.str) > 0 {
         let { str, pos } = a

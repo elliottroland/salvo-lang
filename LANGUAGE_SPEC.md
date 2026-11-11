@@ -323,7 +323,13 @@ Conventions:
 * [type-union] `A | B | C` is a union type. Duplicate arms collapse
   (`Str | Str` ≡ `Str`) — but *qualified* duplicates are distinct arms.
   * `Ty::Union` invariants: ≥ 2 arms, no nested unions (flattened), arms
-    deduped, declaration order preserved.
+    deduped, declaration order preserved. Arms dedup as **one type spelled
+    two ways** (`same_but_spelling`, 2026-11-11): equal, except that a claim
+    about a place compares by the value it is about, not by its spelling,
+    so `Idx(str) Int | Idx(a.str) Int` over one `str` is one arm
+    [qual-depend-field]. Nothing else compares as a set: `List<A | B>` and
+    `List<B | A>` stay two arms, since a nested union's arm order is its
+    runtime identity [type-union-arm-identity].
   * **A union never nests observably** (user decision 2026-10-12): a *bare*
     union written inside a union flattens — `(A | B) | C` ≡ `A | B | C`, and
     a type parameter bound to a union flattens the same way
@@ -2230,6 +2236,31 @@ Conventions:
     claim does not stack beside the read one (the demo's hover showed
     `Idx(str) Idx(str) Int`: the field's unrooted template beside the `is`
     test's rooted claim).
+  * **One claim per fact at a join too** (defect fixed 2026-11-11): the
+    paths an `if` or a `when` joins — its values (a `?:` is the `when` it
+    lowers to), and a variable's state after the branches — and the places
+    an `||` of tests narrows, meet as one claim when they are about one
+    value, however each path spelled it: a `pos` destructured in one branch
+    (`Idx(str)`) and `a.pos` in the other (`Idx(a.str)`) join to
+    `Idx(a.str) Int`, not to a union of the two spellings, which matched
+    each branch's value twice and refused both. Union arms dedup by
+    `same_but_spelling` [type-union]; two claims about two values (`a.pos` and
+    `b.pos`) stay two, and a variable's state keeps neither
+    ([is-narrow-guard]'s join keeps the qualifiers every path keeps, a
+    claim by `same_claim`). A list literal's elements and a fn's returns
+    were already right: each is checked against one type (the first
+    element's, the declared return type) by the identity-aware subtype
+    relation.
+  * **A join spells a claim where it is** (`respell_claims`): a spelling
+    rooted at a local of a branch that has ended names nothing after the
+    join, or names another value of the same name (a later `let { str } =
+    b`), so it takes a spelling of the same identity that names it there —
+    another path's, else a local in scope with a tail of the projection
+    below it (`a.str`; `spell_here`, the shortest, then by name). Display
+    only: the identity is what every comparison reads. A claim no name in
+    scope reaches keeps the spelling it had (agent's call, to confirm: the
+    alternatives are dropping the claim, which nothing could then use, or
+    printing a marker; ROADMAP §0bh).
   * **A literal checks the pair**: the field's claim is about the value the
     literal gives the sibling (or, unwritten, the spread's field), and the
     value must carry it — `Cursor { str: s, pos: 0 as! Idx(t) }` is refused,
@@ -3633,7 +3664,9 @@ Conventions:
     subject-less `match` and lowers to `if`/`else if`/`else`
     [rs-when-cond].
 * [when-value] `when` is an expression; branches ending in `Never`
-  (e.g. `return`) drop out of the value type.
+  (e.g. `return`) drop out of the value type. The others' values join into
+  a union [type-union], an `if`'s too, where one claim spelled two ways is
+  one arm [qual-depend-field].
 * [loop-while-value] `while` evaluates to the last evaluated body expression,
   or a `break value`; `else` runs (and provides the value) only if the
   loop never ran. Same for `for`.

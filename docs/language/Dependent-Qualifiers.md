@@ -255,6 +255,28 @@ fn twice(cursor: Cursor) -> Int {
 The claim is about one value's own field, so an index read from one cursor
 says nothing about another cursor's list, or about any other list.
 
+A claim is one fact however it is spelled, so the branches of an `if` or a
+`when` that reach the same index two ways agree on it. Below, one branch
+reads `at` as an index of the local `items` and the other as an index of
+`cursor.items`; both are the same list, so `i` is one
+`Idx(cursor.items) Int`, spelled with a name that is still in scope after
+the branch whose `items` has ended:
+
+```salvo
+fn pick(cursor: Cursor, first: Bool) -> Int {
+    let i = if first {
+        let { items, at } = cursor
+        if get(items, at) > 0 { at } else { cursor.at }
+    } else {
+        cursor.at
+    }
+    return get(cursor.items, i)               // still the total `get`
+}
+```
+
+Indexes of two cursors stay two claims: `if c { a.at } else { b.at }` is an
+index of `a.items` or of `b.items`, which is not an index of either one.
+
 Building the value checks the pair: `Cursor { items: xs, at: i }` needs `i`
 to be an index of `xs`, a spread supplies the sibling when it is not
 written, and a literal that replaces `items` while taking `at` from the
