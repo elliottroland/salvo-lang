@@ -1228,6 +1228,18 @@ the blanket rule:
   [rs-widen-shadow], a handler's state field (`match &mut self.held { … }`).
   Assigning to the narrowed *variable* itself writes its storage, not
   through the narrowing.
+  * **A narrowing written through is a mutable use** (2026-11-11): `p.n++`
+    or `p.n = …` with `p` narrowed out of a `Mut Inner?` local binds
+    `p.as_mut().unwrap()`, found by the body scan's projection writes
+    (`written_through`). It was an `&`, which rustc refused. The scan also
+    looks inside `Present` now, where an `if`'s tail step sits.
+  * **An `is` binding reassigned as a whole is its own copy**
+    (`let mut k = s.as_ref().unwrap().clone();`), so the write leaves the
+    subject alone, as on Kotlin; through a borrow, the write would reach the
+    subject (`*k = …`). A binding both reassigned and written through (or lent
+    `Mut`) would have to be the copy and a borrow of the subject at once, so
+    it is **refused** (`rs-narrow-mut:reassigned-alias`) [backend-never-wrong];
+    Kotlin writes the subject's field and then rebinds.
   * **An owned parameter binds `mut` when `Mut` is reachable by peeling an
     arm** (`pub fn eat(mut o: …)`), or the peel cannot borrow it.
   * **The one refused shape** [backend-never-wrong]: a union-typed parameter

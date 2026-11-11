@@ -511,13 +511,20 @@ Found building [qual-depend-field] (COMPLETED.md).
   be sound) and checking the spread's field against the new sibling.
 - The `while ++pos is Idx(str)` decision is closed: built 2026-11-11 as
   [is-narrow-step] (COMPLETED.md).
-- **Kotlin: a step of a narrowed optional local does not compile** (found
-  2026-11-11): `let o = start()` (an `Int?`), `if o is Int { o++ }` emits
-  `val o_3: Int = o!!` and then `o_3 = (o_3 + 1)`, which kotlinc refuses
-  ("'val' cannot be reassigned"); Rust runs it. Not a silent miscompile, and
-  independent of the step being tested; the run data
-  `qualifiers/prefix_step_narrowing.sv` keeps its `a_stepped_optional_local`
-  program Rust-only until it is fixed.
+- **Not probed: a lambda capturing a narrowed local the fn then writes**
+  (found by review 2026-11-11, [ir-narrow]): a lambda made inside `if o is
+  Int { … }` captures the narrowing (`o_3`), so after `o = 5` a later call
+  may see the old value on Kotlin, as before the write-to-storage fix.
+  Whether that is wrong depends on what a Salvo capture is (a value or the
+  variable), which `docs/language/Lambdas-and-Variadics.md` should say;
+  then a run-data case on both backends.
+- **Rust: the narrowing write sets are per fn and by name**
+  ([rs-narrow-mut]): `reassigned`/`written_through` in the Rust emitter's
+  body scan key on the local's name, so an `is … k` binding only written
+  through, in a fn where a sibling scope's `k` is reassigned, is refused
+  (`rs-narrow-mut:reassigned-alias`) though it is fine, and one only read
+  takes a needless clone. A refusal, never wrong code; `assigned` has the
+  same granularity.
 - **A narrowing of an `is` binding does not reach the branch**: in `if o is
   Int k && k is Idx(s) { … }`, `k` reads as `Int` in the branch, since the
   right side's narrowing of `k` is installed before the branch declares the

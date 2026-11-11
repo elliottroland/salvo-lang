@@ -108,10 +108,8 @@ fn main() [use] -> None {
 
 //--- a_stepped_optional_local
 // A local stored as an optional, narrowed to its `Int`, stepped in the
-// test: the narrowing keeps the local's optional storage.
-// Rust only: Kotlin emits a step of a narrowed optional local as an
-// assignment to the `val` its narrowing reads (ROADMAP §0bg).
-// BACKENDS: rust
+// test: the narrowing keeps the local's optional storage, and the steps are
+// written to it, so the local holds the last one after the branch.
 fn read_char(str: Str, index: Idx(str) Int) [] -> Char => str, index {
     return char_at(str, (index: Int)) ?: unreachable!()
 }
@@ -130,9 +128,20 @@ fn main() [use] -> None {
         }
         println("after: ${o}")
     }
+    println("outside: ${o ?: -1}")
+    let p = start()
+    if p is Int {
+        if ++p is Idx(text) {
+            println("then: ${text.read_char(p)}")
+        }
+    }
+    println("outside: ${p ?: -1}")
 }
 //= stdout
 //= 13: d
 //= 14: e
 //= 15: f
 //= after: 16
+//= outside: 16
+//= then: d
+//= outside: 13

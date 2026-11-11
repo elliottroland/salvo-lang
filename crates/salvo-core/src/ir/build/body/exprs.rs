@@ -12,6 +12,12 @@ use super::Lower;
 use crate::ir::build::{apply_convert, unsupported};
 use crate::ir::*;
 
+/// [op-inc-dec] The `1` a step adds or takes away, at the stepped type.
+fn step_one(ty: &Ty, span: Span) -> Expr {
+    let long = matches!(ty.strip_quals(), Ty::Named { name, .. } if name == "Long");
+    Expr { ty: ty.clone(), span, kind: if long { ExprKind::Long(1) } else { ExprKind::Int(1) } }
+}
+
 /// [flow-use-after-move] [fate-partial-move] A projection whose move took
 /// its root wholly (`Move::takes_root`, keyed by the projection — an
 /// unwrap the analysis could not place, say): mark the first read of the
@@ -439,11 +445,70 @@ impl<'a, 'p> Lower<'a, 'p> {
                 // `x++`: `x = x + 1`; as a value, the new (prefix) or old
                 // (postfix) value.
                 let ty = self.ty_of(operand.span());
+                // [op-inc-dec] [ir-narrow] A place that reads narrowed is
+                // stepped through its storage, as an assignment is, and the
+                // narrowing the name reads is stepped with it: a read later
+                // in the same statement (`"${o++} ${o}"`, the right side of
+                // `++o is Q && o < n`) has no statement boundary to narrow
+                // afresh at, so the narrowing must stay current. Any other
+                // narrowing of the name, in an enclosing scope, is a copy the
+                // step made stale: those scopes read the storage again. The
+                // new value goes into the storage at its representation, by
+                // the checker's row (none when it needs no conversion).
+                // A name the flow reads narrowed is bound to its narrowing by
+                // the place lookup, made here if this is its first read.
+                let narrowed = match &**operand {
+                    AExpr::Ident(id) => {
+                        let _ = self.place_of(operand);
+                        self.lookup(&id.name).is_some_and(|b| self.storage.get(&b.local).is_some_and(|(root, _)| root != &b.local))
+                    }
+                    _ => false,
+                };
+                let write = self.ctx.checked.step_writes.get(&self.key(span)).cloned();
+                if narrowed || write.is_some() {
+                    let read = self.read(operand);
+                    let current = match &**operand {
+                        AExpr::Ident(id) => self.lookup(&id.name).map(|b| (id.name.clone(), b.local.clone())),
+                        _ => None,
+                    };
+                    let mut stmts = Vec::new();
+                    let one = step_one(&ty, span);
+                    let op = if *down { Op::Sub } else { Op::Add };
+                    let tmp = self.fresh(if *prefix { "__new" } else { "__old" });
+                    let tmp_read = |consume| Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: Place { root: tmp.clone(), steps: Vec::new() }, consume, moved: false } };
+                    let (bound, written) = if *prefix {
+                        (Expr { ty: ty.clone(), span, kind: ExprKind::Op { op, args: vec![read, one] } }, tmp_read(false))
+                    } else {
+                        (read, Expr { ty: ty.clone(), span, kind: ExprKind::Op { op, args: vec![tmp_read(false), one] } })
+                    };
+                    let id = self.id();
+                    stmts.push(Stmt::Let { id, local: tmp.clone(), ty: ty.clone(), value: bound });
+                    let target = match &current {
+                        Some((name, local)) => match self.storage.get(local).cloned() {
+                            Some((root, root_ty)) if &root != local => {
+                                stmts.push(Stmt::Assign { place: Place { root: local.clone(), steps: Vec::new() }, value: written.clone() });
+                                self.unnarrow_outer(name, &root, &root_ty, local);
+                                Some(Place { root, steps: Vec::new() })
+                            }
+                            _ => self.assign_place_of(operand),
+                        },
+                        None => self.assign_place_of(operand),
+                    };
+                    let Some(target) = target else {
+                        return unsupported(ty, span, "inc/dec of a non-place");
+                    };
+                    let value = match &write {
+                        Some(w) => apply_convert(w, written, span),
+                        None => written,
+                    };
+                    stmts.push(Stmt::Assign { place: target, value });
+                    return self.block_expr(stmts, tmp_read(true), span);
+                }
                 let Some(place) = self.place_of(operand) else {
                     return unsupported(ty, span, "inc/dec of a non-place");
                 };
                 let read = Expr { ty: ty.clone(), span, kind: ExprKind::Read { place: place.clone(), consume: false, moved: false } };
-                let one = Expr { ty: ty.clone(), span, kind: if matches!(ty.strip_quals(), Ty::Named { name, .. } if name == "Long") { ExprKind::Long(1) } else { ExprKind::Int(1) } };
+                let one = step_one(&ty, span);
                 let value = Expr { ty: ty.clone(), span, kind: ExprKind::Op { op: if *down { Op::Sub } else { Op::Add }, args: vec![read.clone(), one] } };
                 let assign = Stmt::Assign { place: place.clone(), value };
                 if *prefix {
@@ -2905,6 +2970,7 @@ impl<'a, 'p> Lower<'a, 'p> {
         }
         let loop_id = self.id();
         self.fate.loop_spans.insert(loop_id.0, span);
+        self.unnarrow_written(Some(cond), body);
         self.push_scope();
         self.loops += 1;
         self.loop_results.push(result.as_ref().map(|(r, _)| r.clone()));
@@ -2984,6 +3050,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 elem_ty = elem_ty.remove_quals(&crate::types::proj_names());
             }
         }
+        self.unnarrow_written(step_call.then_some(iterable), body);
         self.push_scope();
         self.loops += 1;
         self.loop_results.push(result.as_ref().map(|(r, _)| r.clone()));

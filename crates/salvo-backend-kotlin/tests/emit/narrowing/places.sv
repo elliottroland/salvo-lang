@@ -155,3 +155,36 @@ fn main() [use] {
         println("one ${n} left ${size(d)}")
     }
 }
+
+//--- a_write_to_a_narrowed_local_goes_to_its_storage
+// [ir-narrow] [kt-mutability] A step or an assignment of a local narrowed
+// from an optional writes the local's own `var`, not only the narrowing it
+// reads (which was a `val` kotlinc refused to reassign): a step writes both,
+// so a read later in the statement sees it, and the read after the branch
+// narrows the local again. An `is` binding is a local of its own: written,
+// it is a `var`.
+fn start() [] -> Int? {
+    return 12
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    //~ emits: var o: Int? = salvo.main.start()
+    let o = start()
+    if o is Int {
+        //~ emits: var o_3: Int = o!!
+        //~ emits: val __new_4: Int = (o_3 + 1)
+        //~|             o_3 = __new_4
+        //~|             o = __new_4
+        ++o
+        //~ emits: o = 5
+        o = 5
+    }
+    //~ emits: val o_5: Int = o!!
+    println("${o ?: -1}")
+    if o is Int k {
+        //~ emits: var k: Int = o!!
+        k += 1
+        println("${k}")
+    }
+}

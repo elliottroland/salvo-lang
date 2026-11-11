@@ -150,6 +150,75 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — A write to a narrowed local writes the local ([ir-narrow] [op-inc-dec] [kt-mutability] [rs-narrow-mut])
+
+The Kotlin defect recorded in ROADMAP §0bg (`if o is Int { o++ }` on an `Int?`
+emitted `val o_3: Int = o!!` then `o_3 = (o_3 + 1)`, refused by kotlinc)
+turned out to be the visible end of a core defect on **both** backends: a
+write to a narrowed name went to the storage only in the scope it was made
+in, so the narrowing's copy came back when that scope closed. Probed at the
+parent commit, Rust printed `12` for `o` after `if o is Int { o++ }`, `12`
+for a local written under an inner `if` in the narrowing branch, and `12`
+then `13` for a local assigned three times in a `while` inside it (the loop
+read the copy on every turn). Silent wrong answers; not found earlier
+because every run-data program read the local inside the branch.
+
+- **Core** (the fact, [backend-core-layers]): a step of a place that reads
+  narrowed is lowered as an assignment is, an `Assign` to the storage, with
+  the new value converted to the storage's representation by a new checker
+  table, `Checked::step_writes` (keyed by the step; the step's own `converts`
+  row is about its value, the narrowed one). After an assignment the name is
+  the storage in every scope out to its declaration (`Lower::unnarrow`), and
+  a loop that writes the name binds it to the storage before the loop
+  (`unnarrow_written`), so each read narrows afresh. A step writes the
+  narrowing it read too, and keeps the name on it (`unnarrow_outer` resets
+  only the enclosing scopes bound to other narrowings): a narrowing made
+  for a later read is hoisted ahead of the *statement*, so after `o++` a
+  fresh one read the old value in `"${o++} ${o++}"` (`12 12`) and on the
+  right of `++p is Idx(s) && p < n` (where it was also bound in a block the
+  body could not see: an unresolved name on both backends). A gpu-reviewer
+  find, as was taking this path for every narrowed name, with the
+  conversion only where the checker recorded one. `partition.rs` changed
+  only because its destructurings of `Checked` are exhaustive by
+  construction and must name the new table.
+- **Kotlin**: a `Narrow` is now a `var` when the fn writes it, like a `let`
+  [kt-mutability]: the narrowing a step writes, and an `is T name` binding
+  that is stepped or assigned (the same kotlinc refusal).
+- **Rust** [rs-narrow-mut]: a struct narrowed out of a `Mut Inner?` local and
+  written through (`p.n++`, `p.n = …`) bound `as_ref().unwrap()` and rustc
+  refused the write; a projection write now makes it `as_mut()`. An `is`
+  binding reassigned as a whole binds a clone of the arm (its own local, as
+  on Kotlin); one both reassigned and written through is **refused**
+  (`rs-narrow-mut:reassigned-alias`), since it would have to be the copy and
+  a borrow of the subject at once. The body scan's walker also skipped
+  `Present`, where an `if`'s tail step sits; with it seen, reads under
+  `Some(…)` count as moves, so several std narrowings now move instead of
+  borrowing and cloning (`failed.unwrap()` for `failed.as_ref().unwrap()` …
+  `.clone()`): regenerated `examples/cli`, `examples/files` and
+  `lib/platform/std/runtime/streams.sv.rs`.
+- **The interrupted attempt** (found uncommitted in the worktree): its
+  `step_writes` table, the step-through-storage lowering (now also writing
+  the narrowing, and not gated on the table's row), the loop rebinding and
+  `partition.rs` were kept. Its `storage_read` (a read at the storage's
+  type of a name still bound to a narrowing reads the storage) was dropped,
+  with a debug `eprintln!`: the scope-wide unnarrowing replaces it, and the
+  run data passed without it. It fixed the outer-scope read only where the
+  checker typed the read at the storage's type, and left the `?:` subject
+  reading the stale copy (rustc refused the result).
+- **Tests**: run data `qualifiers/prefix_step_narrowing.sv`'s
+  `a_stepped_optional_local` runs on both backends now, and reads the local
+  after the branch (`while ++o is Idx(text)`, `if ++p is Idx(text)`);
+  `types/narrowed_place_assignment.sv` gains four programs: a step, `=`,
+  `+=`, the values of both steps, a `Long`, and `is` bindings, each read
+  after the branch; writes under an inner `if`, a `while`, a `for` and on a
+  `Str?`; a narrowed field, a struct narrowed out of an optional, a `when`
+  arm and a wrapper union's arm; reads later in the stepping statement and
+  on the right of a stepping test's `&&`. Emit data: Kotlin
+  `narrowing/places.sv` (a step writes the narrowing and `o`, the read
+  after narrows again, a written binding is a `var`); Rust
+  `types/narrowed_mut.sv` (`as_mut()` for a written-through narrowing, a
+  clone for a reassigned binding, the refusal). 777 tests under nextest.
+
 ### 2026-11-11 — `append(Mut Str, Char)` and a total `char_at` at `Idx(str)` ([str-char])
 
 **User decision**: a string gets the two one-character operations the demo's
@@ -235,9 +304,9 @@ would.
 - **The storage view** of the narrowing is the stepped place's
   (`repr_of(operand)`), not the step value's (a gpu-reviewer find): a
   local stored as `Int?` and narrowed to `Int` keeps its optional storage.
-  Running that shape found an older Kotlin defect, recorded in ROADMAP
-  §0bg: a step of a narrowed optional local assigns the `val` its narrowing
-  reads, which kotlinc refuses.
+  Running that shape found an older Kotlin defect: a step of a narrowed
+  optional local assigned the `val` its narrowing reads, which kotlinc
+  refused (fixed the same day: the entry above).
 - **Unchanged, and recorded**: a field *declared* with the claim
   (`cursor.pos: Idx(str) Int`) still cannot be stepped ([var-no-widen]), so
   `++cursor.pos is Idx(cursor.str)` is refused at the step; the demo
@@ -42352,6 +42421,29 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A narrowing is a copy, and a scope is not a path** (2026-11-11,
+  [ir-narrow]): the IR builder binds a narrowed name to a `Narrow` local, a
+  copy of the storage taken at the test. Rebinding the name to the storage
+  after a write only in the current scope let the copy come back when an
+  inner `if` (or the narrowing branch) closed, and a loop read it on its next
+  turn: wrong values on both backends, with no error anywhere. A write must
+  rebind out to the declaration (`Lower::unnarrow`). And a fresh narrowing
+  is hoisted ahead of the whole *statement* (`pending`), so a write inside
+  an expression (a step) cannot leave the next read to narrow again: it
+  keeps the narrowing it read current instead. Test a narrowed write by
+  reading the variable *after* the branch, and later in the same
+  statement: a read in the next statement inside the branch hides both.
+- **A walker that skips a node kind hides everything under it**
+  (2026-11-11, [rs-narrow-mut]): the Rust body scan (`walk_expr` in
+  `ir_emit/body.rs`) did not descend into `Present`, so an assignment or a
+  consuming read in an `if`'s tail (`if p is Inner k { k.n++ }`, `return
+  Some(n)`) was invisible to it. When a new `ExprKind` with a sub-expression
+  lands, add it to that walker too.
+- **The warm `kotlinc` does not start under a deep worktree** (2026-11-11):
+  under `tmp/wt4`, `target/tmp/kotlinc-warm/<hash>` is "too long a path for
+  a socket" (macOS limits a Unix socket path to 104 bytes), so the tests
+  fall back to the cold `kotlinc`, and the Kotlin tests take their cold
+  time. Compare a worktree's wall time with that in mind.
 - **A condition's right side runs after its left side's facts were made**
   (2026-11-11, [is-narrow-step]): the `&&` arm used to analyse its right
   side under the left side's narrowings and then hand those narrowings to

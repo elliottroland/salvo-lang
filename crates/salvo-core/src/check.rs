@@ -1233,6 +1233,12 @@ pub struct Checked {
     /// slot, an operator or a `Mut` drop requires of the value's
     /// representation.
     pub converts: KeyMap<Convert>,
+    /// [op-inc-dec] [ir-narrow] The conversion a step's new value takes into
+    /// the stepped place's storage, by the step, where the place reads
+    /// narrowed: `o++` on an `Int?` local narrowed to `Int` writes `o + 1`
+    /// back as an `Int?`. The step's own value is the narrowed one, so its
+    /// `converts` row (by the same node) is about something else.
+    pub step_writes: KeyMap<Convert>,
     /// [is-narrowing] The tests, by the node that asks them: an `is`, a
     /// a `when` branch head, an [op-arm-eq] comparison. An `is` the
     /// checker decided statically has none.
@@ -25689,6 +25695,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                 span,
             } => {
                 let ty = self.check_expr(operand, None);
+                // [ir-narrow] The type the place is stored at, when it reads
+                // narrowed: the step writes its new value back there.
+                let repr = self.repr_of(operand, &ty);
                 // `i++` rebinds a whole variable (revival: severs its own
                 // links, poisons variables derived from it [fate-poison]);
                 // through a projection it mutates the root
@@ -25746,12 +25755,33 @@ impl<'p, 'r> Checker<'p, 'r> {
                         self.fate_mutation_through(other, *span);
                     }
                 }
+                // [op-inc-dec] [ir-narrow] A step of a place that reads
+                // narrowed writes the new value, `ty` without the claims a
+                // step drops, into the storage: what it takes to get there is
+                // recorded apart from the step's own value's conversion.
+                let claims = self.step_claims(&ty);
+                let stepped = ty.clone().remove_quals(&claims);
+                if repr != ty && !repr.is_unknown() {
+                    let key = self.key(*span);
+                    let own = self.out.converts.remove(&key);
+                    self.coerce_repr(*span, &stepped, &stepped, &repr);
+                    match self.out.converts.remove(&key) {
+                        Some(c) => {
+                            self.out.step_writes.insert(key, c);
+                        }
+                        None => {
+                            self.out.step_writes.remove(&key);
+                        }
+                    }
+                    if let Some(c) = own {
+                        self.out.converts.insert(key, c);
+                    }
+                }
                 // [var-drop-assign] A prefix step's value is the new one, which
                 // carries none of the old one's claims; a postfix step's is
                 // the old value, claims and all.
                 if *prefix {
-                    let claims = self.step_claims(&ty);
-                    ty.remove_quals(&claims)
+                    stepped
                 } else {
                     ty
                 }

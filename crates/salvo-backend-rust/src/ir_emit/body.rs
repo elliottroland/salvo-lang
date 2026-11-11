@@ -100,6 +100,10 @@ pub(crate) struct FnState {
     pub tie: Vec<(Ty, String)>,
     /// Locals some `Assign` writes.
     pub assigned: HashSet<String>,
+    /// [rs-narrow-mut] Of those, the ones written as a whole (`k = …`), and
+    /// the ones written through a projection (`p.n = …`).
+    pub reassigned: HashSet<String>,
+    pub written_through: HashSet<String>,
     /// A branch expression being rendered as a borrow: its arms' tails are
     /// borrowed (`Some(true)`: mutably) rather than owned.
     pub borrow_tail: Option<bool>,
@@ -286,7 +290,7 @@ pub(crate) fn walk_expr<'b>(e: &'b Expr, fs: &mut impl FnMut(&'b Stmt), fe: &mut
             args.iter().for_each(&mut sub);
         }
         ExprKind::Construct { fields } => fields.iter().for_each(|(_, v)| sub(v)),
-        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
+        ExprKind::MakeUnion { value, .. } | ExprKind::Rewrap { value, .. } | ExprKind::DropMut { value } | ExprKind::IntoMut { value } | ExprKind::Present { value } | ExprKind::BorrowAs { value, .. } | ExprKind::Widen { value } | ExprKind::Spread { value } => sub(value),
         ExprKind::Handle { instance } => sub(instance),
         ExprKind::AddrInstance { addr } => sub(addr),
         ExprKind::Throw { message } => sub(message),
@@ -481,10 +485,17 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         let mut handles: HashMap<String, usize> = HashMap::new();
         let mut calls: Vec<Expr> = Vec::new();
         let mut assigned = HashSet::new();
+        let mut reassigned = HashSet::new();
+        let mut written_through = HashSet::new();
         let mut captured = HashSet::new();
         walk_block(b, &mut |s| {
             if let Stmt::Assign { place, .. } = s {
                 assigned.insert(place.root.0.clone());
+                if place.steps.is_empty() {
+                    reassigned.insert(place.root.0.clone());
+                } else {
+                    written_through.insert(place.root.0.clone());
+                }
             }
         }, &mut |e| match &e.kind {
             ExprKind::Read { place, consume: true, .. } => {
@@ -524,6 +535,8 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         }
         self.f.consumed.extend(consumed);
         self.f.assigned.extend(assigned);
+        self.f.reassigned.extend(reassigned);
+        self.f.written_through.extend(written_through);
         self.f.captured.extend(captured);
         for (k, v) in handles {
             *self.f.handles.entry(k).or_default() += v;
@@ -2255,7 +2268,21 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
         } else if moves {
             let code = if nn >= 2 { format!("match {src} {{ {} => __v, _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.unwrap()") };
             (code, Kind::Owned)
-        } else if self.f.lent_mut.contains(&local.0) {
+        } else if self.f.reassigned.contains(&local.0) {
+            // [rs-narrow-mut] An `is` binding reassigned as a whole is its
+            // own local: a clone of the arm, so the write leaves the subject
+            // as it was (a narrowed *name*'s writes go to its storage
+            // [ir-narrow] and never reach here). Written through as well, it
+            // would have to be both that copy and a borrow of the subject.
+            if self.f.lent_mut.contains(&local.0) || self.f.written_through.contains(&local.0) {
+                self.error(messages::rs_narrow_mut_reassigned_alias(&n));
+            }
+            let code = if nn >= 2 { format!("match &{src} {{ {} => __v.clone(), _ => unreachable!() }}", pat(i, "__v")) } else { format!("{src}.as_ref().unwrap().clone()") };
+            (code, Kind::Owned)
+        } else if self.f.lent_mut.contains(&local.0) || self.f.written_through.contains(&local.0) {
+            // [rs-narrow-mut] A narrowing written through (`p.n = …` with `p`
+            // narrowed from a `Mut Inner?`) borrows the storage `&mut`, as
+            // one lent `Mut` does.
             if root_kind == Kind::Ref {
                 let r = rs_local(&from.root.0);
                 self.error(messages::rs_narrow_mut_read_only_arm(&r));

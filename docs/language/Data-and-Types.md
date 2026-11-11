@@ -760,6 +760,32 @@ the variable, or a call that takes it as `Mut`. Array elements do not narrow,
 since `numbers[i]` cannot be told apart from `numbers[j]`, so for those, bind
 the checked value with `is Str name` as shown for unions above.
 
+Narrowing changes how a place reads, not where it is: writing a narrowed
+variable writes the variable. After `if count is Int { count++ }`, `count`
+holds the stepped value, below the branch as well as in it. A binding made
+with `is Int n` is a variable of its own, so writing `n` leaves `count` as it
+was.
+
+```salvo
+fn start() [] -> Int? {
+    return 12
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let count = start()
+    if count is Int {
+        count++
+    }
+    println("${count ?: 0}")        // 13
+    if count is Int n {
+        n = n * 2
+        println("${n}")             // 26
+    }
+    println("${count ?: 0}")        // still 13
+}
+```
+
 ### Guards
 
 A narrowing also survives a **guard**: when every branch of an `if` leaves the

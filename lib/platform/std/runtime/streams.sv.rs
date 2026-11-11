@@ -566,16 +566,16 @@ pub fn close_out(mut handle: i64, mut e: crate::std_runtime_streams::OutEntry) -
     let mut flushing: Option<String> = crate::std_runtime_streams::host_flush_platform(&mut host);
     let mut closing: Option<String> = crate::std_runtime_streams::host_close_out_platform(host);
     if failed.is_some() {
-        let mut f = failed.as_ref().unwrap();
-        return Some(f.clone());
+        let mut f = failed.unwrap();
+        return Some(f);
     };
     if flushing.is_some() {
-        let mut message = flushing.as_ref().unwrap();
-        return Some(crate::std_runtime_streams::Fault { utf8: false, message: message.clone() });
+        let mut message = flushing.unwrap();
+        return Some(crate::std_runtime_streams::Fault { utf8: false, message: message });
     };
     if closing.is_some() {
-        let mut message = closing.as_ref().unwrap();
-        return Some(crate::std_runtime_streams::Fault { utf8: false, message: message.clone() });
+        let mut message = closing.unwrap();
+        return Some(crate::std_runtime_streams::Fault { utf8: false, message: message });
     };
     return None;
 }

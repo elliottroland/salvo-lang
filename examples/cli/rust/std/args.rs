@@ -946,8 +946,8 @@ pub fn unmet_group(spec: &crate::std_args::Spec, hits: &Vec<crate::std_args::Hit
             if ((&g.key[..] == &here[..]) && ((&g.kind[..] == &String::from("together")[..]) || (&g.kind[..] == &String::from("arm")[..]))) {
                 let mut why: Option<String> = crate::std_args::given_in(spec, hits, &here);
                 if (!(why.is_none()) && crate::std_args::live(spec, hits, (&(crate::std_args::parent_key(&here))).as_ref())) {
-                    let mut why_2 = why.as_ref().unwrap();
-                    return Some(why_2.clone());
+                    let mut why_2 = why.unwrap();
+                    return Some(why_2);
                 };
                 return None;
             };

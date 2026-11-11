@@ -398,6 +398,12 @@ Conventions:
   `Mut List<T>` emits `MutableList<T>` and `Mut Str` a `StringBuilder`
   via `intrinsics::mut_type_name` [type-canbe-mut] [kt-mut-str]; `Mut`
   struct fields emit `var`.
+  * A `Narrow` is a `val` too, and a `var` by the same scan: an `is T name`
+    binding the fn steps or assigns (`var k: Int = o!!`), and a narrowing a
+    step writes along with the variable [ir-narrow] (`var o_3: Int = o!!`,
+    then `o_3 = __new_4` and `o = __new_4`). An assignment writes only the
+    variable's own `var`. Until 2026-11-11 `if o is Int { o++ }` assigned a
+    `val o_3`, which kotlinc refused.
 * [var-let-destructure] Tuple `let` uses native Kotlin destructuring; struct
   `let` lowers through a per-fn-unique `__destructuredN` temp.
   * **A loop pattern** lowers through an `__elemN` temporary instead — the

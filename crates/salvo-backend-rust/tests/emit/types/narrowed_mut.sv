@@ -249,3 +249,60 @@ fn main() [use] {
         println("${size(r)}")
     }
 }
+
+//--- a_narrowing_written_through_or_reassigned
+// [rs-narrow-mut] A struct narrowed out of an optional and written through
+// (`p.n = …`, `p.n++`) borrows the storage's payload `&mut`; before
+// 2026-11-11 it was an `&` and rustc refused the write. An `is` binding
+// reassigned as a whole is its own copy of the arm, so the write leaves the
+// subject alone, as on Kotlin.
+struct Inner canbe Mut {
+    n: Int
+}
+
+fn inner() [] -> Mut Inner? {
+    return Mut Inner { n: 1 }
+}
+
+fn name() [] -> Str? {
+    return "a"
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let p = inner()
+    //~ emits: let mut p_3 = p.as_mut().unwrap();
+    if p is Inner {
+        p.n++
+    }
+    let s = name()
+    //~ emits: let mut k = s.as_ref().unwrap().clone();
+    if s is Str k {
+        k = "${k}b"
+        println(k)
+    }
+}
+
+//--- a_binding_both_reassigned_and_written_through_is_refused
+// [rs-narrow-mut] Written through, an `is` binding is a borrow of its
+// subject; reassigned, its own copy. Rust cannot hold it as both, so the
+// shape is refused rather than lowered as one of them (Kotlin, whose binding
+// is a reference either way, writes the subject's field and then rebinds).
+struct Inner canbe Mut {
+    n: Int
+}
+
+fn inner() [] -> Mut Inner? {
+    return Mut Inner { n: 1 }
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let p = inner()
+    //~ refused[rs-narrow-mut:reassigned-alias]
+    if p is Inner k {
+        k.n = 3
+        k = Mut Inner { n: 5 }
+        println("${k.n}")
+    }
+}

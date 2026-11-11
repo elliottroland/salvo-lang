@@ -430,8 +430,8 @@ pub fn arg_spec__SpecServe() -> crate::std_args::Spec {
     let mut short: Option<char> = None;
     short = Some('p');
     let mut short_2 = short.unwrap();
-    let mut default_text_3 = default_text.as_ref().unwrap();
-    let mut opt: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("port"), short: Some(short_2), takes_value: !(switch), repeats: many, required: (required && !(exclusive)), help: Some(String::from("Port to listen on.")), default_text: Some(default_text_3.clone()), choices: choices, group: None };
+    let mut default_text_3 = default_text.unwrap();
+    let mut opt: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("port"), short: Some(short_2), takes_value: !(switch), repeats: many, required: (required && !(exclusive)), help: Some(String::from("Port to listen on.")), default_text: Some(default_text_3), choices: choices, group: None };
     if (!(exclusive) || !(crate::std_core_list::is_empty::<String>(&opt.choices))) {
         crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut opts, opt);
     };
@@ -448,8 +448,8 @@ pub fn arg_spec__SpecServe() -> crate::std_args::Spec {
         crate::std_args::add_one(&mut groups, &String::from("output"), required_4, Some(String::from("Output format.")));
     };
     let mut short_10: Option<char> = None;
-    let mut default_text_11 = default_text_7.as_ref().unwrap();
-    let mut opt_12: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("output"), short: short_10, takes_value: !(switch_6), repeats: many_5, required: (required_4 && !(exclusive_9)), help: Some(String::from("Output format.")), default_text: Some(default_text_11.clone()), choices: choices_8, group: None };
+    let mut default_text_11 = default_text_7.unwrap();
+    let mut opt_12: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("output"), short: short_10, takes_value: !(switch_6), repeats: many_5, required: (required_4 && !(exclusive_9)), help: Some(String::from("Output format.")), default_text: Some(default_text_11), choices: choices_8, group: None };
     if (!(exclusive_9) || !(crate::std_core_list::is_empty::<String>(&opt_12.choices))) {
         crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut opts, opt_12);
     };
@@ -569,8 +569,8 @@ pub fn arg_spec__SpecNet() -> crate::std_args::Spec {
         crate::std_args::add_one(&mut groups, &String::from("host"), required, Some(String::from("Address to bind.")));
     };
     let mut short: Option<char> = None;
-    let mut default_text_1 = default_text.as_ref().unwrap();
-    let mut opt: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("host"), short: short, takes_value: !(switch), repeats: many, required: (required && !(exclusive)), help: Some(String::from("Address to bind.")), default_text: Some(default_text_1.clone()), choices: choices, group: None };
+    let mut default_text_1 = default_text.unwrap();
+    let mut opt: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("host"), short: short, takes_value: !(switch), repeats: many, required: (required && !(exclusive)), help: Some(String::from("Address to bind.")), default_text: Some(default_text_1), choices: choices, group: None };
     if (!(exclusive) || !(crate::std_core_list::is_empty::<String>(&opt.choices))) {
         crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut opts, opt);
     };
@@ -844,8 +844,8 @@ pub fn arg_spec__SpecFromUrl() -> crate::std_args::Spec {
         crate::std_args::add_one(&mut groups, &String::from("timeout"), required_1, Some(String::from("Seconds to wait.")));
     };
     let mut short_7: Option<char> = None;
-    let mut default_text_8 = default_text_4.as_ref().unwrap();
-    let mut opt_9: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("timeout"), short: short_7, takes_value: !(switch_3), repeats: many_2, required: (required_1 && !(exclusive_6)), help: Some(String::from("Seconds to wait.")), default_text: Some(default_text_8.clone()), choices: choices_5, group: None };
+    let mut default_text_8 = default_text_4.unwrap();
+    let mut opt_9: crate::std_args::OptSpec = crate::std_args::OptSpec { field: String::from("timeout"), short: short_7, takes_value: !(switch_3), repeats: many_2, required: (required_1 && !(exclusive_6)), help: Some(String::from("Seconds to wait.")), default_text: Some(default_text_8), choices: choices_5, group: None };
     if (!(exclusive_6) || !(crate::std_core_list::is_empty::<String>(&opt_9.choices))) {
         crate::std_core_list::add_platform::<crate::std_args::OptSpec>(&mut opts, opt_9);
     };

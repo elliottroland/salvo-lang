@@ -664,7 +664,7 @@ impl<'a, 'p> Lower<'a, 'p> {
                 let b = self.lookup(&id.name)?.clone();
                 match self.storage.get(&b.local).cloned() {
                     Some((root, ty)) => {
-                        self.rebind(&id.name, root.clone(), ty);
+                        self.unnarrow(&id.name, &root, &ty);
                         Some(Place { root, steps: Vec::new() })
                     }
                     None => Some(Place { root: b.local, steps: Vec::new() }),
@@ -673,6 +673,80 @@ impl<'a, 'p> Lower<'a, 'p> {
             // A projection writes into the value, which a narrowing alias
             // shares with its storage.
             other => self.place_of(other),
+        }
+    }
+
+    /// [ir-narrow] After a write to `root`, the storage behind `name`: the
+    /// name is the storage again in every scope out to its declaration, not
+    /// only in this one. A narrowing an enclosing branch bound is a copy
+    /// taken before the write, so a read after this scope closes (after an
+    /// inner `if`, or after the narrowing branch itself joins) must narrow
+    /// the storage afresh.
+    fn unnarrow(&mut self, name: &str, root: &Local, root_ty: &Ty) {
+        for scope in self.scopes.iter_mut().rev() {
+            let Some(b) = scope.get_mut(name) else { continue };
+            if &b.local == root || self.storage.get(&b.local).is_none_or(|(r, _)| r != root) {
+                break;
+            }
+            b.local = root.clone();
+            b.ty = root_ty.clone();
+        }
+    }
+
+    /// [ir-narrow] After a step of the narrowing `keep` (which the step
+    /// writes along with the storage `root`): `name` reads the storage again
+    /// in each enclosing scope bound to another narrowing of `root`, a copy
+    /// the step made stale. The scopes bound to `keep` stay so.
+    pub(crate) fn unnarrow_outer(&mut self, name: &str, root: &Local, root_ty: &Ty, keep: &Local) {
+        for scope in self.scopes.iter_mut().rev() {
+            let Some(b) = scope.get_mut(name) else { continue };
+            if &b.local == keep {
+                continue;
+            }
+            if &b.local == root || self.storage.get(&b.local).is_none_or(|(r, _)| r != root) {
+                break;
+            }
+            b.local = root.clone();
+            b.ty = root_ty.clone();
+        }
+    }
+
+    /// [ir-narrow] Before a loop: a name bound to a narrowing that the loop
+    /// writes (an assignment or a step, anywhere in its condition or body)
+    /// is bound to its storage for the loop and after it, so each read in
+    /// the loop narrows afresh. A read ahead of the write runs again after
+    /// it on the next turn, and the narrowing's copy would still hold the
+    /// value from before the loop.
+    pub(crate) fn unnarrow_written(&mut self, cond: Option<&AExpr>, body: &ast::Block) {
+        struct Written(Vec<String>);
+        impl salvo_syntax::visit::Visitor for Written {
+            fn visit_stmt(&mut self, s: &AStmt) {
+                if let AStmt::Assign { target, .. } = s {
+                    if let AExpr::Ident(id) = target {
+                        self.0.push(id.name.clone());
+                    }
+                }
+            }
+            fn visit_expr(&mut self, e: &AExpr) {
+                if let AExpr::IncDec { operand, .. } = e {
+                    if let AExpr::Ident(id) = &**operand {
+                        self.0.push(id.name.clone());
+                    }
+                }
+            }
+        }
+        let mut written = Written(Vec::new());
+        if let Some(c) = cond {
+            salvo_syntax::visit::walk_expr(&mut written, c);
+        }
+        salvo_syntax::visit::walk_block(&mut written, body);
+        for name in written.0 {
+            let Some(b) = self.lookup(&name).cloned() else { continue };
+            if let Some((root, ty)) = self.storage.get(&b.local).cloned() {
+                if root != b.local {
+                    self.unnarrow(&name, &root, &ty);
+                }
+            }
         }
     }
 

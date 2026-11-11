@@ -1292,7 +1292,11 @@ impl<'a, 'p> ModuleEmitter<'a, 'p> {
                     _ => self.narrow_code(&src, from_ty, ty),
                 };
                 let t = self.ty(ty);
-                self.out.push_str(&format!("{pad}val {}: {t} = {code}\n", kt_local(local)));
+                // [kt-mutability] A narrowing is a fresh local: `var` when the
+                // fn writes it (an `is T name` binding stepped or assigned, a
+                // narrowing a step writes along with its storage [ir-narrow]).
+                let kw = if self.assigned.contains(local) { "var" } else { "val" };
+                self.out.push_str(&format!("{pad}{kw} {}: {t} = {code}\n", kt_local(local)));
             }
             Stmt::Assign { place, value } => {
                 let v = self.expr(value, indent);

@@ -14411,6 +14411,25 @@ replaced the working document TESTING.md).
     enclosing arm's test (2026-10-20): inside a `when`'s `is Errs` arm, the
     `else` of `if one is A` read `one` as that arm's index, a
     `ClassCastException` on Kotlin and a type error on Rust.
+  * **A write to a narrowed name writes the variable** (2026-11-11): an
+    assignment or a step of a local read through a narrowing (`o = 5`,
+    `o += 1`, `o++`, `while ++o is Idx(s)`) is an `Assign` to its storage.
+    After an assignment the name is the storage in *every* scope out to its
+    declaration, so a later read narrows the storage afresh. A step, an
+    expression, writes the narrowing it read as well, since a read later in
+    the same statement (`"${o++} ${o}"`, the right side of `++o is Q && o <
+    n`) has no statement boundary to narrow afresh at; enclosing scopes
+    bound to another narrowing read the storage again. A loop that writes
+    the name binds it to the storage before the loop starts, since a read
+    ahead of the write runs again on the next turn. A step's new value goes
+    into the storage at the storage's representation (`o = present(__new)`),
+    by the checker's `step_writes` row [op-inc-dec]: the step's own value is
+    the narrowed one. Before, the write went to the narrowing alone (on
+    Kotlin a `val`, which kotlinc refused), and on both backends the
+    narrowing's copy outlived the write: after an inner `if` that wrote the
+    storage, or on a loop's next turn, a read saw the value from before it.
+    An `is T name` binding is a local of its own: a write to it is a write
+    to the binding.
 * [ir-alias] `Alias` names a place: every read and write of the local is
   one of the place [deduce-field].
 * [ir-loop] There is one general loop, `Loop`, unconditional and left by

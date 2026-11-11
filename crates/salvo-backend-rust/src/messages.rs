@@ -204,6 +204,12 @@ salvo_syntax::messages! {
          is a claim about the arm, not about `{root}`, so this frame received it borrowed. Take the payload as \
          its own parameter (`Mut List<T>`) and check the arm at the call site."
     );
+    /// An `is` binding both reassigned and written through.
+    rs_narrow_mut_reassigned_alias = "rs-narrow-mut:reassigned-alias" (name: &dyn std::fmt::Display) => format!(
+        "cannot lower `{name}`: the binding is both reassigned and written through (a field assignment, or a \
+         `Mut` use), and Rust holds it either as its own copy or as a borrow of the value it narrows, not both. \
+         Bind a new name for the reassigned value."
+    );
 
     // [rs-opt-borrow]
     /// A union of borrows with no arm map onto the target union.
