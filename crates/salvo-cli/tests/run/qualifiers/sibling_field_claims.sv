@@ -278,8 +278,8 @@ fn main() [use] -> None {
 //= 3 0
 //= 33 11 77
 
-// A written union of two claims is kept, and so is a join declared that
-// type: both arms are one runtime `Int`.
+// A written union of two claims is kept, and a value of either claim is
+// passed to it: both arms are one runtime `Int`.
 
 //--- a_written_union_of_two_claims_runs
 struct Cursor {
@@ -292,8 +292,8 @@ fn show(a: Cursor, b: Cursor, x: Idx(a.str) Int | Idx(b.str) Int) [] -> Str => a
 }
 
 fn either(a: Cursor, b: Cursor, c: Bool) [] -> Str => a, b {
-    let y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos }
-    return "${show(a, b, y)} ${show(a, b, b.pos)}"
+    let y = if c { show(a, b, a.pos) } else { show(a, b, b.pos) }
+    return "${y} ${show(a, b, b.pos)}"
 }
 
 fn main() [use] -> None {

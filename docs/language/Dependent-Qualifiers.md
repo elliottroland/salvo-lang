@@ -283,7 +283,10 @@ more paths, however the `if`s nest: the claim survives only if every path
 reaches it. Values of different types are not compared, so `if c { a.at }
 else { "none" }` is `Idx(a.items) Int | Str`. A union you write keeps its
 claims: a parameter `i: Idx(a.items) Int | Idx(b.items) Int` has both arms,
-and an `if` whose value is declared that type keeps its branches' claims.
+and either index can be passed to it. A join does not look at the type it
+is declared as, though: `let i: Idx(a.items) Int | Idx(b.items) Int = if c {
+a.at } else { b.at }` is refused, since the `if` is a plain `Int`, which is
+neither arm.
 
 A claim about a value that only one branch could name ends with that
 branch. Nothing after the `if` can name the value, so no call could use the

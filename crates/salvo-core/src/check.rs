@@ -18755,7 +18755,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             if everywhere {
-                let narrowed = self.join_union(tys, None);
+                let narrowed = self.join_union(tys);
                 // [var-drop-assign] A variable may read below its declared
                 // type (a step or an assignment dropped a claim): a fact
                 // that gives the declared type back is still a fact.
@@ -20996,14 +20996,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// dropped (`respell_claims`); then the arms of one shape are one arm,
     /// keeping only the claims every path holds (`join_arms`), so
     /// `if c { a.pos } else { b.pos }` is `Int`. A variable's state after
-    /// branches is `merge_fallthrough`'s.
-    ///
-    /// `expected` is the type a value join is checked against (`let y: T =
-    /// if …`): when every path's value fits it and the plain join would not
-    /// (`T` is a written `Idx(a.str) Int | Idx(b.str) Int`), the join keeps
-    /// its paths' claims, as their union, since the written type asks for
-    /// them (agent's call within the user's 2026-11-11 decision).
-    fn join_union(&mut self, arms: Vec<Ty>, expected: Option<&Ty>) -> Ty {
+    /// branches is `merge_fallthrough`'s. The join never reads an expected
+    /// type: under `let y: Idx(a.str) Int | Idx(b.str) Int = …` that join is
+    /// still `Int`, and the annotation refuses it.
+    fn join_union(&mut self, arms: Vec<Ty>) -> Ty {
         if !arms.iter().any(has_droppable_claim) {
             return Ty::union_of(arms);
         }
@@ -21016,15 +21012,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             false => arms,
         };
-        let Some(e) = expected else {
-            return Ty::union_of(join_arms(arms));
-        };
-        let joined = Ty::union_of(join_arms(arms.clone()));
-        if is_subtype(&joined, e) {
-            return joined;
-        }
-        let kept = Ty::union_of(arms);
-        if is_subtype(&kept, e) { kept } else { joined }
+        Ty::union_of(join_arms(arms))
     }
 
     // ================= name resolution =================
@@ -28930,7 +28918,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // one side narrows is not narrowed [flow-or-not].
                 for ln in &l.then_narrows {
                     if let Some(rn) = r.then_narrows.iter().find(|rn| rn.place == ln.place) {
-                        let joined = self.join_union(vec![ln.narrowed.clone(), rn.narrowed.clone()], None);
+                        let joined = self.join_union(vec![ln.narrowed.clone(), rn.narrowed.clone()]);
                         out.then_narrows.push(Narrow {
                             place: ln.place.clone(),
                             narrowed: joined,
@@ -29835,8 +29823,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             let facts = self.join_path_facts(&through_facts);
             self.install_narrows(&facts);
         }
-        let expected = self.value_expected.clone();
-        let join = self.join_union(branch_tys, expected.as_ref());
+        let join = self.join_union(branch_tys);
         for tail in tails.into_iter().flatten() {
             self.coerce_tail(&tail, &join);
         }
@@ -30179,8 +30166,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        let expected = self.value_expected.clone();
-        let join = self.join_union(branch_tys, expected.as_ref());
+        let join = self.join_union(branch_tys);
         for tail in tails.into_iter().flatten() {
             self.coerce_tail(&tail, &join);
         }
@@ -30219,7 +30205,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if ctx.may_skip_value {
             arms.push(Ty::none());
         }
-        let join = self.join_union(arms, None);
+        let join = self.join_union(arms);
         for tail in body_tail.into_iter().chain(ctx.breaks).chain(else_tail) {
             self.coerce_tail(&tail, &join);
         }

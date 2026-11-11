@@ -602,9 +602,8 @@ fn constant_claims(c: Bool, n: InRange(0, 100) Int, m: InRange(0, 100) Int, k: I
 }
 
 // A written union of two claims is not a join: a parameter declared so keeps
-// both arms, a value with either claim is passed to it, a local takes it
-// whole, and a join written into it keeps its paths' claims (the plain `Int`
-// would fit no arm).
+// both arms, a value with either claim is passed to it, and a local takes it
+// whole.
 fn written_union(a: Cursor, b: Cursor, x: Idx(a.str) Int | Idx(b.str) Int) [] -> Int => a, b, x {
     //~ type[Idx(a.str) Int | Idx(b.str) Int]
     type?(x)
@@ -618,29 +617,40 @@ fn forward_written_union(a: Cursor, b: Cursor, x: Idx(a.str) Int | Idx(b.str) In
     return written_union(a, b, x)
 }
 
-fn pass_written_union(a: Cursor, b: Cursor, c: Bool, d: Bool) [] -> Int => a, b {
+fn pass_written_union(a: Cursor, b: Cursor, c: Bool) [] -> Int => a, b {
     let _i = written_union(a, b, a.pos)
-    let y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos }
-    //~ type[Idx(a.str) Int | Idx(b.str) Int]
-    type?(y)
-    let _j = forward_written_union(a, b, y)
-    let w: Idx(a.str) Int | Idx(b.str) Int = when {
+    // The plain join fits a written `Int`: the claims go.
+    let z: Int = if c { a.pos } else { b.pos }
+    //~ type[Int]
+    type?(z)
+    // Arms of different shapes, each fitting its arm of the written type.
+    let _o: (Idx(a.str) Int)? = if c { a.pos } else { None }
+    //~ type[(Idx(a.str) Int)?]
+    type?(_o)
+    return written_union(a, b, b.pos) + z
+}
+
+// A join never reads the type it is checked against (user decision
+// 2026-11-11): the join of two claims is the plain `Int`, which fits no arm
+// of a written union of the claims, however the paths nest.
+fn join_under_written_union(a: Cursor, b: Cursor, c: Bool, d: Bool) [] -> Int => a, b {
+    //~ error[type-union:no-arm]
+    //~ error[var-let-infer:annotation-mismatch]
+    let _y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos }
+    //~ error[type-union:no-arm]
+    //~ error[var-let-infer:annotation-mismatch]
+    let _w: Idx(a.str) Int | Idx(b.str) Int = when {
         c { b.pos }
         d { a.pos }
         else { b.pos }
     }
-    //~ type[Idx(a.str) Int | Idx(b.str) Int]
-    type?(w)
-    let _k = forward_written_union(a, b, w)
-    // The plain join already fits a written `Int`: the claims go.
-    let z: Int = if c { a.pos } else { b.pos }
-    //~ type[Int]
-    type?(z)
-    // A path that fits no arm: the plain join is what is refused.
+    //~ error[type-union:no-arm]
+    //~ error[var-let-infer:annotation-mismatch]
+    let _n: Idx(a.str) Int | Idx(b.str) Int = if c { if d { a.pos } else { b.pos } } else { a.pos }
     //~ error[type-union:no-arm]
     //~ error[var-let-infer:annotation-mismatch]
     let _v: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { 0 }
-    return written_union(a, b, b.pos) + z
+    return 0
 }
 
 fn main() {}

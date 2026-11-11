@@ -150,6 +150,43 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — A join never reads its expected type ([qual-depend-field])
+
+**User decision (2026-11-11)**, closing the agent's call the entry two
+below left to confirm: refuse it. That entry made `join_union` take the
+type a value `if`/`when` is checked against, so that `let y: Idx(a.str)
+Int | Idx(b.str) Int = if c { a.pos } else { b.pos }` kept the union of
+the paths' claims where every path fit the written type and the plain join
+did not. That exception is gone: a join's claims are its paths' alone, so
+the join there is `Int`, which fits no arm, and the `let` is refused
+(`type-union:no-arm`, with `var-let-infer:annotation-mismatch`, as any
+annotation the value does not fit is). The user may bring it back with a
+good use case (ROADMAP, "Recorded, not scheduled").
+
+- **How**: `join_union` lost its `expected` parameter and the two
+  subtype tests that used it; the `if` and `when` join sites stopped
+  passing `value_expected`. `value_expected` itself stays: it predates
+  the exception and still feeds each branch's `tail_hint`
+  [fn-overload-return] and a `?:`'s pick. The loop value, the guard facts
+  and the `||` of tests passed nothing already.
+- **Now consistent**: the nested grouping the exception missed (`if c { if
+  d { a.pos } else { b.pos } } else { a.pos }` under that annotation,
+  refused while the flat one was accepted) is refused like every grouping.
+- **Unchanged**: a written union of claims is a legal type (a parameter
+  `x: Idx(a.str) Int | Idx(b.str) Int`, forwarding it, passing either claim
+  to it); `let z: Int = if c { a.pos } else { b.pos }` checks, and so does
+  `let o: (Idx(a.str) Int)? = if c { a.pos } else { None }`, whose arms are
+  of different shapes and keep their claims.
+- **Tests changed**: checker data `flow/joins.sv`'s `pass_written_union`
+  keeps the parameter cases, the written `Int` and gains the `(Idx(a.str)
+  Int)?` case; its `if` and `when` joins under the written union moved,
+  with the nested grouping and the claim-and-`0` case, to
+  `join_under_written_union`, each refused with the two errors above. Run
+  data `qualifiers/sibling_field_claims.sv`'s
+  `a_written_union_of_two_claims_runs` passes either claim from the
+  branches of an `if` instead of joining under the annotation (same
+  output).
+
 ### 2026-11-11 — `println` prints any value with a `to_str` ([std-console])
 
 **The user wrote the overload** in `lib/std/core/console.sv`:
@@ -243,8 +280,8 @@ had already fixed).
   a.pos } else { if d { b.pos } else { <ended> } }` joined to `Idx(a.str)
   Int | Int` while its regroupings gave `Int`) is gone: every grouping and
   order is `Int`.
-- **Agent's call within the decision, to confirm (ROADMAP §0bh)**: a value
-  join checked against a written type keeps its paths' claims when every
+- **Agent's call within the decision, reversed by the user (entry above)**: a value
+  join checked against a written type kept its paths' claims when every
   path fits the type and the plain join would not: `let y: Idx(a.str) Int
   | Idx(b.str) Int = if c { a.pos } else { b.pos }` was accepted before and
   would otherwise be refused (`Int` fits no arm). Probed on the parent

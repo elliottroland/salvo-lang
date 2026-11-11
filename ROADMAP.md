@@ -643,20 +643,6 @@ Found building [type-query] and [type-assert] (COMPLETED.md).
   are one runtime `Int`; whether such a type should be allowed at all, or
   read as its join (`Int`), is open. Found 2026-11-11 with the join rule
   (COMPLETED.md).
-- **DECISION (agent's call, to confirm): a value join under a written
-  type keeps its paths' claims** (`join_union`'s `expected`): `let y:
-  Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos }` was
-  accepted before the join rule and would be refused under it (the plain
-  `Int` fits no arm), so where every path fits the expected type and the
-  plain join does not, the join is the union of the paths' types. Only an
-  `if`/`when` value reads it (a loop value passes none: its expected type
-  is not tracked), and only the outermost: a branch's tail is checked with
-  no expected type, so `let y: Idx(a.str) Int | Idx(b.str) Int = if c { if
-  d { a.pos } else { b.pos } } else { a.pos }` joins the inner `if` to
-  `Int` and is refused (`type-union:no-arm`), which the parent accepted;
-  passing the expected type into a tail `if`/`when` would fix it. The
-  alternative is to refuse all of these, which the item above makes
-  nearly free.
 - **A `type?` in a comptime-expanded fn reports once per copy**, under each
   copy's origin prefix (`check_type_query` pushes directly; warnings in a
   copy are held and merged by `copy_warnings`). Not probed with a test;
@@ -2438,6 +2424,12 @@ while the cache stands in for std's check. Not reproduced.
    depending on the program first). Step 3 has landed, so this is unblocked.
 
 ## Recorded, not scheduled
+
+- **A join under a written union of claims** (user, 2026-11-11: refused,
+  may come back with a good use case): `let y: Idx(a.str) Int | Idx(b.str)
+  Int = if c { a.pos } else { b.pos }` is refused, since a join never reads
+  its expected type; such a union stays a legal type (a parameter, passing
+  either claim to it).
 
 - **An emitter decisions pass** (user, 2026-10-30: "I expect that there will
   be a sizable pass on emitter decisions, so I'm postponing it"): what the

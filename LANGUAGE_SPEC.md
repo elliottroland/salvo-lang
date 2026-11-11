@@ -2296,12 +2296,13 @@ Conventions:
     keeps). A union that is not a join keeps its written claims
     (`mk_union`): a written type (`x: Idx(a.str) Int | Idx(b.str) Int` is
     two arms), an `is` test's arms, a re-typing's, the messages a body
-    throws. A value join checked against such a written type
-    (`let y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos
-    }`) keeps its paths' claims when every path fits the type and the plain
-    join would not (agent's call within the decision, to confirm: else the
-    `Int` fits no arm and an accepted program would be refused; only the
-    outermost `if`/`when` reads it, ROADMAP §0bh). A claim on constants
+    throws; a value of either claim is passed to such a parameter. A join
+    never reads the type it is checked against (user decision 2026-11-11):
+    `let y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos
+    }` joins to `Int`, which fits no arm, and is refused
+    (`type-union:no-arm`), however the paths nest; `let z: Int = …` over
+    the same `if` checks, and so does `let o: (Idx(a.str) Int)? = if c {
+    a.pos } else { None }`, whose arms are of different shapes. A claim on constants
     is a claim too: `if c { n } else { 0 }` over `n: InRange(0, 100) Int`
     is `Int`, and two paths of `InRange(0, 100) Int` keep it.
   * **A literal checks the pair**: the field's claim is about the value the
