@@ -34,6 +34,27 @@ test "an unproven range still answers the optional" {
     expect(substr(s, 2, 9) is None, "the range is not in the string")
 }
 
+// ===== [str-char] =====
+
+test "the total char_at reads every proven index" {
+    let s = "héllo"
+    let out = Mut Str()
+    let i = -1
+    while ++i is Idx(s) {
+        append(out, char_at(s, i))
+    }
+    expect_eq(out, s)
+    expect_eq(i, 5)
+}
+
+test "appending a character" {
+    let word = Mut Str("ca")
+    append(word, 't')
+    append(word, 'é')
+    expect_eq(word, "caté")
+    expect_eq(size(word), 4)
+}
+
 // ===== [str-search] [str-salvo] [str-mut-results] =====
 
 // An index or -1, for comparing.

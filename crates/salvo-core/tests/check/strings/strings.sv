@@ -80,3 +80,32 @@ fn non_native_field(o: Outer) -> None => o {
     //~ error[interp-to-str:no-text]
     let _s = "${o}"
 }
+
+// ===== reading and writing one character [str-char] =====
+
+// [str-char] [qual-refn-narrow] Appending a character makes any string
+// non-empty, an empty one included; appending text only keeps a string that
+// already was, since the text may be empty.
+fn a_character_makes_a_string_non_empty() -> None {
+    let s = Mut Str()
+    append(s, 'x')
+    type!(s: NonEmpty Mut Str)
+}
+
+fn text_makes_nothing_non_empty() -> None {
+    let s = Mut Str()
+    append(s, "x")
+    //~ error[type-assert:mismatch]
+    type!(s: NonEmpty Mut Str)
+}
+
+// [str-char] [col-idx] The total `char_at` answers a `Char` at a proven
+// index; an untested one reaches the optional read.
+fn the_total_read_needs_a_claim(s: Str, i: Int) -> None => s, i {
+    let _maybe = char_at(s, i)
+    type!(_maybe: Char?)
+    if i is Idx(s) {
+        let _sure = char_at(s, i)
+        type!(_sure: Char)
+    }
+}

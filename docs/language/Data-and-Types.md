@@ -254,8 +254,9 @@ come in a mutating flavour:
 ```salvo
 let text: Mut Str = Mut Str("hello")
 append(text, ", world")
+append(text, '!')          // one character
 set(text, 0, 'H')          // answers whether it wrote; ignorable
-println(text)              // Hello, world
+println(text)              // Hello, world!
 ```
 
 Everything else in `std.core.string` takes a plain `Str`, and a `Mut Str`

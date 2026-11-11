@@ -556,8 +556,6 @@ Found building [qual-depend-field] (COMPLETED.md).
   Str, i: Idx(nothing) Int)` checks clean, the claim satisfiable by nothing;
   the struct-field form is refused (`qual-depend-field:not-a-sibling`), the
   signature form should be too.
-- **`append(Mut Str, Char)` is not declared** (the demo's
-  `number_str.append(char)`); `append(s, "${c}")` is the spelling today.
 
 ### 0bh — What `type?` and `type!(x: T)` left (2026-11-11)
 

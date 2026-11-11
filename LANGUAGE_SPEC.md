@@ -1162,6 +1162,21 @@ Conventions:
   `lines(str)` (split at `\n`, a `\r` before it dropped, no empty last line
   for a trailing newline), and `split_once(str, sep)` / `split_last(str, sep)`
   (`(before, after)?`, at the first or last `sep`).
+* [str-char] **One character at a time** (user decision 2026-11-11):
+  `char_at(str, index: Idx(str) Int) -> Char` is the total read at an index
+  proven against that string [col-idx] (a `while ++i is Idx(str)` loop
+  [is-narrow-step] makes one each turn), ranked above the optional
+  `char_at(str, Int) -> Char?` [fn-overload-rank]; it is Salvo over the
+  optional one and still checks the bound (an `assert!`). `append(str: Mut
+  Str, char: Char)` appends one character without a string being made of
+  it, and **establishes** `NonEmpty` (`refn append(str: Mut Str, char: Char)
+  => str: +NonEmpty`), where appending text only keeps it
+  [qual-refn-narrow]. It is a Salvo overload over the private `platform fn
+  append_char` (Kotlin `StringBuilder.append(Char)`, Rust `String::push`),
+  since one host module's platform fns have one name each, as `index_of`
+  from an offset is over `index_of_from` [str-search]. Neither keeps an
+  `Idx` claim about the `Mut Str` it writes: no `preserve Idx` refinement
+  of a string's writes exists.
 * [fs-path-type] **`fs.path.Path` is a path as a value** (user decisions
   2026-10-04, and 2026-10-05 for the module, which moved from `path` to `fs.path`: a struct rather than functions over `Str`, so `Str`'s surface
   and its completion stay free of path operations): `struct Path : Hashed<self>
@@ -2596,7 +2611,9 @@ Conventions:
   (`qual-refn-narrow:other-param`, 2026-10-30), since a precondition is read
   on the parameter it is stated about and would otherwise be no condition at
   all. So `append` keeps a `NonEmpty Str` (`refn append(str: NonEmpty Mut Str,
-  text: Str)`) and cannot say "appending a non-empty text makes it non-empty".
+  text: Str)`) and cannot say "appending a non-empty text makes it non-empty";
+  appending a character establishes it (`refn append(str: Mut Str, char:
+  Char) => str: +NonEmpty`, [str-char]).
 
   This is the difference between a claim a call **establishes** and one it
   merely **keeps**, and it is not decoration: the unconditional form of the

@@ -12,7 +12,7 @@ fn describe_container@main(lent console: Console; lent xs: List<Int>) -> None {
   call println@std.core.console(read console, concat("1. list of ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(read xs)), " sums to ", call to_str(Int)@std.core.basic(read sum)))
   bind#3 let letters: Mut Str = call Mut_Str@std.core.string(array[Str[]]())
   foreach#4 c: Char in "salvo" {
-    call append@std.core.string(read letters, concat(call to_str(Char)@std.core.basic(read c), "."))
+    call append(Mut Str, Str)@std.core.string(read letters, concat(call to_str(Char)@std.core.basic(read c), "."))
   }
   call println@std.core.console(read console, concat("1. string: ", drop_mut(read letters)))
   bind#5 let arr: Int[] = call array_of@std.core.array<Int>(array[Int[]](10, 20, 30))
@@ -339,7 +339,7 @@ fn main@main() -> None {
       arm#0 (arm 0) {
         narrow#51[switch#50.arm#0] __emitted~20: Int = __step~19
         bind#52 let i: Int = !read __emitted~20
-        call append@std.core.string(read evens, concat(call to_str(Int)@std.core.basic(read i), " "))
+        call append(Mut Str, Str)@std.core.string(read evens, concat(call to_str(Int)@std.core.basic(read i), " "))
       }
       arm#1 (else) {
         break

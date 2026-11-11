@@ -150,6 +150,42 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — `append(Mut Str, Char)` and a total `char_at` at `Idx(str)` ([str-char])
+
+**User decision**: a string gets the two one-character operations the demo's
+reader wanted. `char_at(str, index: Idx(str) Int) -> Char` is the user's,
+written in Salvo over the optional read (an `assert!` keeps the bound check),
+and ranks above it wherever the index is proven, so `while ++i is Idx(s) {
+… char_at(s, i) … }` reads a `Char` with no `None` to handle.
+`append(str: Mut Str, char: Char)` appends one character.
+
+- **Its form** (agent's call): a Salvo overload over a private `platform fn
+  append_char` (Kotlin `StringBuilder.append(Char)`, Rust `String::push`),
+  not a second `platform fn append`: one host module's platform fns have one
+  name each, since Rust does not overload, which is the shape `index_of`
+  from an offset already has over `index_of_from`. It costs one forwarding
+  call, and no string is made of the character.
+- **Refinement**: `refn append(str: Mut Str, char: Char) => str: +NonEmpty`
+  in `Str`'s body: a character *establishes* `NonEmpty`, from empty too,
+  where appending text only keeps it. No `Idx` refinement of a string's
+  writes exists (index.sv preserves only a list's, a deque's and a buffer's
+  claims), so neither is mirrored; a `preserve Idx` for the `Mut Str`
+  appends would be the user's call.
+- **Regenerated**: the host project (`lib/platform`, every file's ABI hash
+  plus the new fns), every example's `std/core/string` and
+  `platform/std/core/string`, the codegen goldens that carry std (five per
+  backend), the iteration facts and IR dumps (a call to `append` now prints
+  its overload, `append(Mut Str, Str)`), and std's string parser snapshot.
+- **Tests**: run data `types/strings_by_character.sv` (reverse with `--i is
+  Idx(s)`, escape with `++i is Idx(s)`, an empty string, a character on an
+  empty builder, the optional read past the end; both backends);
+  `std.core.string`'s annex (every index of `"héllo"` read and appended, a
+  character appended, `size` after); `check/strings/strings.sv` (a
+  character establishes `NonEmpty`, text does not; the total read's `Char`
+  under the claim and `Char?` without it). 777 tests under nextest, all
+  green in a worktree of HEAD (1m40, warm after one 5m02 run that rebuilt
+  every std-dependent stamp).
+
 ### 2026-11-11 — A prefix step's `is` test narrows the stepped place ([is-narrow-step] [var-drop-assign])
 
 **User decision** (closing the ROADMAP §0bg decision on narrowing through a prefix step): `while ++pos is

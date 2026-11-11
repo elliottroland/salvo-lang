@@ -84,9 +84,11 @@
 export iterable platform type Str canbe Mut : Iter<self, StrIter, Char> {
     // Appending to a non-empty string keeps it non-empty, and writing one
     // character in place changes no length. Appending to an empty string
-    // establishes nothing: the text appended may be empty too.
+    // establishes nothing: the text appended may be empty too. Appending a
+    // character establishes it, as a list's `add` does.
     // @compilerrules [qual-refn-narrow]
     refn append(str: NonEmpty Mut Str, text: Str) => str: +NonEmpty
+    refn append(str: Mut Str, char: Char) => str: +NonEmpty
     refn set(str: NonEmpty Mut Str, index: Int, chr: Char) => str: +NonEmpty
 }
 
@@ -138,6 +140,32 @@ export platform fn byte_size(str: Str) [] -> Long => str
 // let none = char_at("abc", 3)                           // None
 // ```
 export platform fn char_at(str: Str, index: Int) [] -> Char? => str, index
+
+// The character at [index], with no `None` to handle: [index] is proven to
+// lie within [str].
+//
+// An `Idx(str) Int` is an `Int` the program has tested against this string,
+// with `i is Idx(str)`, `assert!(i is Idx(str))` or a loop condition such as
+// `while ++i is Idx(str)`, so `0 <= index < size(str)` is known where the
+// call is made. An index that has not been tested calls the [char_at] above,
+// which answers `Char?`. The read still checks the bound, as that one does.
+//
+// ```
+// let text = "salvo"
+// let out = Mut Str()
+// let i = -1
+// while ++i is Idx(text) {
+//     append(out, char_at(text, i))
+//     append(out, '.')
+// }
+// println(out)                                           // s.a.l.v.o.
+// ```
+// @compilerrules [str-char, col-idx, is-narrow-step]
+export fn char_at(str: Str, index: Idx(str) Int) [] -> Char => str, index {
+    let char = str.char_at((index: Int))
+    assert!(char is Char)
+    return char
+}
 
 // A fresh iterator over the characters of [str], in order. This is what
 // lets a `for` loop and every function of `std.core.seq` walk a string.
@@ -439,6 +467,25 @@ export fns FromStr<T> {
 // ```
 // @compilerrules [deduce-syntax]
 export platform fn append(str: Mut Str, text: Str) [] -> None => str: Mut, text
+
+// Appends the one character [char] to the end of [str], in place, without
+// making a string of it first. Afterwards [str] is non-empty, whatever it
+// held before.
+//
+// ```
+// let word = Mut Str("ca")
+// append(word, 't')
+// println(word)                                          // cat
+// ```
+// @compilerrules [str-char, deduce-syntax]
+export fn append(str: Mut Str, char: Char) [] -> None => str: Mut, char {
+    // A Salvo overload over a private platform fn, as `index_of` from an
+    // offset is: a host module's platform fns have one name each, since
+    // Rust has no overloading.
+    append_char(str, char)
+}
+
+platform fn append_char(str: Mut Str, char: Char) [] -> None => str: Mut, char
 
 // Replaces the character at [index] with [chr], and answers whether it did.
 //

@@ -23,7 +23,7 @@ describe_container(List<Int>) -> None@main
   22:5    `for c in "salvo" {…`          None
   22:9    `c`                            Char
   22:14   `"salvo"`                      Str
-  23:9    `append(letters, "${c}.")`     None  -> std.core.string::append
+  23:9    `append(letters, "${c}.")`     None  -> std.core.string::append(Mut Str, Str)
   23:16   `letters`                      Mut Str
   23:25   `"${c}."`                      Str
   23:28   `c`                            Char
@@ -458,7 +458,7 @@ main() -> None@main
   289:20  `0`                            Int
   289:23  `10`                           Int
   289:27  `2`                            Int
-  290:9   `append(evens, "${i} ")`       None  -> std.core.string::append
+  290:9   `append(evens, "${i} ")`       None  -> std.core.string::append(Mut Str, Str)
   290:16  `evens`                        Mut Str
   290:23  `"${i} "`                      Str
   290:26  `i`                            Int

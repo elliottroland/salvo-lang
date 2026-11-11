@@ -173,6 +173,11 @@ pub fn append(str: &mut String, text: &String) {
     str.push_str(text);
 }
 
+// [str-char] One character, without making a string of it first.
+pub fn append_char(str: &mut String, char: char) {
+    str.push(char);
+}
+
 // [col-bounds] Out of range writes nothing and answers `false`.
 pub fn set(str: &mut String, index: i32, chr: char) -> bool {
     if index < 0 || index as usize >= str.chars().count() {

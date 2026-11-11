@@ -74,6 +74,11 @@ fun append(str: MutStr, text: String) {
     str.append(text)
 }
 
+// [str-char] One character, without making a string of it first.
+fun appendChar(str: MutStr, char: Char) {
+    str.append(char)
+}
+
 // [col-bounds] Out of range writes nothing and answers `false`.
 fun set(str: MutStr, index: Int, chr: Char): Boolean =
     if (index >= 0 && index < str.length) {
