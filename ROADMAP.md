@@ -600,26 +600,30 @@ Found building [type-query] and [type-assert] (COMPLETED.md).
   (`type?` shows it; identity is unaffected). The join now respells what
   it joins (`respell_claims`); a call result could take the argument's
   spelling the same way.
-- **Two claims about two values both still named stay two at a value
-  join**: the user's 2026-11-11 decision (COMPLETED.md) drops a joined claim
-  no name in scope reaches, which makes the branch-local half of the next
-  item moot (its `assert!(i is Idx(s))` repro now joins to `Int`); `if c {
-  a.pos } else { b.pos }` is still `Idx(a.str) Int | Idx(b.str) Int`, and
-  what that value join should be is open, as is the reachable mixed case
-  `if c { a.pos } else { 0 }` (`Idx(a.str) Int | Int`, the `a.pos` branch
-  refused). The nested `if c { a.pos } else { if d { b.pos } else {
-  <ended> } }` gives that refused join too (the inner `if` is `Int`), so a
-  rule for it would also settle that one.
-- **Open defect: a value joined from two claims on one base is usable as
-  neither**: `if c { a.pos } else { b.pos }` over two cursors is
-  `Idx(a.str) Int | Idx(b.str) Int` (correctly two claims), but no `Int`
-  parameter takes it (`get(a.items, i)` finds no overload, the optional
-  one included), and when both claims are about branch-local values
-  (`if c { let s = "ab"; let i = 0; assert!(i is Idx(s)); i } else { … }`
-  with another `s`) each branch's value is refused ("no arm of `Idx(s) Int
-  | Idx(s) Int` accepts …"). The arms erase to one runtime arm `Int`; a
-  variable's state over the same paths keeps neither claim (`Int`). The
-  value join could do what the state join does.
+- **A written union of two claims of one shape is usable only whole**:
+  `x: Idx(a.str) Int | Idx(b.str) Int` is kept (a join no longer builds
+  one, but a written type does), and it can be passed on, but no `is` test
+  separates its arms (`x is Idx(a.str) Int` matches both, so `type?` still
+  shows the union and a `when` over it reports the second branch dead), no
+  `Int` parameter takes it (`call-resolve:no-overload`), `x + 1` finds no
+  `plus`, and `(x: Int)` is refused (`qual-retype:union-base`). Both arms
+  are one runtime `Int`; whether such a type should be allowed at all, or
+  read as its join (`Int`), is open. Found 2026-11-11 with the join rule
+  (COMPLETED.md).
+- **DECISION (agent's call, to confirm): a value join under a written
+  type keeps its paths' claims** (`join_union`'s `expected`): `let y:
+  Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos }` was
+  accepted before the join rule and would be refused under it (the plain
+  `Int` fits no arm), so where every path fits the expected type and the
+  plain join does not, the join is the union of the paths' types. Only an
+  `if`/`when` value reads it (a loop value passes none: its expected type
+  is not tracked), and only the outermost: a branch's tail is checked with
+  no expected type, so `let y: Idx(a.str) Int | Idx(b.str) Int = if c { if
+  d { a.pos } else { b.pos } } else { a.pos }` joins the inner `if` to
+  `Int` and is refused (`type-union:no-arm`), which the parent accepted;
+  passing the expected type into a tail `if`/`when` would fix it. The
+  alternative is to refuse all of these, which the item above makes
+  nearly free.
 - **A `type?` in a comptime-expanded fn reports once per copy**, under each
   copy's origin prefix (`check_type_query` pushes directly; warnings in a
   copy are held and merged by `copy_warnings`). Not probed with a test;

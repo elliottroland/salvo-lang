@@ -3088,6 +3088,20 @@ fn drop_claims_about(t: &Ty, dead: &[Identity]) -> (Ty, bool) {
     }
 }
 
+/// [qual-depend-field] Whether `t` holds a droppable claim
+/// (`droppable_claim`) anywhere: at the top, on a union's arms, in a type
+/// argument or a tuple element.
+fn has_droppable_claim(t: &Ty) -> bool {
+    match t {
+        Ty::Qualified { quals, base } => {
+            quals.iter().any(|q| droppable_claim(q) || q.args.iter().any(has_droppable_claim)) || has_droppable_claim(base)
+        }
+        Ty::Named { args: ts, .. } | Ty::Union(ts) | Ty::Tuple(ts) => ts.iter().any(has_droppable_claim),
+        Ty::Array(e) => has_droppable_claim(e),
+        _ => false,
+    }
+}
+
 /// [qual-depend-field] `t` with every droppable claim (`droppable_claim`)
 /// erased, wherever it is: the shape two arms must share for one to absorb
 /// the other at a join.
@@ -3144,22 +3158,42 @@ fn flat_arms(arms: Vec<Ty>) -> Vec<Ty> {
         .collect()
 }
 
-/// [qual-depend-field] The arms of a join after its unreachable claims were
-/// dropped (each with whether it lost one): an arm that lost a claim is no
-/// longer claimed there, so another arm of its shape (`erase_claims`) joins
-/// it with only the claims both hold (`common_claims`), whatever the order
-/// of the arms. The join of `Idx(a.str) Int` and an `Idx(s) Int` whose `s`
-/// has ended is `Int`, and so is that of `a.pos`, `b.pos` and such an
-/// index. Arms of a shape no arm lost a claim in are left as they are, as
-/// two claims about two values that are both still named are.
+/// [qual-depend-field] The arms of a **join of paths**, one per shape: arms
+/// of one shape (`erase_claims` agrees) are one arm, keeping a claim only
+/// where every one of them holds it (`common_claims`, by identity), so
+/// `a.pos` joined with `b.pos`, or with `0`, is `Int` (user decision
+/// 2026-11-11): a union of a claimed and an unclaimed `Int` would still
+/// have to be tested before the claim could be used, as a plain `Int` is.
+/// The arm stands where the first of its shape did and keeps its spelling,
+/// so the result is the same in any arm order and under any grouping of a
+/// nested join. Arms of different shapes are not compared
+/// (`Idx(a.str) Int | Str` keeps its claim).
+fn join_arms(arms: Vec<Ty>) -> Vec<Ty> {
+    fold_shapes(arms, &|_| true)
+}
+
+/// [qual-depend-field] A union inside a joined type, after the claims
+/// nothing at the join names were dropped from it (each arm with whether
+/// it lost one): an arm that lost a claim absorbs the arms of its shape
+/// (`common_claims`), whatever their order; the arms of a shape none lost a
+/// claim in are left as the union had them, since the union is not itself
+/// the join's.
 fn join_dropped_arms(arms: Vec<(Ty, bool)>) -> Vec<Ty> {
     // The shapes an arm lost a claim in, first, so the result does not
     // depend on the order of the arms.
     let lost: Vec<Ty> = arms.iter().filter(|(_, d)| *d).map(|(t, _)| erase_claims(t)).collect();
+    fold_shapes(arms.into_iter().map(|(t, _)| t).collect(), &|shape| lost.contains(shape))
+}
+
+/// [qual-depend-field] `arms` with the arms of each shape `folds` answers
+/// for (`erase_claims`) folded into the first of them, keeping only the
+/// claims all of them hold (`common_claims`); the other arms as they are,
+/// in order.
+fn fold_shapes(arms: Vec<Ty>, folds: &dyn Fn(&Ty) -> bool) -> Vec<Ty> {
     let mut out: Vec<(Ty, Ty)> = Vec::new();
-    for (t, _) in arms {
+    for t in arms {
         let shape = erase_claims(&t);
-        if lost.contains(&shape) {
+        if folds(&shape) {
             if let Some(slot) = out.iter_mut().find(|(_, s)| *s == shape) {
                 slot.0 = common_claims(&slot.0, &t);
                 continue;
@@ -18721,7 +18755,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 }
             }
             if everywhere {
-                let narrowed = self.mk_union(tys);
+                let narrowed = self.join_union(tys, None);
                 // [var-drop-assign] A variable may read below its declared
                 // type (a step or an assignment dropped a claim): a fact
                 // that gives the declared type back is still a fact.
@@ -19307,7 +19341,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // the branches, whose locals have ended (for a variable that
                 // is still there); a claim nothing names then is dropped.
                 let joined = match self.locals.get(frame_idx).is_some_and(|f| f.contains_key(name)) {
-                    true => self.respell_claims(joined, &narrowed_states).0,
+                    true => self.respell_claims(joined, &narrowed_states),
                     false => joined,
                 };
                 // Fate links union across branches [fate-link].
@@ -20946,21 +20980,51 @@ impl<'p, 'r> Checker<'p, 'r> {
     }
 
 
-    /// Builds a union, recording the wrapper size when one is needed.
-    /// [qual-depend-field] The join of paths: a claim is spelled as it names
-    /// its value here (`respell_claims`), and arms that are one type under
-    /// two spellings of a claim are one arm (`Ty::union_of`). A claim
-    /// nothing here names is dropped, and an arm that lost one absorbs the
-    /// arms of its shape (`join_dropped_arms`).
+    /// Builds a union that is **not a join of paths**: a written type, an
+    /// `is` test's matched and remaining arms, a re-typing's, the messages a
+    /// body throws. [qual-depend-field] Its arms keep the claims they were
+    /// given (`x: Idx(a.str) Int | Idx(b.str) Int` is two arms); arms that
+    /// are one type under two spellings of a claim are one (`Ty::union_of`).
+    /// A join uses `join_union`.
     fn mk_union(&mut self, arms: Vec<Ty>) -> Ty {
-        if !arms.iter().any(Self::ty_has_value_ref) {
+        Ty::union_of(arms)
+    }
+
+    /// [qual-depend-field] The **join of paths** (an `if`/`when`/`?:` or
+    /// loop value, the facts kept after a guard, an `||` of tests): a claim
+    /// is spelled as it names its value here, and one nothing here names is
+    /// dropped (`respell_claims`); then the arms of one shape are one arm,
+    /// keeping only the claims every path holds (`join_arms`), so
+    /// `if c { a.pos } else { b.pos }` is `Int`. A variable's state after
+    /// branches is `merge_fallthrough`'s.
+    ///
+    /// `expected` is the type a value join is checked against (`let y: T =
+    /// if …`): when every path's value fits it and the plain join would not
+    /// (`T` is a written `Idx(a.str) Int | Idx(b.str) Int`), the join keeps
+    /// its paths' claims, as their union, since the written type asks for
+    /// them (agent's call within the user's 2026-11-11 decision).
+    fn join_union(&mut self, arms: Vec<Ty>, expected: Option<&Ty>) -> Ty {
+        if !arms.iter().any(has_droppable_claim) {
             return Ty::union_of(arms);
         }
         let arms = flat_arms(arms);
-        let pool = arms.clone();
-        let pool: Vec<&Ty> = pool.iter().collect();
-        let arms = arms.into_iter().map(|a| self.respell_claims(a, &pool)).collect();
-        Ty::union_of(join_dropped_arms(arms))
+        let arms: Vec<Ty> = match arms.iter().any(Self::ty_has_value_ref) {
+            true => {
+                let pool = arms.clone();
+                let pool: Vec<&Ty> = pool.iter().collect();
+                arms.into_iter().map(|a| self.respell_claims(a, &pool)).collect()
+            }
+            false => arms,
+        };
+        let Some(e) = expected else {
+            return Ty::union_of(join_arms(arms));
+        };
+        let joined = Ty::union_of(join_arms(arms.clone()));
+        if is_subtype(&joined, e) {
+            return joined;
+        }
+        let kept = Ty::union_of(arms);
+        if is_subtype(&kept, e) { kept } else { joined }
     }
 
     // ================= name resolution =================
@@ -28866,7 +28930,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // one side narrows is not narrowed [flow-or-not].
                 for ln in &l.then_narrows {
                     if let Some(rn) = r.then_narrows.iter().find(|rn| rn.place == ln.place) {
-                        let joined = self.mk_union(vec![ln.narrowed.clone(), rn.narrowed.clone()]);
+                        let joined = self.join_union(vec![ln.narrowed.clone(), rn.narrowed.clone()], None);
                         out.then_narrows.push(Narrow {
                             place: ln.place.clone(),
                             narrowed: joined,
@@ -29771,7 +29835,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             let facts = self.join_path_facts(&through_facts);
             self.install_narrows(&facts);
         }
-        let join = self.mk_union(branch_tys);
+        let expected = self.value_expected.clone();
+        let join = self.join_union(branch_tys, expected.as_ref());
         for tail in tails.into_iter().flatten() {
             self.coerce_tail(&tail, &join);
         }
@@ -30114,7 +30179,8 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ),
             );
         }
-        let join = self.mk_union(branch_tys);
+        let expected = self.value_expected.clone();
+        let join = self.join_union(branch_tys, expected.as_ref());
         for tail in tails.into_iter().flatten() {
             self.coerce_tail(&tail, &join);
         }
@@ -30153,7 +30219,7 @@ impl<'p, 'r> Checker<'p, 'r> {
         if ctx.may_skip_value {
             arms.push(Ty::none());
         }
-        let join = self.mk_union(arms);
+        let join = self.join_union(arms, None);
         for tail in body_tail.into_iter().chain(ctx.breaks).chain(else_tail) {
             self.coerce_tail(&tail, &join);
         }
@@ -32712,11 +32778,10 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// no call could use it, so the join keeps the plain type
     /// (`drop_claims_about`). A claim whose root a local in scope still is,
     /// or holds a fate link to, may be reachable by a path `spell_here`
-    /// does not build, so it is kept under the spelling it had. Answers
-    /// whether a claim was dropped.
-    fn respell_claims(&self, ty: Ty, pool: &[&Ty]) -> (Ty, bool) {
+    /// does not build, so it is kept under the spelling it had.
+    fn respell_claims(&self, ty: Ty, pool: &[&Ty]) -> Ty {
         if !Self::ty_has_value_ref(&ty) {
-            return (ty, false);
+            return ty;
         }
         let mut spellings: Vec<(String, Identity)> = Vec::new();
         for t in pool {
@@ -32743,7 +32808,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
             found
         });
-        drop_claims_about(&respelled, &dead)
+        drop_claims_about(&respelled, &dead).0
     }
 
     /// [qual-const] The constants each fixed parameter's argument is, when it

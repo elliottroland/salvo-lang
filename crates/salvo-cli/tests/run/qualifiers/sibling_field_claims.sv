@@ -225,3 +225,86 @@ fn main() [use] -> None {
 //= 2 1
 //= 3 0
 //= 23 31
+
+// A claim not every path holds is dropped at the join: two cursors' indexes,
+// or an index and a plain `Int`, join to a plain `Int` that an `Int`
+// parameter takes, however the paths are grouped.
+
+//--- a_claim_not_every_path_holds_is_dropped
+struct Cursor {
+    str: proj Str
+    pos: Idx(str) Int
+}
+
+fn plain(i: Int) [] -> Str => i {
+    return "${i}"
+}
+
+fn either(a: Cursor, b: Cursor, c: Bool) [] -> Str => a, b {
+    return plain(if c { a.pos } else { b.pos })
+}
+
+fn or_zero(a: Cursor, c: Bool) [] -> Str => a {
+    let p = if c { a.pos } else { 0 }
+    return plain(p)
+}
+
+fn grouped(a: Cursor, b: Cursor, n: Int) [] -> Int => a, b {
+    let p = if n == 0 {
+        a.pos
+    } else {
+        if n == 1 { b.pos } else { 7 }
+    }
+    let q = if n != 2 {
+        if n == 0 { a.pos } else { b.pos }
+    } else {
+        7
+    }
+    return p * 10 + q
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let s = "salvo"
+    let t = "kiwi"
+    let a = Cursor { str: s, pos: 3 as! Idx(s) }
+    let b = Cursor { str: t, pos: 1 as! Idx(t) }
+    println("${either(a, b, true)} ${either(a, b, false)}")
+    println("${or_zero(a, true)} ${or_zero(a, false)}")
+    println("${grouped(a, b, 0)} ${grouped(a, b, 1)} ${grouped(a, b, 2)}")
+}
+//= stdout
+//= 3 1
+//= 3 0
+//= 33 11 77
+
+// A written union of two claims is kept, and so is a join declared that
+// type: both arms are one runtime `Int`.
+
+//--- a_written_union_of_two_claims_runs
+struct Cursor {
+    str: proj Str
+    pos: Idx(str) Int
+}
+
+fn show(a: Cursor, b: Cursor, x: Idx(a.str) Int | Idx(b.str) Int) [] -> Str => a, b, x {
+    return "${x}"
+}
+
+fn either(a: Cursor, b: Cursor, c: Bool) [] -> Str => a, b {
+    let y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos }
+    return "${show(a, b, y)} ${show(a, b, b.pos)}"
+}
+
+fn main() [use] -> None {
+    use StdConsole()
+    let s = "salvo"
+    let t = "kiwi"
+    let a = Cursor { str: s, pos: 3 as! Idx(s) }
+    let b = Cursor { str: t, pos: 1 as! Idx(t) }
+    println(either(a, b, true))
+    println(either(a, b, false))
+}
+//= stdout
+//= 3 1
+//= 1 1

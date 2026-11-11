@@ -2,10 +2,12 @@
 // keeps one claim per fact. A `pos` destructured beside its `str` reads
 // `Idx(str)`, the field read `a.pos` reads `Idx(a.str)`: one claim under two
 // spellings, so the join of the two is the one claim, not a union of two
-// (which matched each branch's value twice and refused both). Two claims
-// about different values stay two. `//~ type[T]` is judged as `type!`
-// judges: a union of the two spellings is not `Idx(a.str) Int`, so these
-// pass only when the join merged.
+// (which matched each branch's value twice and refused both). A claim not
+// every path holds is dropped (user decision 2026-11-11): two claims about
+// different values, or a claim and none, join to the plain `Int`, which is
+// what using either would have to test for anyway. `//~ type[T]` is judged
+// as `type!` judges: a union of the two spellings is not `Idx(a.str) Int`,
+// so these pass only when the join merged.
 
 struct Cursor canbe Mut {
     str: proj Str
@@ -66,11 +68,12 @@ fn three_ways(a: Cursor, c: Bool, d: Bool) [] -> Char => a {
     return at(a.str, p)
 }
 
-// Two cursors are two values: their claims stay two, and neither holds of
-// the join.
+// Two cursors are two values: no claim holds on both paths, so the join is
+// the plain `Int`, as the variable's state over the same paths is, and an
+// `Int` parameter takes it.
 fn two_cursors_do_not_merge(a: Cursor, b: Cursor, c: Bool) [] -> Int => a, b {
     let _p = if c { a.pos } else { b.pos }
-    //~ type[Idx(a.str) Int | Idx(b.str) Int]
+    //~ type[Int]
     type?(_p)
     //~ error[type-assert:mismatch]
     type!(_p: Idx(a.str) Int)
@@ -80,10 +83,14 @@ fn two_cursors_do_not_merge(a: Cursor, b: Cursor, c: Bool) [] -> Int => a, b {
     }
     //~ type[Int]
     type?(v)
-    return v
+    return plain(_p) + v
 }
 
-// Two cursors each destructured: the same spelling, two values.
+fn plain(i: Int) [] -> Int => i {
+    return i
+}
+
+// Two cursors each destructured: the same spelling, two values, no claim.
 fn one_spelling_two_values(a: Cursor, b: Cursor, c: Bool) [] -> Int => a, b {
     let p = if c {
         let { str, pos } = a
@@ -94,7 +101,7 @@ fn one_spelling_two_values(a: Cursor, b: Cursor, c: Bool) [] -> Int => a, b {
         let _n = size(str)
         pos
     }
-    //~ type[Idx(a.str) Int | Idx(b.str) Int]
+    //~ type[Int]
     type?(p)
     return p
 }
@@ -380,6 +387,260 @@ fn reachable_claim_kept(c: Bool) [] -> Char {
     //~ type[Idx(s) Int]
     type?(p)
     return at(s, p)
+}
+
+// A claim on one path and none on the other: the join is the plain `Int`,
+// in either order (it was `Idx(a.str) Int | Int`, and the `a.pos` branch was
+// refused as matching both arms).
+fn claim_and_none(a: Cursor, c: Bool) [] -> Int => a {
+    let p = if c { a.pos } else { 0 }
+    //~ type[Int]
+    type?(p)
+    type!(p: Int)
+    let q = if c { 0 } else { a.pos }
+    //~ type[Int]
+    type?(q)
+    let r = when {
+        c { 0 }
+        else {
+            let { str, pos } = a
+            let _n = size(str)
+            pos
+        }
+    }
+    //~ type[Int]
+    type?(r)
+    return plain(p) + q + r
+}
+
+// Three paths, grouped every way: the claim survives only where every path
+// holds it, so each grouping and each order gives the same join.
+fn three_paths_any_grouping(a: Cursor, b: Cursor, c: Bool, d: Bool) [] -> Int => a, b {
+    let p1 = if c {
+        a.pos
+    } else {
+        if d {
+            b.pos
+        } else {
+            let s = "abc"
+            0 as! Idx(s)
+        }
+    }
+    //~ type[Int]
+    type?(p1)
+    let p2 = if c {
+        if d { a.pos } else { b.pos }
+    } else {
+        let s = "abc"
+        0 as! Idx(s)
+    }
+    //~ type[Int]
+    type?(p2)
+    let p3 = if c {
+        let s = "abc"
+        0 as! Idx(s)
+    } else {
+        if d { b.pos } else { a.pos }
+    }
+    //~ type[Int]
+    type?(p3)
+    let p4 = if c {
+        a.pos
+    } else {
+        if d { a.pos } else { b.pos }
+    }
+    //~ type[Int]
+    type?(p4)
+    let p5 = if c {
+        if d { a.pos } else { a.pos }
+    } else {
+        b.pos
+    }
+    //~ type[Int]
+    type?(p5)
+    let p6 = when {
+        c { b.pos }
+        d { 0 }
+        else { a.pos }
+    }
+    //~ type[Int]
+    type?(p6)
+    let p7 = if c {
+        if d { 0 } else { a.pos }
+    } else {
+        a.pos
+    }
+    //~ type[Int]
+    type?(p7)
+    return p1 + p2 + p3 + p4 + p5 + p6 + p7
+}
+
+// Three paths that all hold one claim, under any spelling and any grouping,
+// keep it.
+fn three_paths_one_claim(a: Cursor, c: Bool, d: Bool) [] -> Char => a {
+    let p = if c {
+        a.pos
+    } else {
+        if d {
+            let { str, pos } = a
+            let _n = size(str)
+            pos
+        } else {
+            a.pos
+        }
+    }
+    //~ type[Idx(a.str) Int]
+    type?(p)
+    let q = if c {
+        if d { a.pos } else { a.pos }
+    } else {
+        let { pos } = a
+        pos
+    }
+    //~ type[Idx(a.str) Int]
+    type?(q)
+    let _w = at(a.str, q)
+    return at(a.str, p)
+}
+
+// Arms of different shapes are not compared: the lone `Int` arm keeps its
+// claim beside a `Str`.
+fn different_shapes_keep(a: Cursor, c: Bool) [] -> Int => a {
+    let _p = if c { a.pos } else { "none" }
+    //~ type[Idx(a.str) Int | Str]
+    type?(_p)
+    let _q = if c { a.pos } else { None }
+    //~ type[(Idx(a.str) Int)?]
+    type?(_q)
+    return 0
+}
+
+// The facts after a guard on every path: two claims about two values keep
+// neither, one claim on both keeps it.
+fn guard_facts_two_claims(a: Cursor, b: Cursor, c: Bool, i: Int) [] -> Int => a, b {
+    if c {
+        if !(i is Idx(a.str)) {
+            return 0
+        }
+    } else {
+        if !(i is Idx(b.str)) {
+            return 1
+        }
+    }
+    //~ type[Int]
+    type?(i)
+    return i
+}
+
+fn guard_facts_one_claim(a: Cursor, c: Bool, i: Int) [] -> Char => a {
+    if c {
+        if !(i is Idx(a.str)) {
+            return 'x'
+        }
+    } else {
+        let { str } = a
+        if !(i is Idx(str)) {
+            return 'y'
+        }
+    }
+    //~ type[Idx(a.str) Int]
+    type?(i)
+    return at(a.str, i)
+}
+
+// An `||` of tests about two values narrows to neither claim.
+fn or_two_values(a: Cursor, b: Cursor, i: Int) [] -> Int => a, b {
+    if i is Idx(a.str) || i is Idx(b.str) {
+        //~ type[Int]
+        type?(i)
+        return plain(i)
+    }
+    return 0
+}
+
+// A loop's value joins its paths the same way: a `break` with one claim and
+// an `else` with another keep neither.
+fn loop_value_joins(a: Cursor, b: Cursor, n: Int) [] -> Int => a, b {
+    let i = 0
+    let p = while i++ < n {
+        if i == 2 {
+            break a.pos
+        }
+        b.pos
+    } else {
+        a.pos
+    }
+    //~ type[Int]
+    type?(p)
+    return plain(p)
+}
+
+// Inside a type argument, two claims both still named keep neither.
+fn lists_of_two_values(a: Cursor, b: Cursor, c: Bool) [] -> Int => a, b {
+    let xs = if c { List(a.pos) } else { List(b.pos) }
+    //~ type[NonEmpty List<Int>]
+    type?(xs)
+    let ys = if c { List(a.pos) } else { List(a.pos) }
+    //~ type[NonEmpty List<Idx(a.str) Int>]
+    type?(ys)
+    return plain(first(xs)) + first(ys)
+}
+
+// A claim on constants is a claim too: kept where every path holds it,
+// dropped where one does not.
+fn constant_claims(c: Bool, n: InRange(0, 100) Int, m: InRange(0, 100) Int, k: InRange(0, 5) Int) [] -> Int => n, m, k {
+    let p = if c { n } else { 0 }
+    //~ type[Int]
+    type?(p)
+    let q = if c { n } else { m }
+    //~ type[InRange(0, 100) Int]
+    type?(q)
+    let r = if c { n } else { k }
+    //~ type[Int]
+    type?(r)
+    return plain(p) + q + r
+}
+
+// A written union of two claims is not a join: a parameter declared so keeps
+// both arms, a value with either claim is passed to it, a local takes it
+// whole, and a join written into it keeps its paths' claims (the plain `Int`
+// would fit no arm).
+fn written_union(a: Cursor, b: Cursor, x: Idx(a.str) Int | Idx(b.str) Int) [] -> Int => a, b, x {
+    //~ type[Idx(a.str) Int | Idx(b.str) Int]
+    type?(x)
+    let _y = x
+    //~ type[Idx(a.str) Int | Idx(b.str) Int]
+    type?(_y)
+    return 0
+}
+
+fn forward_written_union(a: Cursor, b: Cursor, x: Idx(a.str) Int | Idx(b.str) Int) [] -> Int => a, b, x {
+    return written_union(a, b, x)
+}
+
+fn pass_written_union(a: Cursor, b: Cursor, c: Bool, d: Bool) [] -> Int => a, b {
+    let _i = written_union(a, b, a.pos)
+    let y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos }
+    //~ type[Idx(a.str) Int | Idx(b.str) Int]
+    type?(y)
+    let _j = forward_written_union(a, b, y)
+    let w: Idx(a.str) Int | Idx(b.str) Int = when {
+        c { b.pos }
+        d { a.pos }
+        else { b.pos }
+    }
+    //~ type[Idx(a.str) Int | Idx(b.str) Int]
+    type?(w)
+    let _k = forward_written_union(a, b, w)
+    // The plain join already fits a written `Int`: the claims go.
+    let z: Int = if c { a.pos } else { b.pos }
+    //~ type[Int]
+    type?(z)
+    // A path that fits no arm: the plain join is what is refused.
+    //~ error[type-union:no-arm]
+    //~ error[var-let-infer:annotation-mismatch]
+    let _v: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { 0 }
+    return written_union(a, b, b.pos) + z
 }
 
 fn main() {}

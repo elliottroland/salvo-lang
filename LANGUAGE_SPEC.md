@@ -2245,9 +2245,10 @@ Conventions:
     `Idx(a.str) Int`, not to a union of the two spellings, which matched
     each branch's value twice and refused both. Union arms dedup by
     `same_but_spelling` [type-union]; two claims about two values (`a.pos` and
-    `b.pos`) stay two, and a variable's state keeps neither
-    ([is-narrow-guard]'s join keeps the qualifiers every path keeps, a
-    claim by `same_claim`). A list literal's elements and a fn's returns
+    `b.pos`) are not one, and the join keeps neither (below), as a
+    variable's state does ([is-narrow-guard]'s join keeps the qualifiers
+    every path keeps, a claim by `same_claim`). A list literal's elements
+    and a fn's returns
     were already right: each is checked against one type (the first
     element's, the declared return type) by the identity-aware subtype
     relation.
@@ -2270,16 +2271,39 @@ Conventions:
     never dropped. A claim whose root a local in scope still is, or holds a
     fate link to, is kept under its old spelling, since a path the
     respelling does not build may reach it.
-    An arm that lost a claim absorbs every arm of its shape, keeping only
-    the claims all of them hold (`join_dropped_arms`, in any arm order), so
-    the join of `a.pos` and such an `Idx(s) Int` is `Int`, and so is that of
-    `a.pos`, `b.pos` and one: one path has no claim, so the join has none
-    (agent's call within the decision). A claim some name reaches is
-    respelled as above, and two claims about two values both still named
-    stay two (ROADMAP §0bh), as does a claimed arm beside an arm that never
-    had a claim (`if c { a.pos } else { 0 }`), so a nested join is not
-    associative: `if c { a.pos } else { if d { b.pos } else { <ended> } }`
-    joins the inner `if` to `Int` and the outer to `Idx(a.str) Int | Int`.
+  * **A join keeps only the claims every path holds** (user decision
+    2026-11-11): the arms of one shape (`erase_claims`: the type with its
+    claims erased; a borrow and an effect are not claims) are one arm,
+    keeping a claim only if every one of them carries that claim, by
+    identity (`same_claim`, under any spelling); otherwise the claim goes
+    and the plain type stays (`join_arms`). `if c { a.pos } else { b.pos }`
+    and `if c { a.pos } else { 0 }` are `Int`: a union like `Idx(a.str) Int
+    | Int` buys nothing, since using the claim would still need the test a
+    plain `Int` needs. It reaches into the arms as `common_claims` does (a
+    type argument, a tuple element: `List(a.pos)` joined with `List(b.pos)`
+    is `NonEmpty List<Int>`), and the arm stands where the first of its
+    shape did, so the join is the same in any arm order and under any
+    grouping of nested joins: `if c { a.pos } else { if d { b.pos } else {
+    <ended> } }`, and each regrouping, is `Int`. Arms of different shapes
+    are not compared: `if c { a.pos } else { "none" }` is `Idx(a.str) Int |
+    Str`, and arm order is unchanged [type-union-arm-identity]. A claim
+    about a value nothing names (above) is dropped from its arm first; one
+    union inside a joined type keeps its own arms, except that an arm that
+    lost such a claim absorbs the arms of its shape (`join_dropped_arms`).
+    Only a join of paths does this (`join_union`: an `if`/`when`/`?:` or
+    loop value, the facts after a guard, an `||` of tests; a variable's
+    state is `join_narrowed`'s, which already kept only what every path
+    keeps). A union that is not a join keeps its written claims
+    (`mk_union`): a written type (`x: Idx(a.str) Int | Idx(b.str) Int` is
+    two arms), an `is` test's arms, a re-typing's, the messages a body
+    throws. A value join checked against such a written type
+    (`let y: Idx(a.str) Int | Idx(b.str) Int = if c { a.pos } else { b.pos
+    }`) keeps its paths' claims when every path fits the type and the plain
+    join would not (agent's call within the decision, to confirm: else the
+    `Int` fits no arm and an accepted program would be refused; only the
+    outermost `if`/`when` reads it, ROADMAP §0bh). A claim on constants
+    is a claim too: `if c { n } else { 0 }` over `n: InRange(0, 100) Int`
+    is `Int`, and two paths of `InRange(0, 100) Int` keep it.
   * **A literal checks the pair**: the field's claim is about the value the
     literal gives the sibling (or, unwritten, the spread's field), and the
     value must carry it — `Cursor { str: s, pos: 0 as! Idx(t) }` is refused,

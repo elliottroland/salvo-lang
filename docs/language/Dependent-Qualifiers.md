@@ -274,14 +274,20 @@ fn pick(cursor: Cursor, first: Bool) -> Int {
 }
 ```
 
-Indexes of two cursors stay two claims: `if c { a.at } else { b.at }` is an
-index of `a.items` or of `b.items`, which is not an index of either one.
+A join keeps a claim only when every path holds it. Indexes of two cursors
+are two claims, so `if c { a.at } else { b.at }` is a plain `Int`: it is an
+index of `a.items` or of `b.items`, and using it as either would need the
+same test a plain `Int` needs. The same goes for a claim on one path and
+none on another (`if c { a.at } else { 0 }` is an `Int`), and for three or
+more paths, however the `if`s nest: the claim survives only if every path
+reaches it. Values of different types are not compared, so `if c { a.at }
+else { "none" }` is `Idx(a.items) Int | Str`. A union you write keeps its
+claims: a parameter `i: Idx(a.items) Int | Idx(b.items) Int` has both arms,
+and an `if` whose value is declared that type keeps its branches' claims.
 
 A claim about a value that only one branch could name ends with that
 branch. Nothing after the `if` can name the value, so no call could use the
 claim, and the join drops it: below, `i` is a plain `Int`. The same holds
-where one branch's claim is still named and another's is about a value that
-ended (that path's claim is gone, so no claim holds on every path), and
 wherever the claim sits, so an `(Idx(word) Int)?` joins to an `Int?` and a
 list of such indexes to a `List<Int>`.
 

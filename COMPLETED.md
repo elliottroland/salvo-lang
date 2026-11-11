@@ -150,6 +150,94 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — A join keeps only the claims every path holds ([qual-depend-field])
+
+**User decision (2026-11-11)**, the general rule for dependent claims at a
+join of paths (an `if`/`when`/`?:` or loop value, the facts kept after a
+guard, an `||` of tests; a variable's state already did it): arms of one
+shape (`erase_claims` equal) keep a claim only if all of them carry that
+claim (`same_claim`, by identity, any spelling); otherwise it is dropped
+and the plain type stays. A union like `Idx(a.str) Int | Int` buys
+nothing: using the claim would still need the test a plain `Int` needs.
+`if c { a.pos } else { b.pos }` was `Idx(a.str) Int | Idx(b.str) Int`,
+which no `Int` parameter took; `if c { a.pos } else { 0 }` was
+`Idx(a.str) Int | Int`, and its `a.pos` branch was refused as matching both
+arms. Both are `Int` now, as the variable's state over the same paths was.
+This closes the two §0bh items the entry below left open (the two-values
+value join, and "usable as neither", whose branch-local half that entry
+had already fixed).
+
+- **How**: `mk_union` is split. `join_union` is the join: it respells and
+  drops as before (`respell_claims`), then folds the arms of each shape
+  into the first of them with `common_claims` (`join_arms`, over
+  `fold_shapes`). `mk_union` is now plain `Ty::union_of` again, for the
+  unions that are not joins (a written type, an `is` test's matched and
+  remaining arms, a re-typing's, a `when` branch's subject arms, the
+  messages a body throws, the select hint): the entry below noted those
+  went through the join's dropping too. Only the five join sites call
+  `join_union`. A union *inside* a joined type is still not compared arm
+  by arm unless one of its arms lost a claim nothing names
+  (`join_dropped_arms`, now also over `fold_shapes`), since that union is
+  not the join's.
+- **Associative and order-free**: the fold is an intersection, and the arm
+  stands where the first of its shape did, so the old wrinkle (`if c {
+  a.pos } else { if d { b.pos } else { <ended> } }` joined to `Idx(a.str)
+  Int | Int` while its regroupings gave `Int`) is gone: every grouping and
+  order is `Int`.
+- **Agent's call within the decision, to confirm (ROADMAP §0bh)**: a value
+  join checked against a written type keeps its paths' claims when every
+  path fits the type and the plain join would not: `let y: Idx(a.str) Int
+  | Idx(b.str) Int = if c { a.pos } else { b.pos }` was accepted before and
+  would otherwise be refused (`Int` fits no arm). Probed on the parent
+  checker (it accepts it) and on the change without the exception (it
+  refused it: `type-union:no-arm`). `if`/`when` read their expected type;
+  a loop value passes none, and a nested `if` in a branch's tail gets none
+  either, so that grouping is still refused (ROADMAP §0bh, a gpu-reviewer
+  find).
+- **Found, not fixed (ROADMAP §0bh)**: a written `Idx(a.str) Int |
+  Idx(b.str) Int` can be passed on whole and nothing else: no `is` test
+  separates its arms, no `Int` parameter takes it, `+` finds no `plus`, and
+  `(x: Int)` is refused. The same on the parent checker.
+- **Unchanged**: a claim every path reaches is kept and respelled; a borrow
+  and an effect are never dropped (`droppable_claim`); arms of different
+  shapes keep their claims (`Idx(a.str) Int | Str`, `(Idx(a.str) Int)?`);
+  arm order is unchanged [type-union-arm-identity].
+- **Constant claims (agent's reading of "the same `droppable_claim`
+  notion")**: `droppable_claim` counts a claim on constants, but the join
+  only looked when some arm had a place claim, so `if c { n } else { 0 }`
+  over `n: InRange(0, 100) Int` was still `InRange(0, 100) Int | Int` with
+  the `n` branch refused as matching both arms (probed). The join now
+  folds whenever an arm holds a droppable claim (`has_droppable_claim`),
+  and respells only when one is about a place: that join is `Int`, and two
+  paths of `InRange(0, 100) Int` keep it (a gpu-reviewer find).
+- **Tests updated**: checker data `flow/joins.sv`'s
+  `two_cursors_do_not_merge` and `one_spelling_two_values` pinned the old
+  union and now expect `Int` (the first also passes the join to an `Int`
+  parameter). Nothing else in `tests/check/**`, `tests/run/**`, the corpus
+  or the goldens pinned a union of claims.
+- **Tests added**: in `flow/joins.sv`, a claim and none in both orders and
+  through a `when` (`claim_and_none`), seven groupings and orders of three
+  paths (`three_paths_any_grouping`), three paths holding one claim under
+  two groupings (`three_paths_one_claim`, kept), different shapes
+  (`different_shapes_keep`), guard facts with two claims and with one
+  (`guard_facts_two_claims`, `guard_facts_one_claim`), an `||` over two
+  values (`or_two_values`), a loop value (`loop_value_joins`), lists of two
+  values and of one (`lists_of_two_values`), constant claims
+  (`constant_claims`), and a written union in a signature, forwarded,
+  passed either claim, and as the declared type of an `if` and a `when`
+  join, with a written `Int` (the claims go) and a path that fits no arm
+  (refused) (`written_union`, `forward_written_union`,
+  `pass_written_union`). On the parent checker the
+  two updated cases, `claim_and_none`, five of the seven groupings and
+  `or_two_values` fail; the rest of those pass there too (pins of what
+  must not change); the later four were added after that probe and were
+  not run on the parent. Run data `qualifiers/sibling_field_claims.sv`
+  gains `a_claim_not_every_path_holds_is_dropped` (two cursors' indexes
+  and an index or `0` joined, passed to an `Int` parameter, under two
+  groupings) and `a_written_union_of_two_claims_runs` (the kept union and
+  a join declared that type, lowered and run), on both backends. 778 tests
+  under nextest (the new cases are data), all green in the worktree.
+
 ### 2026-11-11 — A join drops a claim nothing in scope names ([qual-depend-field])
 
 **User decision (2026-11-11)**, closing the DECISION ROADMAP §0bh recorded
@@ -42565,6 +42653,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **`mk_union` is not a join** (2026-11-11, [qual-depend-field]): a join of
+  paths drops the claims not every path holds (`join_union`), which is
+  wrong for a union that was written or split (`x: Idx(a.str) Int |
+  Idx(b.str) Int`, an `is` test's arms, a re-typing's): those would lose
+  their claims. A new site that unions the values of several paths calls
+  `join_union`; one that builds a union from a written type or splits an
+  existing one calls `mk_union`.
 
 - **`==` on a `Ty` compares a claim's spelling** (2026-11-11,
   [qual-depend-field]): `Ty::ValueRef`'s `path` is part of the derived
