@@ -266,7 +266,10 @@ with both fields instead), and it cannot be mutable in place: a `Mut` or
 field itself needs a value with the claim about this value's sibling, so
 `cursor.at++` is refused: a step of one cannot keep an index claim. On a
 local, `at++` is allowed and leaves the claim behind, as `at = at + 1`
-would; an `is Idx(items)` test gives it back.
+would; an `is Idx(items)` test gives it back. The two can be one
+condition: `while ++at is Idx(items)` steps `at` and, when the test holds,
+makes the stepped `at` an index of `items` in the body
+([Stepping in the condition](Control-Flow.md#stepping-in-the-condition)).
 
 A field read from a temporary (`make_cursor().at`) carries no claim: there
 is no value its sibling could be known as.

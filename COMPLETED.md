@@ -150,6 +150,83 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — A prefix step's `is` test narrows the stepped place ([is-narrow-step] [var-drop-assign])
+
+**User decision** (closing the ROADMAP §0bg decision on narrowing through a prefix step): `while ++pos is
+Idx(str) { … }` narrows `pos` in the body, so the demo's `next_str` reads
+`str.char_at(pos)` through the total overload. A step is an assignment and
+`++pos`'s value is `pos`'s new value, so testing the value tests the
+variable: the then-side narrows the place the prefix step names (a variable
+or a narrowable field path), as `pos is Idx(str)` right after a `pos++`
+would.
+
+- **Built** in `is_info`: the subject place of `++p is Q` is `p`. Nothing
+  else changed for the condition contexts: `if`, `elif`, a subject-less
+  `when`, `while`, `assert!` and `&&`/`||`/`!` all reach it through
+  `analyze_cond`, and the `while`'s back-edge walk already re-analyses the
+  condition (stepping again), so the claim is the test's on each iteration.
+- **The failed side** (agent's analysis, the user's rule): the step runs
+  before the test either way, so the `else`, what follows the loop (joined
+  with the loop's entry state, taken after the first test's step) and a
+  failed guard's fall-through keep the stepped type, a plain `Int` where the
+  step dropped a claim. A `break` under the claim meets the other paths
+  without it after the loop.
+- **Postfix** `i++ is Q` (agent's call, as the user framed it): tested, not
+  refused, and narrows nothing, since the value tested is the old one, which
+  `i` no longer holds.
+- **Found and fixed on the way: a write later in a condition kept an
+  earlier side's narrowing.** `i is Idx(s) && i++ < n` analysed the right
+  side under the left side's facts, restored the pre-condition state over
+  its step, and then handed the left side's `i: Idx(s)` to the branch: the
+  body read `i` with a claim the step had dropped (and `!(j is Idx(s)) ||
+  j++ > n` likewise past a guard, and an `elif ++i > n` after `if !(i is
+  Idx(s)) { return }`, a gpu-reviewer find). The new spelling made it easy
+  to write (`++i is Idx(s) && ++i < n`). Now `analyze_cond_under` walks the
+  right side, and each `elif` condition, in the earlier facts and answers
+  what it left at a place it wrote: that is the fact handed to where it
+  ran, and the state after an `elif` condition (which every later path
+  ran); after a right side, which may be skipped, the place is the join of
+  the skipping path and what it left. A first version kept the right
+  side's write on every path, which left `i is Idx(xs) && remove_last(ys)
+  is Int` an `Idx(xs) Int` in the `else`, where that test had failed (a
+  gpu-reviewer find, now a test); a third review found the join blind to a
+  claim on a union arm the left side picked (`r is Int &&
+  remove_last(ys) is Int` with `r: (Idx(ys) Int)?`; the state before comes
+  back without its dependent claims, as after a branch), and an earlier
+  fact about a field outliving the last one an `elif` condition
+  invalidated (both now tests). A left-side binding is handed on as the
+  right side left it (`r is Int k && ++k < n` gives a plain `Int` `k`).
+- **The storage view** of the narrowing is the stepped place's
+  (`repr_of(operand)`), not the step value's (a gpu-reviewer find): a
+  local stored as `Int?` and narrowed to `Int` keeps its optional storage.
+  Running that shape found an older Kotlin defect, recorded in ROADMAP
+  §0bg: a step of a narrowed optional local assigns the `val` its narrowing
+  reads, which kotlinc refuses.
+- **Unchanged, and recorded**: a field *declared* with the claim
+  (`cursor.pos: Idx(str) Int`) still cannot be stepped ([var-no-widen]), so
+  `++cursor.pos is Idx(cursor.str)` is refused at the step; the demo
+  destructures `pos` first, which is the narrowable local. The subject form
+  `when ++i { is Q { … } }` still needs a variable subject.
+- **Tests**: `check/flow/prefix_steps.sv` (new): the body narrowed and the
+  total overload reached; the stepped `Int` after the loop, in an `if`'s
+  and a `while`'s `else`; the claim made again each iteration (a body that
+  steps, and one that mutates the claimed list); `continue`/`break`; `if`,
+  `elif`, subject-less `when`, `assert!`, the `!` guard; `&&` carrying the
+  claim and `||` not; the write cases (a step or a mutation on the right of
+  `&&`, a field path, a stepped binding, a step on the right of `||` past a
+  guard, a step in an `elif`, a skipped right side's `else` for a local and
+  a field and `||`'s then-branch, a claim on an arm, an invalidated field
+  fact in an `elif`); an optional local; postfix not narrowing; a
+  field path (`++scan.pos is Idx(scan.str)`); a claim about another string
+  (`type-assert:mismatch` and no total overload); the demo's destructured
+  cursor; the claimed field's step still refused. Run data
+  `qualifiers/prefix_step_narrowing.sv`: a `next_str`-shaped string-literal
+  reader over a claimed cursor, with escapes and an unterminated literal,
+  plus prefix/postfix/never-running loops printing the indexes they saw,
+  identical on both backends; its only read of a character is the total
+  one, so it compiles only with the narrowing. A second program, the
+  stepped optional local, runs on Rust only (the Kotlin defect above).
+
 ### 2026-11-11 — `type!(place: T)` replaces `assert!(place: T)`; `//~ type[T]` judged by identity ([type-assert] [type-query] [test-data])
 
 **User decisions:** (1) The static type check is spelled `type!(place: T)`,
@@ -422,7 +499,7 @@ destructuring gives `pos` the type `Idx(<the str obtained the same way>) Int`.
   user's: `todo!()`, `next_number`'s missing return, and `append(Mut Str, Char)`,
   which std does not declare (`"${c}"` is the text). `while ++pos is Idx(str)`
   does not narrow `pos` — the subject of the `is` is the step's value, not the
-  place (ROADMAP §0bg).
+  place (ROADMAP §0bg; it narrows since 2026-11-11, [is-narrow-step]).
 
 ### 2026-11-10 — A named union has a body of functions and refinements, as a struct does ([type-union-body])
 
@@ -42239,6 +42316,15 @@ snapshot diffs.
 
 ## Gotchas / lessons learned
 
+- **A condition's right side runs after its left side's facts were made**
+  (2026-11-11, [is-narrow-step]): the `&&` arm used to analyse its right
+  side under the left side's narrowings and then hand those narrowings to
+  the branch, as if nothing could happen in between. A step or a
+  mutating call on the right ends them. Any analysis that installs facts
+  around a sub-walk must ask whether the sub-walk wrote what they are
+  about (`analyze_cond_under`), and which paths reach what follows: a
+  right side may be skipped, so neither "restore" nor "keep the write" is
+  the state after it; the join of the two paths is.
 - **A written claim roots its whole path** (2026-11-11, [qual-depend-field]
   [type-assert]): a `let` annotation's or a type assertion's `Idx(cursor.str)`
   goes through `claim_identity_of_path` as an `is` test's does

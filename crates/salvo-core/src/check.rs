@@ -28487,6 +28487,92 @@ impl<'p, 'r> Checker<'p, 'r> {
         out
     }
 
+    /// [is-narrow-step] Analyzes a condition that runs after earlier ones
+    /// — the right side of a `&&` or a `||`, or an `elif` condition — in the
+    /// facts they give it (`narrows`, and the left side's `bindings`), and
+    /// answers what the paths through it know afterwards. It may write a
+    /// place those facts are about (`i is Idx(s) && i++ < n`, a prefix step
+    /// tested again, a mutation of the list a claim is about):
+    ///
+    /// - The facts handed on (the second result) are the ones that hold where
+    ///   it ran: a fact about a place it wrote becomes what it left there.
+    /// - The state after it is the join of the paths that reach what follows.
+    ///   An `elif` condition runs on every one of them (`always_runs`), so it
+    ///   is what the condition left. A right side may be skipped, so a place
+    ///   it wrote is the join of the skipping path (the state before the
+    ///   facts, restored) and what it left — neither the earlier facts nor
+    ///   the claims the write dropped survive on both.
+    /// - The left side's bindings are answered as it left them, so a binding
+    ///   it stepped is handed on without the claims the step dropped.
+    fn analyze_cond_under(&mut self, narrows: &[Narrow], bindings: &[Binding], rhs: &'p Expr, always_runs: bool) -> (CondInfo, Vec<Narrow>, Vec<Binding>) {
+        self.locals.push(HashMap::new());
+        for (ident, ty, links, _) in bindings {
+            self.declare_with_links(ident, ty.clone(), links.clone());
+        }
+        // Per narrow: what the condition left at its place, when it wrote it.
+        let (r, left) = self.with_narrows_in(narrows, always_runs, |c| {
+            let r = c.analyze_cond(rhs);
+            let left: Vec<Option<Option<Ty>>> = narrows
+                .iter()
+                .enumerate()
+                .map(|(k, n)| match n.place.is_root() {
+                    // A fact a later one about the same place replaced is
+                    // not what the place holds: only the last is compared.
+                    _ if narrows[k + 1..].iter().any(|m| m.place == n.place) => None,
+                    true => c.lookup(&n.place.root).filter(|v| v.narrowed != n.narrowed).map(|v| Some(v.narrowed.clone())),
+                    false => (c.place_narrow(&n.place) != Some(&n.narrowed)).then(|| c.place_narrow(&n.place).cloned()),
+                })
+                .collect();
+            (r, left)
+        });
+        if !always_runs {
+            for (n, left) in narrows.iter().zip(&left) {
+                let Some(left) = left else { continue };
+                if n.place.is_root() {
+                    if let (Some(left), Some(var)) = (left, self.lookup_mut(&n.place.root)) {
+                        // Over another base (the left side picked an arm),
+                        // the join cannot see claims on the arms: the
+                        // state before comes back without its dependent
+                        // claims, as after a branch that wrote it.
+                        var.narrowed = match left.strip_quals() == var.narrowed.strip_quals() {
+                            true => join_narrowed(&[&var.narrowed, left]),
+                            false => strip_dependent_deep(&var.narrowed),
+                        };
+                    }
+                } else {
+                    // A field fact the condition wrote falls back to the
+                    // declared type, a supertype of both paths [flow-place].
+                    self.drop_place_narrow(&n.place);
+                }
+            }
+        }
+        let bindings: Vec<Binding> = bindings
+            .iter()
+            .map(|(ident, ty, links, at)| {
+                let now = self.lookup(&ident.name).map(|v| v.narrowed.clone()).unwrap_or_else(|| ty.clone());
+                (ident.clone(), now, links.clone(), *at)
+            })
+            .collect();
+        self.locals.pop();
+        // An earlier fact about a place the condition wrote must not outlive
+        // the last one, which is what the write left (or nothing, when the
+        // write invalidated it).
+        let written: Vec<bool> = left.iter().map(Option::is_some).collect();
+        let last_written = |k: usize, place: &Place| narrows.iter().enumerate().skip(k + 1).filter(|(_, m)| &m.place == place).last().is_some_and(|(j, _)| written[j]);
+        let kept = narrows
+            .iter()
+            .zip(left)
+            .enumerate()
+            .filter(|(k, (n, _))| !last_written(*k, &n.place))
+            .filter_map(|(_, (n, left))| match left {
+                None => Some(n.clone()),
+                Some(Some(ty)) => Some(Narrow { place: n.place.clone(), narrowed: ty, declared: n.declared.clone() }),
+                Some(None) => None,
+            })
+            .collect();
+        (r, kept, bindings)
+    }
+
     fn analyze_cond(&mut self, cond: &'p Expr) -> CondInfo {
         match cond {
             Expr::Is { .. } => {
@@ -28521,19 +28607,11 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ..
             } => {
                 let l = self.analyze_cond(lhs);
-                let r = self.with_narrows(&l.then_narrows.clone(), |c| {
-                    c.locals.push(HashMap::new());
-                    for (ident, ty, links, _) in &l.bindings {
-                        c.declare_with_links(ident, ty.clone(), links.clone());
-                    }
-                    let r = c.analyze_cond(rhs);
-                    c.locals.pop();
-                    r
-                });
+                let (r, kept, l_bindings) = self.analyze_cond_under(&l.then_narrows, &l.bindings, rhs, false);
                 let mut out = CondInfo::default();
-                out.then_narrows.extend(l.then_narrows);
+                out.then_narrows.extend(kept);
                 out.then_narrows.extend(r.then_narrows);
-                out.bindings.extend(l.bindings);
+                out.bindings.extend(l_bindings);
                 out.bindings.extend(r.bindings);
                 out
             }
@@ -28544,7 +28622,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 ..
             } => {
                 let l = self.analyze_cond(lhs);
-                let r = self.with_narrows(&l.else_narrows.clone(), |c| c.analyze_cond(rhs));
+                let (r, kept_else, _) = self.analyze_cond_under(&l.else_narrows, &[], rhs, false);
                 let mut out = CondInfo::default();
                 // [is-union] When either side holds, a place both sides narrow
                 // is one of the two: `s is "json" || s is "text"` (and its
@@ -28561,7 +28639,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                         });
                     }
                 }
-                out.else_narrows.extend(l.else_narrows);
+                out.else_narrows.extend(kept_else);
                 out.else_narrows.extend(r.else_narrows);
                 out
             }
@@ -29059,7 +29137,17 @@ impl<'p, 'r> Checker<'p, 'r> {
             }
         };
 
-        let subject_place = Place::of_expr(subject).filter(|p| {
+        // [is-narrow-step] A prefix step's value is the stepped place's new
+        // value, so `++i is Idx(s)` narrows `i` itself. The step has already
+        // happened when the test runs, either way it goes: the failed side
+        // keeps the stepped type, which is what the step left. A postfix
+        // step's value is the old one, which the place no longer holds, so
+        // it narrows nothing.
+        let narrowed_expr = match subject.as_ref() {
+            Expr::IncDec { operand, prefix: true, .. } => operand.as_ref(),
+            other => other,
+        };
+        let subject_place = Place::of_expr(narrowed_expr).filter(|p| {
             // Only field chains out of a tracked local narrow [flow-place]
             // (user decision P1a): an element step cannot be told from a
             // sibling, and a place whose root is not a local has no flow
@@ -29090,7 +29178,13 @@ impl<'p, 'r> Checker<'p, 'r> {
 
         IsInfo {
             subject_place,
-            subject_repr: repr,
+            // [is-narrow-step] The narrowed place's own storage, not the
+            // step's value: a local stored as `Int?` and narrowed to `Int`
+            // keeps that storage when its step is tested.
+            subject_repr: match subject.as_ref() {
+                Expr::IncDec { prefix: true, .. } => self.repr_of(narrowed_expr, &subj_ty),
+                _ => repr,
+            },
             matched,
             remaining,
             binding,
@@ -29373,7 +29467,12 @@ impl<'p, 'r> Checker<'p, 'r> {
                 i == 0,
                 if i == 0 { "inside a larger condition" } else { "an `elif` condition" },
             );
-            let info = self.with_narrows(&acc_else.clone(), |c| c.analyze_cond(cond));
+            // [is-narrow-step] An `elif` condition runs in the earlier
+            // conditions' else-facts, and may write a place they narrowed
+            // (`elif ++i > n`): those facts end at the write, for this
+            // branch and every later one.
+            let (info, kept, _) = self.analyze_cond_under(&acc_else.clone(), &[], cond, true);
+            acc_else = kept;
             let entry = self.snapshot_narrows();
             let mut narrows = acc_else.clone();
             narrows.extend(info.then_narrows.iter().cloned());

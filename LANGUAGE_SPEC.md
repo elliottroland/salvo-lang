@@ -1613,7 +1613,8 @@ Conventions:
     variable reads without the qualifiers the old value had that a step
     cannot keep (claims such as `Idx(xs)` among them; before, `i++` kept the
     claim and a total `get` read past the end), as after `i = i + 1`; the
-    value of a prefix step (`++i`) is the new one, without them too. A
+    value of a prefix step (`++i`) is the new one, without them too (so
+    `++i is Q` narrows `i` [is-narrow-step]). A
     guard or an `is` test that gives them back counts as a narrowing even
     where it only restores the declared type (`join_path_facts` compares
     with the current reading), and a branch that assigns, steps or weakens
@@ -3186,6 +3187,49 @@ Conventions:
     total `get` over a `List<P?>` answers `proj(xs) P?`, a view of the whole
     optional, and `s is P p` binds `p: proj(xs) P` — each side keeps the
     `proj`. It used to bind `p` at `P?` (a field read on it was refused).
+* [is-narrow-step] **A prefix step's test narrows the place it steps** (user
+  decision 2026-11-11, closing a ROADMAP §0bg decision): a step is an assignment and
+  `++i`'s value is the new `i` ([var-drop-assign]), so `++i is Q` tests
+  what `i` now holds, and its then-side narrows `i` (a variable or a
+  narrowable field path, [flow-place]) as `i is Q` would right after the
+  step. The step runs before the test whichever way it goes, so the failed
+  side, and what follows a loop, keep the stepped type (a plain `Int` where
+  the step dropped a claim); a `while` condition steps again on each
+  iteration, so the claim is the test's each time round, never the last
+  iteration's (the back-edge walk re-analyses the condition,
+  `check_loop_body_in`). `if`, `elif`, a subject-less `when`, `assert!` and
+  `&&`/`||`/`!` all reach it through `analyze_cond`.
+  * **A postfix step does not narrow**: `i++ is Q` tests the old value,
+    which `i` no longer holds. It is tested, not refused, and narrows
+    nothing; every other non-place subject is as before.
+  * **A write later in a condition ends an earlier side's fact about the
+    place it writes** (found building this): the right side of `&&` or `||`,
+    and an `elif` condition, run in the facts the earlier conditions give
+    them (`analyze_cond_under`), and may write a place those facts are
+    about. Where the condition ran, the fact becomes what it left there; an
+    `elif` condition runs on every path that follows it, so that is the
+    state after it, while a right side may be skipped, so a place it wrote
+    is the join of the skipping path and what it left (a field fact falls
+    back to the declared type, and a variable whose left side picked an arm
+    gets the state before back without its dependent claims, which a join
+    of the two bases cannot see on the arms). An earlier fact about a
+    written place is not handed on past the last one. So `i is Idx(s) && i++ < n`, `++i is Idx(s)
+    && ++i < n` and `if !(i is Idx(s)) { return } elif ++i > n { … }` leave
+    `i` an `Int` in the branch and after, and `i is Idx(xs) &&
+    remove_last(ys) is Int` (with `i` also an `Idx(ys)`) leaves it an
+    `Idx(xs) Int` in the branch and an `Int` in the `else`. A left-side `is`
+    binding is handed on as the right side left it. Before, the earlier
+    narrowing was reinstalled over the write, and the branch read `i` with
+    a claim the step had dropped.
+  * The narrowing's storage view is the stepped place's own
+    (`repr_of(operand)`), so a local stored as `Int?` and narrowed to `Int`
+    keeps its optional storage when `++x is Q` narrows it again.
+  * A stepped field keeps its declared type, so `++c.pos is Idx(c.str)` on
+    a field *declared* with the claim is still refused at the step
+    ([var-no-widen]); the narrowing is for a field declared without it, and
+    for a local destructured from it.
+  * `when ++i { is Q { … } }`, the subject form, is unchanged: its subject
+    must be a variable.
 * [is-union] **`x is A | B` is `x is A || x is B`** (the CLI design record X4, Q9;
   built 2026-10-20), and **`||` narrows** a place both of its sides narrow,
   to the union of the two: `s is "json" | "text"` makes a `Str` a `"json" |

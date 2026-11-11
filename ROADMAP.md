@@ -509,11 +509,20 @@ Found building [qual-depend-field] (COMPLETED.md).
   the alternatives are a narrower step rule (drop only dependent claims, and
   keep `Positive` on `n++`, which would need the qualifier's own semantics to
   be sound) and checking the spread's field against the new sibling.
-- **DECISION: narrowing through a prefix step.** `while ++pos is Idx(str)`
-  (the demo's `next_str`) tests the step's *value*, so `pos` is not narrowed
-  and `str.char_at(pos)` in the body is the optional read. Narrowing the
-  place a prefix step names would be a new narrowing rule [is-narrow]; today
-  the spelling is `pos++` then `pos is Idx(str)`.
+- The `while ++pos is Idx(str)` decision is closed: built 2026-11-11 as
+  [is-narrow-step] (COMPLETED.md).
+- **Kotlin: a step of a narrowed optional local does not compile** (found
+  2026-11-11): `let o = start()` (an `Int?`), `if o is Int { o++ }` emits
+  `val o_3: Int = o!!` and then `o_3 = (o_3 + 1)`, which kotlinc refuses
+  ("'val' cannot be reassigned"); Rust runs it. Not a silent miscompile, and
+  independent of the step being tested; the run data
+  `qualifiers/prefix_step_narrowing.sv` keeps its `a_stepped_optional_local`
+  program Rust-only until it is fixed.
+- **A narrowing of an `is` binding does not reach the branch**: in `if o is
+  Int k && k is Idx(s) { … }`, `k` reads as `Int` in the branch, since the
+  right side's narrowing of `k` is installed before the branch declares the
+  binding (`check_if` applies narrows, then `check_branch_block` declares).
+  A precision gap, not unsound.
 - **Coarse spots left in claim identity**: a value that holds a borrow in
   more than one `proj` field (a zip over two lists), or through an owned
   field storing a view, has no projection the analysis knows, so its fields'

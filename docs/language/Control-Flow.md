@@ -258,6 +258,42 @@ type joins the body's last expression, every `break` value and the `else`, or
 `None` when there is no `else`. A bare `break` or a `continue` also joins
 `None`, since an iteration may end without producing a value.
 
+### Stepping in the condition
+
+A step is an assignment: `++i` stores `i + 1` in `i`, and its value is the
+new `i`. So `++i is Q` tests the variable's new value, and when the test
+holds, `i` itself is a `Q` in the body. That makes the common "advance, then
+check I am still in range" loop one line:
+
+```salvo
+fn first_negative(xs: List<Int>) -> Int? {
+    let i = -1
+    while ++i is Idx(xs) {
+        let x = get(xs, i)          // the total `get`: `i` is an `Idx(xs) Int` here
+        if x < 0 {
+            return x
+        }
+    }
+    return None                     // `i` is a plain `Int` here
+}
+```
+
+The step happens whether or not the test holds. Where it failed (the
+`else`, after the loop) `i` has still moved on, and is the plain `Int`
+the step left. Each iteration's test makes the claim again: what the
+previous iteration knew is not carried round the loop. `if`, `elif` and a
+subject-less `when` read a stepping condition the same way, and so does the
+left side of `&&`, whose right side and branch see the claim (the right
+side of `||` runs only when the left test failed, so it does not). A write
+later in the condition ends the claim: in `++i is Idx(xs) && ++i < n`, and
+in an `elif` that steps `i` after an earlier condition narrowed it, `i` is a
+plain `Int` again.
+
+The postfix step is different: `i++ is Q` tests the *old* value, which `i`
+no longer holds, so nothing is narrowed. The same is true of any test whose
+subject is not a variable or a field path: the test runs, and only a binding
+(`is Q name`) names what it proved.
+
 ## For loops
 
 `for` loops only work with iterators, and do not support the Java- or C-like
