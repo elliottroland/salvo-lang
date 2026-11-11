@@ -37,6 +37,43 @@ pub struct FileDiagnostic {
     pub id: Option<&'static str>,
     /// [doc-example] Reported at a doc comment for the example it holds.
     pub doc_example: bool,
+    /// [test-data] On a `type` report checked with [`TypeAnnotations`]: one
+    /// verdict per annotation naming its line, in their order. Empty
+    /// otherwise.
+    pub type_verdicts: Vec<TypeVerdict>,
+}
+
+/// [test-data] [type-query] The checker data's `//~ type[T]` annotations,
+/// handed to the checker (`CheckCache::check_annotated`) so each is judged
+/// where its `type?` is: its names resolved in the scope there, and compared
+/// with the place's type as `type!(place: T)` compares
+/// ([`crate::types::same_type`], claims by rooted identity). Keyed by file
+/// (an index into `Program::files`) and the 1-based line the annotation
+/// names.
+#[derive(Clone, Debug, Default)]
+pub struct TypeAnnotations {
+    pub at: std::collections::HashMap<(usize, usize), Vec<TypeAnnotation>>,
+}
+
+/// [test-data] One `//~ type[T]` annotation: the text of `T`, and where in
+/// its file that text starts, so what the checker records about the
+/// lowered type is placed inside the comment that wrote it.
+#[derive(Clone, Debug)]
+pub struct TypeAnnotation {
+    pub text: String,
+    pub offset: u32,
+}
+
+/// [test-data] What a [`TypeAnnotation`] says of the `type?` on its line.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TypeVerdict {
+    /// The place's type is the annotation's, as `type!` would judge it.
+    Holds,
+    /// It is not.
+    Differs,
+    /// The annotation does not mean a type there: why (a name that resolves
+    /// to nothing at the `type?`, a type the checker refuses).
+    Unresolved(String),
 }
 
 /// [type-unknown-lenient] One mistake, one diagnostic: a diagnostic that
@@ -63,6 +100,7 @@ impl FileDiagnostic {
             decl: None,
             id,
             doc_example: false,
+            type_verdicts: Vec::new(),
         }
     }
 
@@ -91,6 +129,7 @@ impl FileDiagnostic {
             decl: None,
             id,
             doc_example: false,
+            type_verdicts: Vec::new(),
         }
     }
 
@@ -105,7 +144,15 @@ impl FileDiagnostic {
             decl: None,
             id: d.id,
             doc_example: false,
+            type_verdicts: Vec::new(),
         }
+    }
+
+    /// [test-data] Attaches a `type` report's annotation verdicts
+    /// (`FileDiagnostic::type_verdicts`).
+    pub fn with_type_verdicts(mut self, verdicts: Vec<TypeVerdict>) -> Self {
+        self.type_verdicts = verdicts;
+        self
     }
 
     /// [diag-id] Gives the diagnostic `id`: for a text built (or reworded)

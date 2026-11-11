@@ -2261,11 +2261,11 @@ pub enum Expr {
         place: Box<Expr>,
         span: Span,
     },
-    /// [assert-type] `assert!(place: T)`: a check, when compiling, that the
+    /// [type-assert] `type!(place: T)`: a check, when compiling, that the
     /// place's current type is exactly `T`. Changes nothing and lowers to
     /// nothing. `ty` is `None` where the parser refused what followed the
     /// `:` (a `-Q` or `+Q` list), having reported it.
-    AssertType {
+    TypeAssert {
         place: Box<Expr>,
         ty: Option<Type>,
         span: Span,
@@ -2796,7 +2796,7 @@ impl Expr {
             | Expr::Todo { span, .. }
             | Expr::WhyNot { span, .. }
             | Expr::TypeQuery { span, .. }
-            | Expr::AssertType { span, .. }
+            | Expr::TypeAssert { span, .. }
             | Expr::IncDec { span, .. }
             | Expr::If { span, .. }
             | Expr::When { span, .. }

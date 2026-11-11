@@ -73,3 +73,19 @@ pub fn parse_type(source: &str) -> Option<ast::Type> {
     }
     ty
 }
+
+/// [test-data] [`parse_type`] of a type written at byte `offset` of a file
+/// (an annotation's, in a comment): every span is moved there, so what is
+/// recorded at them is placed in that text.
+pub fn parse_type_at(source: &str, offset: u32) -> Option<ast::Type> {
+    struct Shift(u32);
+    impl visit_mut::MutVisitor for Shift {
+        fn visit_span(&mut self, span: &mut Span) {
+            span.start += self.0;
+            span.end += self.0;
+        }
+    }
+    let mut ty = parse_type(source)?;
+    visit_mut::walk_type(&mut Shift(offset), &mut ty);
+    Some(ty)
+}

@@ -1,7 +1,7 @@
-// [type-query] [assert-type] What a place's type is, step by step, as the
+// [type-query] [type-assert] What a place's type is, step by step, as the
 // checker's flow facts say: `//~ type[T]` asserts the `type` diagnostic a
-// `type?(place)` reports, compared as a type; `assert!(place: T)` checks the
-// same thing in the program itself, and reports only when it is wrong.
+// `type?(place)` reports, judged as `type!` judges; `type!(place: T)` checks
+// the same thing in the program itself, and reports only when it is wrong.
 
 // An `is` test narrows inside the branch, and only there.
 fn narrowing_by_is(v: Int | Str) [] -> None => v {
@@ -10,11 +10,11 @@ fn narrowing_by_is(v: Int | Str) [] -> None => v {
     if v is Str {
         //~ type[Str]
         type?(v)
-        assert!(v: Str)
+        type!(v: Str)
     }
     //~ type[Str | Int]
     type?(v)
-    assert!(v: Str | Int)
+    type!(v: Str | Int)
 }
 
 // The guard idiom narrows the rest of the scope.
@@ -30,15 +30,15 @@ fn a_guard_narrows_what_follows(v: Int | Str) [] -> None => v {
 fn an_optional(o: Int?) [] -> None => o {
     //~ type[None | Int]
     type?(o)
-    assert!(o: Int?)
-    assert!(o: None | Int)
+    type!(o: Int?)
+    type!(o: None | Int)
     if o is Int {
         //~ type[Int]
         type?(o)
     }
 }
 
-// `assert!(x is Q)` narrows for good; `assert!(x: T)` checks and narrows
+// `assert!(x is Q)` narrows for good; `type!(x: T)` checks and narrows
 // nothing.
 fn an_assertion_narrows(s: Str, i: Int) [] -> None => s, i {
     //~ type[Int]
@@ -46,7 +46,7 @@ fn an_assertion_narrows(s: Str, i: Int) [] -> None => s, i {
     assert!(i is Idx(s))
     //~ type[Idx(s) Int]
     type?(i)
-    assert!(i: Idx(s) Int)
+    type!(i: Idx(s) Int)
 }
 
 // A step leaves the claim behind; an `is` test gives it back.
@@ -57,7 +57,7 @@ fn a_step_drops_the_claim(s: Str) [] -> None => s {
     i++
     //~ type[Int]
     type?(i)
-    assert!(i: Int)
+    type!(i: Int)
     if i is Idx(s) {
         //~ type[Idx(s) Int]
         type?(i)
@@ -110,7 +110,7 @@ fn a_claim_lost_by_mutation(xs: Mut List<Int>) [] -> None => xs: Mut {
     }
     //~ type[Mut List<Int>]
     type?(xs)
-    assert!(xs: Mut List<Int>)
+    type!(xs: Mut List<Int>)
 }
 
 // A call that may mutate a cursor strips the claims read from it.

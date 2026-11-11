@@ -432,8 +432,10 @@ Conventions:
   `unreachable!("why")`, and `todo!()` / `todo!("why")` (user decision
   2026-10-12). A third form, `whynot?(x is Q)`, answers a message instead
   of trapping, and is spelled with `?` for it [qual-whynot]; `type?(place)`
-  answers the place's type to the author [type-query]. `assert!(place: T)`
-  is the static form, decided by its `:` [assert-type].
+  answers the place's type to the author [type-query]. `type!(place: T)`
+  is its static check, spelled with `!` because it can break the build,
+  never the run [type-assert]; `assert!` itself is only ever a run-time
+  assertion.
   * `assert!` has type `None` and continues when the condition holds;
     `unreachable!` has type **`Never`**, so it stands where any value is
     expected and ends the path exactly as `throw` and `return` do
@@ -532,37 +534,44 @@ Conventions:
   * **In a loop, the last walk is reported**: the checker walks a loop body
     again when the first walk changed what it knows (`check_loop_body_in`),
     and what reports the walk's state — a `type` diagnostic, and a type
-    assertion's verdict [assert-type] — is the second walk's: the first
+    assertion's verdict [type-assert] — is the second walk's: the first
     walk's are dropped (a nested loop has settled its own), so a report is
     made once, and an assertion that holds on the last walk does not fail
     on the first. The second walk is the checker's final word on the body:
     there is no third.
-* [assert-type] **`assert!(place: T)` checks, when compiling, that a place's
-  type is exactly `T`** (user decisions 2026-11-11, B): the re-typing's
-  shape [qual-retype], but a check rather than a re-typing, and distinct
-  from the runtime `assert!(cond)` [assert-fn] by its `:` — the parser
-  reads the operand without the re-typing postfix and a `:` right inside
-  `assert!(` makes the form (`Expr::AssertType`), so a re-typing inside a
-  runtime assertion keeps its parentheses (`assert!((o: -Ok) is Int)`, as
-  the printer writes it).
+* [type-assert] **`type!(place: T)` checks, when compiling, that a place's
+  type is exactly `T`** (user decisions 2026-11-11, B; spelled `type!`
+  by a later user decision of the same day, renamed from `assert!(place:
+  T)`:
+  it is not a run-time check, so it is not an `assert!`, and `type?` and
+  `type!` are the two compile-time forms, matching the checker data's
+  `//~ type[T]`). The parser reads `type` `!` `(` where an expression
+  starts, as it reads `type?(` (`Expr::TypeAssert`), then the place
+  without the re-typing postfix, whose `:` this form takes, the `:` and
+  the type; the `!` marks a form that can fail, here the build.
+  `assert!(cond)` [assert-fn] is unchanged and never a type check: in
+  `assert!(x: T)` the condition is the re-typing `x: T` [qual-retype],
+  refused unless it is a `Bool` (`expr-cond-bool:not-bool`).
   * **Exact**: the base and the whole qualifier set, borrows, `Mut` and
     claims included, in any order (`types::same_type`; union arms in any
     order too); no subtyping, so `NonEmpty List<Int>` is not `List<Int>`.
-  * **`T` is read as a `let` annotation is** (`validate_type`, `lower_type`,
-    `root_annotation`), so a claim's place names the locals in scope,
-    rooted as an `is` test's are (`claim_identity_of_path`): `Idx(str)`
-    over a destructured `str` and `Idx(parsing.str)` are one claim, judged
-    by the rooted identity [qual-depend-field] (`same_identity`), never by
-    spelling, and `Idx(b.str)` is another cursor's.
+  * **`T` is read as a `let` annotation is** (`expected_type`:
+    `validate_type`, `lower_type`, `root_annotation`), so a claim's place
+    names the locals in scope, rooted as an `is` test's are
+    (`claim_identity_of_path`): `Idx(str)` over a destructured `str` and
+    `Idx(parsing.str)` are one claim, judged by the rooted identity
+    [qual-depend-field] (`same_identity`), never by spelling, and
+    `Idx(b.str)` is another cursor's.
   * **It changes nothing**: no `qualifies` call, no narrowing, nothing at
     run time (lowered as `type?` is), and the place is read as `type?`
     reads it [type-query].
-  * **Refused**: a type that is not the place's, `assert-type:mismatch`,
+  * **Refused**: a type that is not the place's, `type-assert:mismatch`,
     showing both in `type?`'s canonical form (and saying so when they print
     alike but their claims are about other values); a `-Q` or `+Q` list,
-    `assert-type:signed`, at the parse (a `-` before a number is a negative
-    literal type, `assert!(x: -1)`); a message, `assert-type:message`
-    (it never fails at run time); a non-place, `assert-type:not-a-place`.
+    `type-assert:signed`, at the parse (a `-` before a number is a negative
+    literal type, `type!(x: -1)`); a message, `type-assert:message`
+    (it never fails at run time); a non-place, `type-assert:not-a-place`;
+    no `: T`, a parse error.
   * There is no trailing-assertion form and no `has`/`lacks` form: a type
     assertion states the exact type (user decision 2026-11-11, D).
 * [op-elvis] `subject ?: rhs` is the **first-arm pick** (user decision
@@ -2194,7 +2203,8 @@ Conventions:
     one identity, so either index serves either string. A temporary has no
     identity, so its field reads with no claim at all (`make().pos` is an
     `Int`). A **written** claim — a `let` annotation's, a type
-    assertion's [assert-type] — roots each whole path as an `is` test does
+    assertion's [type-assert], a checker data `//~ type[T]` [test-data] —
+    roots each whole path as an `is` test does
     (`root_annotation` through `claim_identity_of_path`, 2026-11-11): before,
     it rooted the first name and stepped below it, so over a cursor holding
     `s` in its `proj` field `let j: Idx(cursor.str) Int = cursor.pos` was
@@ -4225,7 +4235,7 @@ Conventions:
   (`_spare`). Parameters are exempt — a signature often dictates them, and
   an effect or handler member implementing a declared interface cannot drop
   one — as are handler state fields and everything in std.
-  * Naming a local in `type?(x)` or `assert!(x: T)` is not a read either
+  * Naming a local in `type?(x)` or `type!(x: T)` is not a read either
     (user decision 2026-11-11, agent's call within it): those read nothing
     [type-query], so a local only asked about is still unused.
   * A *warning*, not an error: the program is still well-defined. It is the
@@ -12973,13 +12983,29 @@ replaced the working document TESTING.md).
   the program reports [diag-id]; `// FILE:` and `//---` split files and
   programs. This is not a language feature: a user's tests are `test`
   blocks [test-decl]. The format is `tests/check/README.md`.
-  * **`//~ type[T]`** (user decision 2026-11-11) asserts the `type`
+  * **`//~ type[T]`** (user decisions 2026-11-11) asserts the `type`
     diagnostic a `type?(place)` reports [type-query] on the next line: the
-    one annotation whose payload is a type rather than an id. It is parsed
-    as a type (brackets balance, for an effect list) and compared as one
-    (`salvo_testkit::data::canonical_type`: qualifier lists and union arms
-    sorted, `T?` as `T | None`), never as text. The exactness rule holds:
-    every `type` diagnostic must be annotated, like a warning.
+    one annotation whose payload is a type rather than an id. It must
+    parse as a type (brackets balance, for an effect list), and it is
+    **judged by the checker at the `type?`**, as `type!(place: T)` would
+    be there [type-assert]: the runner hands each annotation's text and
+    line to the checker (`CheckCache::check_annotated`,
+    `salvo_core::TypeAnnotations`), which lowers it in the scope at the
+    `type?` (`expected_type`) and compares it with the place's type by
+    `same_type`, claims by rooted identity [qual-depend-field], qualifier
+    and union arm order aside. Each `type` report carries a verdict per
+    annotation on its line (`FileDiagnostic::type_verdicts`: holds,
+    differs, or does not mean a type there and why); the lowering leaves
+    nothing behind (no diagnostic, reference, carried identity or
+    written-type row). A `type?` in a comptime copy is not judged. So an
+    annotation is exactly as strong as the assertion: `Idx(cursor.str)`
+    holds of a destructured `pos` that prints `Idx(str)`, and `Idx(str)`
+    does not hold where that `str` is another value's though it prints the
+    same. An annotation whose names mean nothing at the `type?` fails the
+    file, saying so; a report no annotation holds is shown with its type
+    and matches none. The exactness rule holds: every `type` diagnostic
+    must be annotated, like a warning, and only the loop's last walk
+    reports.
 * [test-run-data] **The compiler repository's compile-and-run tests are data
   files too** (user decisions 2026-10-28, TESTS.md C3, TD8, TD9): `.sv`
   programs under `crates/salvo-cli/tests/run/<area>/`, emitted by every

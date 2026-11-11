@@ -200,7 +200,15 @@ impl CheckCache {
 
     /// [lsp-check-cache] `program` checked through the cache.
     pub fn check<'p>(&mut self, program: &'p Program, resolution: &Resolution<'p>, symbols: &Symbols<'p>) -> Checked {
-        crate::check::check_program_cached(program, resolution, symbols, self)
+        crate::check::check_program_cached(program, resolution, symbols, self, None)
+    }
+
+    /// [test-data] [`Self::check`], judging each checker data annotation
+    /// `//~ type[T]` at the `type?` it names: every `type` report there
+    /// carries a verdict per annotation (`FileDiagnostic::type_verdicts`).
+    /// For a transient cache: the verdicts are not the cache's to keep.
+    pub fn check_annotated<'p>(&mut self, program: &'p Program, resolution: &Resolution<'p>, symbols: &Symbols<'p>, annotations: &crate::diag::TypeAnnotations) -> Checked {
+        crate::check::check_program_cached(program, resolution, symbols, self, Some(annotations))
     }
 }
 

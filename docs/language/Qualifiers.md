@@ -364,8 +364,8 @@ does not.
 same text. `InRange.qualifies(port, 1, 65535)` is the test as a plain call.
 To see which qualifiers a place carries at a given line, rather than whether
 a value passes, `type?(port)` reports its type when compiling, and
-`assert!(port: InRange(1, 65535) Int)` checks it
-([Control flow](Control-Flow.md#finding-out-a-type-type-and-assertx-t)).
+`type!(port: InRange(1, 65535) Int)` checks it
+([Control flow](Control-Flow.md#finding-out-a-type-type-and-type)).
 
 ## Constructive qualifiers
 

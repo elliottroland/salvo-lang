@@ -27,7 +27,7 @@ use salvo_syntax::known;
 use salvo_syntax::messages::{self, Message};
 use salvo_syntax::Span;
 
-use crate::diag::FileDiagnostic;
+use crate::diag::{FileDiagnostic, TypeVerdict};
 use crate::place::{Place, Step};
 use crate::program::{Program, Symbols};
 use crate::decl_id::DeclId;
@@ -2096,7 +2096,7 @@ pub fn check_program<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
 ) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, None);
+    let mut out = check_program_walk(program, resolution, symbols, None, None);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
     out
@@ -2112,8 +2112,9 @@ pub fn check_program_cached<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
     check_cache: &mut crate::check_cache::CheckCache,
+    annotations: Option<&crate::diag::TypeAnnotations>,
 ) -> Checked {
-    let mut out = check_program_walk(program, resolution, symbols, Some(check_cache));
+    let mut out = check_program_walk(program, resolution, symbols, Some(check_cache), annotations);
     crate::literal::lower_tables(&mut out);
     check_std_deductions_total(program, &mut out);
     out
@@ -2297,6 +2298,7 @@ fn check_program_walk<'p>(
     resolution: &Resolution<'p>,
     symbols: &Symbols<'p>,
     check_cache: Option<&mut crate::check_cache::CheckCache>,
+    type_annotations: Option<&crate::diag::TypeAnnotations>,
 ) -> Checked {
     // [deduce-syntax] Parameters whose data the body mutates, published for
     // the backends' pass modes (`param_mode`); they never feed back into
@@ -2340,6 +2342,7 @@ fn check_program_walk<'p>(
         inferred: &contracts,
         refinements: &refinements,
         platform_closure: &no_closure,
+        type_annotations,
     };
     let t = crate::timing::phase("check: walk");
     let mut check_cache = check_cache;
@@ -2463,6 +2466,9 @@ struct WalkCtx<'a, 'p> {
     inferred: &'a HashMap<DeclId, Vec<crate::deduce::ParamDeduction>>,
     refinements: &'a crate::refine::Refinements,
     platform_closure: &'a std::collections::BTreeSet<String>,
+    /// [test-data] The checker data's `//~ type[T]` annotations, when a
+    /// test checks with them (`CheckCache::check_annotated`).
+    type_annotations: Option<&'a crate::diag::TypeAnnotations>,
 }
 
 /// Every file's interfaces, then every body, each walked once
@@ -2642,6 +2648,7 @@ fn file_checker<'r, 'p>(
         parking_handlers,
     );
     checker.pass = pass;
+    checker.type_annotations = ctx.type_annotations;
     checker.runtime_files = ctx
         .program
         .files
@@ -3410,6 +3417,13 @@ struct Checker<'p, 'r> {
     /// the intrinsic key bar only — whether the identity exists is the
     /// initializer's business (its constructor resolves it, or says why not).
     let_pattern: bool,
+    /// [test-data] The checker data's `//~ type[T]` annotations, judged at
+    /// each `type?` they name (`type_annotation_verdicts`); `None` outside
+    /// the data runner.
+    type_annotations: Option<&'r crate::diag::TypeAnnotations>,
+    /// [test-data] Set while one is lowered: its names record no reference
+    /// (they are no node of the program).
+    judging_annotation: bool,
     /// [cmp-carry] The fn names more than one non-std module of the program
     /// declares (unattached): an identity of one prints `name@module`, the
     /// spelling that says which.
@@ -3892,6 +3906,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             in_struct_lit_ty: false,
             own_alias_namespace: None,
             let_pattern: false,
+            type_annotations: None,
+            judging_annotation: false,
             fn_name_clash: fn_name_clash(files, resolution),
             own_stamp: None,
             splice: Default::default(),
@@ -12569,6 +12585,11 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// one kind of thing: a second entry of another kind at the same node
     /// would be a lost row.
     fn record_ref(&mut self, span: Span, r: Ref) {
+        // [test-data] A checker data annotation's names are no node of the
+        // program: what they refer to is not the program's reference.
+        if self.judging_annotation {
+            return;
+        }
         let key = self.key(span);
         debug_assert!(
             self.out.refs.get(&key).is_none_or(|old| std::mem::discriminant(old) == std::mem::discriminant(&r)),
@@ -15000,7 +15021,9 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// Only *named* ones: a binder is filled per call [cmp-binder], and the
     /// emitters read that from the call's implicit arguments instead.
     fn record_carried_identities(&mut self, base: &TypeRef, arity: usize) {
-        if base.value_args.is_empty() {
+        // [test-data] An annotation's identities are no reference of the
+        // program, and recording one would hide the program's own.
+        if base.value_args.is_empty() || self.judging_annotation {
             return;
         }
         let _ = arity;
@@ -17821,7 +17844,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::Unreachable { .. } => true,
             // [assert-fn] `todo!()` diverges like `unreachable!()`.
             Expr::Todo { .. } => true,
-            Expr::Assert { .. } | Expr::WhyNot { .. } | Expr::TypeQuery { .. } | Expr::AssertType { .. } => false,
+            Expr::Assert { .. } | Expr::WhyNot { .. } | Expr::TypeQuery { .. } | Expr::TypeAssert { .. } => false,
             // [op-elvis] Neither side escapes by itself: a diverging right side
             // is recognized by its recorded type, like any diverging call.
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
@@ -17931,7 +17954,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             // a `fn` whose only tail is `unreachable!()` has no missing return
             // [fn-must-return], which `expr_exits` above answers.
             Expr::Unreachable { .. } | Expr::Todo { .. } | Expr::Assert { .. } | Expr::WhyNot { .. } => false,
-            Expr::TypeQuery { .. } | Expr::AssertType { .. } => false,
+            Expr::TypeQuery { .. } | Expr::TypeAssert { .. } => false,
             Expr::Elvis { .. } | Expr::Placeholder { .. } => false,
             Expr::Pipe { .. } | Expr::SafePipe { .. } => false,
             Expr::SafeNav { .. } => false,
@@ -18558,9 +18581,9 @@ impl<'p, 'r> Checker<'p, 'r> {
         opt_str
     }
 
-    // ================= type queries [type-query] [assert-type] =================
+    // ================= type queries [type-query] [type-assert] =================
 
-    /// [type-query] [assert-type] The current type of `place`, as reading it
+    /// [type-query] [type-assert] The current type of `place`, as reading it
     /// would give, without the read counting: the place is not marked used
     /// [var-unused], and nothing reads, moves, borrows, links or narrows it
     /// (the forms lower to nothing). A local, a field path or a destructured
@@ -18618,34 +18641,109 @@ impl<'p, 'r> Checker<'p, 'r> {
     fn check_type_query(&mut self, place: &'p Expr, span: Span) -> Ty {
         if let Some((p, ty)) = self.place_type_unread(place, messages::type_query_not_a_place()) {
             let m = messages::type_query_type(&p, &ty);
+            let verdicts = self.type_annotation_verdicts(span, &ty);
             let (file, span, msg, decl) = self.render_origin(span, m.text);
-            self.out.errors.push(FileDiagnostic::type_report(file, span, (Some(m.id), msg)).in_decl(decl));
+            self.out.errors.push(FileDiagnostic::type_report(file, span, (Some(m.id), msg)).in_decl(decl).with_type_verdicts(verdicts));
         }
         Ty::none()
     }
 
-    /// [assert-type] `assert!(place: T)`: the place's type must be `T`
-    /// exactly — the base and every qualifier, borrows and `Mut` included,
-    /// in any order ([`crate::types::same_type`]). `T` is read as a `let`
-    /// annotation is, so a claim's place names the locals in scope, rooted
-    /// as an `is` test's are ([qual-depend-field]: `Idx(str)` and
-    /// `Idx(parsing.str)` agree when they are one value). A check only: it
-    /// narrows, adds and drops nothing, and lowers to nothing.
-    fn check_assert_type(&mut self, place: &'p Expr, ty: Option<&'p ast::Type>, span: Span) -> Ty {
-        let errors_before = self.out.errors.len();
-        let expected = ty.map(|t| {
-            let saved = std::mem::replace(&mut self.let_pattern, true);
-            self.validate_type(t);
-            self.let_pattern = saved;
-            let lowered = self.lower_type(t);
-            if Self::ty_has_value_ref(&lowered) {
-                self.root_annotation(&lowered)
-            } else {
-                lowered
+    /// [type-assert] A type written in `type!(place: T)` (or a checker data
+    /// annotation), as the check compares it: read as a `let` annotation
+    /// is, so a claim's place names the locals in scope, rooted as an `is`
+    /// test's are ([qual-depend-field]: `Idx(str)` and `Idx(parsing.str)`
+    /// are one claim when they are one value).
+    fn expected_type(&mut self, t: &ast::Type) -> Ty {
+        let saved = std::mem::replace(&mut self.let_pattern, true);
+        self.validate_type(t);
+        self.let_pattern = saved;
+        let lowered = self.lower_type(t);
+        if Self::ty_has_value_ref(&lowered) {
+            self.root_annotation(&lowered)
+        } else {
+            lowered
+        }
+    }
+
+    /// [test-data] [type-query] What each checker data annotation naming
+    /// this `type?`'s line says of `actual`: judged here, in this scope, as
+    /// `type!(place: T)` would judge it ([`Self::expected_type`],
+    /// `same_type`), so an annotation is exactly as strong as the
+    /// assertion. Nothing it lowers is kept: its diagnostics are cut back
+    /// (an error is the verdict's reason), its written-type rows and cache
+    /// log entries are removed, and while it is lowered
+    /// (`judging_annotation`) it records no reference, carried identity or
+    /// reported ambiguity. Only a `type?` written in the file is judged,
+    /// at `span` before any comptime origin is rendered: one in a comptime
+    /// copy has no line of its own for an annotation to name.
+    fn type_annotation_verdicts(&mut self, span: Span, actual: &Ty) -> Vec<TypeVerdict> {
+        let Some(annotations) = self.type_annotations else { return Vec::new() };
+        if !span.is_written() {
+            return Vec::new();
+        }
+        let file = self.file_idx;
+        let line = salvo_syntax::span::line_col(&self.files[file].content, span.start).0 as usize;
+        let Some(written) = annotations.at.get(&(file, line)) else { return Vec::new() };
+        let mut verdicts = Vec::new();
+        for a in written {
+            let Some(t) = salvo_syntax::parse_type_at(&a.text, a.offset) else {
+                verdicts.push(TypeVerdict::Unresolved("it is not a type".to_string()));
+                continue;
+            };
+            let (errors, warnings, written_log) = (self.out.errors.len(), self.copy_warnings.len(), self.written_log.len());
+            let saved = std::mem::replace(&mut self.judging_annotation, true);
+            let expected = self.expected_type(&t);
+            self.judging_annotation = saved;
+            // Every node's row, nested ones included: the tree is freed.
+            struct Nodes(Vec<usize>);
+            impl salvo_syntax::visit::Visitor for Nodes {
+                fn visit_type(&mut self, ty: &ast::Type) {
+                    self.0.push(written_type_key(ty));
+                }
             }
-        });
+            let mut nodes = Nodes(Vec::new());
+            salvo_syntax::visit::walk_type(&mut nodes, &t);
+            for key in nodes.0 {
+                self.out.written_types.remove(&key);
+            }
+            self.written_log.truncate(written_log);
+            let refused: Vec<String> = self.out.errors[errors..].iter().filter(|d| d.is_error()).map(|d| d.message.clone()).collect();
+            self.out.errors.truncate(errors);
+            self.copy_warnings.truncate(warnings);
+            let unbound = self.unbound_value_ref(&expected);
+            verdicts.push(if !refused.is_empty() {
+                TypeVerdict::Unresolved(refused.join("; "))
+            } else if let Some(name) = unbound {
+                TypeVerdict::Unresolved(format!("`{name}` names no local here"))
+            } else if expected.is_unknown() {
+                TypeVerdict::Unresolved("its type is not known here".to_string())
+            } else if crate::types::same_type(actual, &expected) {
+                TypeVerdict::Holds
+            } else {
+                TypeVerdict::Differs
+            });
+        }
+        verdicts
+    }
+
+    /// [test-data] The first place a claim in `ty` names whose root is no
+    /// local in scope: what an annotation wrote that means nothing here.
+    fn unbound_value_ref(&self, ty: &Ty) -> Option<String> {
+        let mut paths = Vec::new();
+        root_free_value_paths(ty, &mut paths);
+        paths.into_iter().map(|p| p.split('.').next().unwrap_or(&p).to_string()).find(|root| self.lookup(root).is_none())
+    }
+
+    /// [type-assert] `type!(place: T)`: the place's type must be `T`
+    /// exactly — the base and every qualifier, borrows and `Mut` included,
+    /// in any order ([`crate::types::same_type`]), `T` read by
+    /// [`Self::expected_type`]. A check only: it narrows, adds and drops
+    /// nothing, and lowers to nothing.
+    fn check_type_assert(&mut self, place: &'p Expr, ty: Option<&'p ast::Type>, span: Span) -> Ty {
+        let errors_before = self.out.errors.len();
+        let expected = ty.map(|t| self.expected_type(t));
         let refused = self.out.errors[errors_before..].iter().any(|d| d.is_error());
-        let actual = self.place_type_unread(place, messages::assert_type_not_a_place());
+        let actual = self.place_type_unread(place, messages::type_assert_not_a_place());
         let (Some((p, actual)), Some(expected)) = (actual, expected) else {
             return Ty::none();
         };
@@ -18658,7 +18756,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             (true, true) => ": they print alike, but their claims are about other values",
             (true, false) => ": they print alike, but differ in what a type does not print (a fn type's contract)",
         };
-        self.error(span, messages::assert_type_mismatch(&p, &actual, &expected, &note));
+        self.error(span, messages::type_assert_mismatch(&p, &actual, &expected, &note));
         Ty::none()
     }
 
@@ -18934,15 +19032,15 @@ impl<'p, 'r> Checker<'p, 'r> {
                 r
             });
             let second_pass: Vec<FileDiagnostic> = self.out.errors.split_off(before);
-            // [type-query] [assert-type] What reports the walk's state — a
+            // [type-query] [type-assert] What reports the walk's state — a
             // `type?`'s type, a type assertion's verdict — is the last
             // walk's: the first walk's are dropped, every one the second
-            // makes is kept (a first walk's `assert-type:mismatch` may hold
+            // makes is kept (a first walk's `type-assert:mismatch` may hold
             // on the second; a nested loop has already settled its own).
             // Nothing outside the loop holds an index past `first_start`
             // that the drop could move: a speculative check that cuts back
             // cuts below it.
-            let states = |e: &FileDiagnostic| e.severity == Severity::Type || e.id.is_some_and(|id| id.starts_with("assert-type:"));
+            let states = |e: &FileDiagnostic| e.severity == Severity::Type || e.id.is_some_and(|id| id.starts_with("type-assert:"));
             let first: Vec<FileDiagnostic> = self.out.errors.split_off(first_start);
             self.out.errors.extend(first.into_iter().filter(|e| !states(e)));
             for e in second_pass {
@@ -20202,7 +20300,9 @@ impl<'p, 'r> Checker<'p, 'r> {
                         Some(sel) => format!("{name}@{sel}"),
                         None => name.to_string(),
                     };
-                    if self.reported_identities.insert((self.file_idx, span)) {
+                    // [test-data] An annotation reports each time it is
+                    // judged (its errors are cut back, its verdict says).
+                    if self.judging_annotation || self.reported_identities.insert((self.file_idx, span)) {
                         let text = Self::implicit_ambiguity(name, &cands, Some(&format!("`{name}@{{m}}`")));
                         self.error(span, messages::cmp_carry_ambiguous(&shown, &want, &text));
                     }
@@ -23469,8 +23569,8 @@ fn collect_assigned_expr(expr: &Expr, out: &mut HashSet<String>) {
             }
         }
         Expr::WhyNot { test, .. } => collect_assigned_expr(test, out),
-        // [type-query] [assert-type] A place, never assigned.
-        Expr::TypeQuery { .. } | Expr::AssertType { .. } => {}
+        // [type-query] [type-assert] A place, never assigned.
+        Expr::TypeQuery { .. } | Expr::TypeAssert { .. } => {}
         // [op-elvis] Both sides may hold assignments (a block-valued branch).
         Expr::Elvis { subject, rhs, .. } => {
             collect_assigned_expr(subject, out);
@@ -23719,8 +23819,8 @@ pub(crate) fn expr_mentions(expr: &Expr, name: &str) -> bool {
             message.as_ref().is_some_and(|m| expr_mentions(m, name))
         }
         Expr::WhyNot { test, .. } => expr_mentions(test, name),
-        // [type-query] [assert-type] Not a use of the place: nothing reads it.
-        Expr::TypeQuery { .. } | Expr::AssertType { .. } => false,
+        // [type-query] [type-assert] Not a use of the place: nothing reads it.
+        Expr::TypeQuery { .. } | Expr::TypeAssert { .. } => false,
         Expr::Elvis { subject, rhs, .. } => {
             expr_mentions(subject, name) || expr_mentions(rhs, name)
         }
@@ -25576,8 +25676,8 @@ impl<'p, 'r> Checker<'p, 'r> {
             Expr::WhyNot { test, span } => self.check_whynot(test, *span),
             // [type-query] `type?(place)`: reports the place's type; `None`.
             Expr::TypeQuery { place, span } => self.check_type_query(place, *span),
-            // [assert-type] `assert!(place: T)`: a check when compiling; `None`.
-            Expr::AssertType { place, ty, span } => self.check_assert_type(place, ty.as_ref(), *span),
+            // [type-assert] `type!(place: T)`: a check when compiling; `None`.
+            Expr::TypeAssert { place, ty, span } => self.check_type_assert(place, ty.as_ref(), *span),
             // [op-inc-dec] All four forms do the same thing to the operand — a
             // step of one on an `Int` place — so the checker ignores the
             // direction and the fixity; they only decide the expression's
@@ -32215,28 +32315,8 @@ impl<'p, 'r> Checker<'p, 'r> {
     /// `Idx(cursor.str)` over a cursor holding `s` in its `proj` field is a
     /// claim about `s`, as the read `cursor.pos` is.
     fn root_annotation(&self, ty: &Ty) -> Ty {
-        fn paths(t: &Ty, out: &mut Vec<String>) {
-            match t {
-                Ty::ValueRef { path, roots, .. } if roots.is_empty() => out.push(path.clone()),
-                Ty::Qualified { quals, base } => {
-                    for q in quals {
-                        for a in &q.args {
-                            paths(a, out);
-                        }
-                    }
-                    paths(base, out);
-                }
-                Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => {
-                    for a in args {
-                        paths(a, out);
-                    }
-                }
-                Ty::Array(e) => paths(e, out),
-                _ => {}
-            }
-        }
         let mut names = Vec::new();
-        paths(ty, &mut names);
+        root_free_value_paths(ty, &mut names);
         let mut map: HashMap<String, Identity> = HashMap::new();
         for n in names {
             let Some(identity) = self.claim_identity_of_path(&n) else { continue };
@@ -35652,6 +35732,29 @@ fn collect_binding_is<'a>(cond: &'a Expr, f: &mut impl FnMut(&'a Expr, Span)) {
             collect_binding_is(lhs, f);
             collect_binding_is(rhs, f);
         }
+        _ => {}
+    }
+}
+
+/// [qual-depend] Every root-free place argument in `t`, as written (the
+/// claims an annotation names, before `root_annotation` roots them).
+fn root_free_value_paths(t: &Ty, out: &mut Vec<String>) {
+    match t {
+        Ty::ValueRef { path, roots, .. } if roots.is_empty() => out.push(path.clone()),
+        Ty::Qualified { quals, base } => {
+            for q in quals {
+                for a in &q.args {
+                    root_free_value_paths(a, out);
+                }
+            }
+            root_free_value_paths(base, out);
+        }
+        Ty::Named { args, .. } | Ty::Union(args) | Ty::Tuple(args) => {
+            for a in args {
+                root_free_value_paths(a, out);
+            }
+        }
+        Ty::Array(e) => root_free_value_paths(e, out),
         _ => {}
     }
 }

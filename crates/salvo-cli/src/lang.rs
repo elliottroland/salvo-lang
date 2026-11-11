@@ -189,6 +189,13 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "keyword.other.salvo",
         "the answering compiler forms",
     ),
+    // [type-assert] `type!(place: T)`: the compile-time type check, whose
+    // `!` says the build can break; it never traps, so not control flow.
+    (
+        "\\\\btype!(?=\\\\()",
+        "keyword.other.salvo",
+        "the compile-time type check",
+    ),
     // `mailbox { capacity: n }`: the handler's queue slot, named before a block.
     (
         "\\\\bmailbox(?=\\\\s*\\\\{)",
@@ -457,9 +464,9 @@ pub fn tm_grammar() -> String {
           "match": "\\b({control})\\b"
         }},
         {{
-          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword; [type-query] `type?(` is the type query",
+          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword; [type-query] [type-assert] `type?(` and `type!(` are the compiler forms",
           "name": "keyword.declaration.salvo",
-          "match": "\\b({declaration})\\b(?!\\s*:|\\?\\()"
+          "match": "\\b({declaration})\\b(?!\\s*:|[?!]\\()"
         }},
         {{
           "name": "keyword.other.salvo",

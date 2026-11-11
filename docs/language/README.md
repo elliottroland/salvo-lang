@@ -152,7 +152,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 | [Qualifiers](Qualifiers.md) | claims in a type: `Mut`, predicates, constructive qualifiers, state versus provenance, refinements |
 | [Dependent Qualifiers](Dependent-Qualifiers.md) | claims about one value's relation to another (`Idx`, `KeyOf`, `NotSame`), and the total operations that consume them |
 | [Generics and Aliases](Generics-and-Aliases.md) | generic types and type aliases |
-| [Control Flow](Control-Flow.md) | `if`, `when`, `while`, `for`, dropping a qualifier with `x: -Q`, and finding out a type with `type?` |
+| [Control Flow](Control-Flow.md) | `if`, `when`, `while`, `for`, dropping a qualifier with `x: -Q`, and finding out a type with `type?` and `type!` |
 
 ### Functions and behaviour
 
@@ -184,7 +184,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 |---|---|
 | [Modules](Modules.md) | files as modules, `export`, `import`, namespaces, and documentation comments |
 | [The Manifest](Manifest.md) | `salvo.toml`: projects, build settings, dependencies, host libraries, and every valid option |
-| [Testing](Testing.md) | `test` declarations, where they live, assertions, and actor tests |
+| [Testing](Testing.md) | `test` declarations, where they live, assertions, actor tests, and checking a type when compiling with `type!` |
 | [Writing Test Kinds](Test-Kinds.md) | `comptime fn` test kinds: the `Test` parameter, arguments, verdicts, and writing your own |
 | [Files](Files.md) | the file system and its streams |
 | [Time](Time.md) | durations, instants, ticks, and time in a test |

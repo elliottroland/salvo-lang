@@ -550,31 +550,39 @@ Found building [qual-depend-field] (COMPLETED.md).
 - **`append(Mut Str, Char)` is not declared** (the demo's
   `number_str.append(char)`); `append(s, "${c}")` is the spelling today.
 
-### 0bh — What `type?` and `assert!(x: T)` left (2026-11-11)
+### 0bh — What `type?` and `type!(x: T)` left (2026-11-11)
 
-Found building [type-query] and [assert-type] (COMPLETED.md).
+Found building [type-query] and [type-assert] (COMPLETED.md).
 
 - **DECISION: the agent's calls inside the user's decisions, to confirm.**
-  (a) A local named only in `type?(x)` or `assert!(x: T)` is still
-  *unused* ([var-unused]: neither reads it). (b) `assert!(x: T, "why")` is
-  refused (`assert-type:message`): the check never fails at run time, so a
+  (a) A local named only in `type?(x)` or `type!(x: T)` is still
+  *unused* ([var-unused]: neither reads it). (b) `type!(x: T, "why")` is
+  refused (`type-assert:message`): the check never fails at run time, so a
   message would never be shown; the alternative is to show it in the
-  compile error. (c) Union arms compare in any order (`same_type`, and the
-  data runner's `canonical_type`): `Int | Str` is `Str | Int`, though arm
-  order is the runtime arm identity [type-union-arm-identity]; the
-  alternative is positional arms. (d) A subscript (`xs[i]`) is not a place
-  for these forms (`Place::narrowable`), since its index is an expression
-  that would have to be checked; the alternative is to accept it and report
-  the element type.
-- **The data runner compares a claim by its spelling**: `//~ type[Idx(str)
-  Int]` cannot tell two values spelled alike apart (the message is text).
-  `assert!` is the identity check; if a test needs both, a `type` report
-  would carry the `Ty` itself rather than text.
-- **A fn type's effect list is not sorted by `canonical_type`**, so an
-  annotation must write a fn type's effects in the order `Ty` prints them.
+  compile error. (c) Union arms compare in any order (`same_type`, which
+  the data runner's `//~ type[T]` uses too): `Int | Str` is `Str | Int`,
+  though arm order is the runtime arm identity [type-union-arm-identity];
+  the alternative is positional arms. (d) A subscript (`xs[i]`) is not a
+  place for these forms (`Place::narrowable`), since its index is an
+  expression that would have to be checked; the alternative is to accept
+  it and report the element type. (e) `assert!(x: T)` is not a parse
+  error: with the `:` form gone, its condition is the re-typing `x: T`
+  [qual-retype], as before `type?` existed, so a non-`Bool` place is
+  `expr-cond-bool:not-bool` and `assert!(flag: Bool)` is an ordinary
+  run-time assertion of `flag`. Making it a parse error would need the
+  special case the rename removed.
+- **Open defect: an `if` whose branches give one claim in two spellings
+  makes a union of the two**: `let p = if c { let { str, pos } = a; pos }
+  else { a.pos }` over `struct Cursor { str: proj Str, pos: Idx(str) Int }`
+  is `Idx(str) Int | Idx(a.str) Int`, and each branch is refused
+  ("matches multiple arms … qualify the value"), though `Idx(str)` and
+  `Idx(a.str)` are one identity there. The join should merge claims by
+  identity (`same_claim`), as `type!` compares them.
 - **A `type?` in a comptime-expanded fn reports once per copy**, under each
   copy's origin prefix (`check_type_query` pushes directly; warnings in a
-  copy are held and merged by `copy_warnings`). Not probed with a test.
+  copy are held and merged by `copy_warnings`). Not probed with a test;
+  the data runner does not judge an annotation there (its verdicts are
+  for a `type?` written in the file), so such a report matches none.
 - **Not built**: `type?` of an expression's type (a call's result) — the
   user's decision is places only; a hover already shows a sub-expression's.
 

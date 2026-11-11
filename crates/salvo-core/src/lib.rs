@@ -60,7 +60,7 @@ pub use effects::{
     effect_member_index, effect_member_name, effect_members_named, handler_is_stateful,
     handler_member_faces, effect_only_args,
 };
-pub use diag::FileDiagnostic;
+pub use diag::{FileDiagnostic, TypeAnnotation, TypeAnnotations, TypeVerdict};
 pub use lock::{reconcile as reconcile_lock, Lock, LockOutcome};
 pub use manifest::{
     is_nested_project, Dependency, HostDeps, Manifest, Project, LOCK_FILE, MANIFEST_FILE,

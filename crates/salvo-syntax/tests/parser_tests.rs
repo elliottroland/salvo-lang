@@ -148,27 +148,30 @@ fn snapshot_corpus_imports() {
     insta::assert_debug_snapshot!(parse_clean(&corpus("imports.sv")));
 }
 
-/// [type-query] [assert-type] `type?(place)` and `assert!(place: T)`.
+/// [type-query] [type-assert] `type?(place)` and `type!(place: T)`.
 #[test]
 fn snapshot_corpus_type_queries() {
     insta::assert_debug_snapshot!(parse_clean(&corpus("type_queries.sv")));
 }
 
-/// [assert-type] The `:` right inside `assert!(` decides the form: a type
-/// assertion, whose type is a whole type; an `is` test is the runtime
-/// assertion, unchanged, and a re-typing inside one is parenthesized.
+/// [type-assert] `type!(place: T)` is read as `type?(` is, and its type is a
+/// whole type; `assert!` is the runtime assertion, unchanged, so a re-typing
+/// right inside it is its condition (`assert!(x: Int)` asserts `x: Int`).
 #[test]
-fn an_assertion_is_decided_by_its_colon() {
+fn type_bang_is_the_type_assertion() {
     use salvo_syntax::ast::Expr;
-    let e = parse_expr_stmt("assert!(p.pos: proj Idx(p.str) Int | None)");
-    let Expr::AssertType { place, ty: Some(ty), .. } = e else { panic!("expected a type assertion, got {e:?}") };
+    let e = parse_expr_stmt("type!(p.pos: proj Idx(p.str) Int | None)");
+    let Expr::TypeAssert { place, ty: Some(ty), .. } = e else { panic!("expected a type assertion, got {e:?}") };
     assert!(matches!(*place, Expr::Field { .. }));
     assert_eq!(salvo_syntax::print::type_text(&ty), "proj Idx(p.str) Int | None");
     assert!(matches!(parse_expr_stmt("assert!(x is Int)"), Expr::Assert { .. }));
     let Expr::Assert { cond, .. } = parse_expr_stmt("assert!((x: -Ok) is Int)") else { panic!("expected an assertion") };
     assert!(matches!(*cond, Expr::Is { .. }));
+    let Expr::Assert { cond, .. } = parse_expr_stmt("assert!(x: Int)") else { panic!("expected an assertion") };
+    assert!(matches!(*cond, Expr::Retype { .. }));
     let Expr::TypeQuery { place, .. } = parse_expr_stmt("type?(a.b)") else { panic!("expected a type query") };
     assert!(matches!(*place, Expr::Field { .. }));
+    assert!(!errors_of("fn f(x: Int) { type!(x) }\n").is_empty(), "`type!` needs its `: T`");
 }
 
 // --- Tuple indexing [expr-tuple-index] ---

@@ -582,9 +582,9 @@ fn expr_names<'p>(expr: &'p Expr, used: &mut HashSet<&'p str>) {
             }
         }
         Expr::WhyNot { test, .. } => expr_names(test, used),
-        // [type-query] [assert-type] Nothing at run time, so no module is
+        // [type-query] [type-assert] Nothing at run time, so no module is
         // reached for them [mod-used-only].
-        Expr::TypeQuery { .. } | Expr::AssertType { .. } => {}
+        Expr::TypeQuery { .. } | Expr::TypeAssert { .. } => {}
         // [op-elvis] Names used on either side keep their modules reachable.
         Expr::Elvis { subject, rhs, .. } => {
             expr_names(subject, used);

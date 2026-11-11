@@ -472,26 +472,6 @@ Testing a predicate qualifier with no message of your own,
 "70000 is not in 1..65535"; `whynot?(port is InRange(1, 65535))` gives you
 that reason as a `Str?` without stopping ([Qualifiers](Qualifiers.md)).
 
-### Asserting a type: `assert!(x: T)`
-
-**`assert!(place: T)` is checked when compiling**: the program does not build
-unless the place's type, at that line, is exactly `T`, every qualifier
-included. It narrows nothing and does nothing at run time, so it is how a test
-pins down what the compiler knows rather than what a value holds:
-
-```salvo
-fn index_kept(s: Str) [] -> None => s {
-    let i = 0 as! Idx(s)
-    assert!(i: Idx(s) Int)      // the claim holds here
-    i++
-    assert!(i: Int)             // and is gone after a step
-}
-```
-
-The `:` is what makes it this form: `assert!(x is Q)` is the run-time
-assertion above. `type?(place)` reports the type instead of checking it.
-Both are described in [Control flow](Control-Flow.md#finding-out-a-type-type-and-assertx-t).
-
 ### `unreachable!`
 
 **`unreachable!()` asserts that a path is not taken.** Its type is `Never`, so
@@ -526,3 +506,24 @@ salvo: value is absent at std.core.list:153:12
 
 The mechanism underneath is each target's own trap (a panic on Rust, an
 `AssertionError` on the JVM), because neither program is meant to continue.
+
+## Checking a type when compiling: `type!`
+
+**`type!(place: T)` is checked when compiling**, not when the test runs:
+the program does not build unless the place's type, at that line, is
+exactly `T`, every qualifier included. It is not an assertion. It narrows
+nothing and does nothing at run time, so it is how a test pins down what the
+compiler knows rather than what a value holds:
+
+```salvo
+fn index_kept(s: Str) [] -> None => s {
+    let i = 0 as! Idx(s)
+    type!(i: Idx(s) Int)        // the claim holds here
+    i++
+    type!(i: Int)               // and is gone after a step
+}
+```
+
+`type?(place)` reports the type instead of checking it. Both are described
+in [Control flow](Control-Flow.md#finding-out-a-type-type-and-type).
+`assert!(x is Q)` is the run-time check ([Assertions](#assertions)).

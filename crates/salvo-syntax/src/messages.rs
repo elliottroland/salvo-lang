@@ -1049,7 +1049,7 @@ messages! {
 
     // [type-query]
     /// The `type` diagnostic a `type?(place)` reports: the place's current
-    /// type. The data runner reads the type after the first `` `: ``.
+    /// type.
     type_query_type = "type-query:type" (place: &dyn std::fmt::Display, ty: &dyn std::fmt::Display) => format!(
         "type of `{place}`: {ty}"
     );
@@ -1058,22 +1058,22 @@ messages! {
         "`type?` reports the type of a place — a local, a field path such as \
          `parsing.pos`, or a destructured binding: bind this value to a local first";
 
-    // [assert-type]
+    // [type-assert]
     /// A type assertion whose type is not the place's.
-    assert_type_mismatch = "assert-type:mismatch" (place: &dyn std::fmt::Display, actual: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, note: &dyn std::fmt::Display) => format!(
+    type_assert_mismatch = "type-assert:mismatch" (place: &dyn std::fmt::Display, actual: &dyn std::fmt::Display, expected: &dyn std::fmt::Display, note: &dyn std::fmt::Display) => format!(
         "`{place}` is `{actual}`, not `{expected}`{note}"
     );
     /// A type assertion whose list adds or drops a qualifier.
-    assert_type_signed = "assert-type:signed" () =>
-        "`assert!(x: T)` checks the whole type `x` has and changes nothing: write the \
+    type_assert_signed = "type-assert:signed" () =>
+        "`type!(x: T)` checks the whole type `x` has and changes nothing: write the \
          type itself, without `-` or `+` (a drop is `x := -Q`, a test `x is Q`)";
     /// A type assertion on something that is not a place.
-    assert_type_not_a_place = "assert-type:not-a-place" () =>
-        "`assert!(x: T)` checks the type of a place — a local, a field path such as \
+    type_assert_not_a_place = "type-assert:not-a-place" () =>
+        "`type!(x: T)` checks the type of a place — a local, a field path such as \
          `parsing.pos`, or a destructured binding: bind this value to a local first";
     /// A type assertion with a message.
-    assert_type_message = "assert-type:message" () =>
-        "`assert!(x: T)` is checked when compiling and never fails at run time, so it \
+    type_assert_message = "type-assert:message" () =>
+        "`type!(x: T)` is checked when compiling and never fails at run time, so it \
          takes no message";
 
     // [struct-field-canbe-mut]

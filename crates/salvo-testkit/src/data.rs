@@ -14,8 +14,13 @@
 //!   a file with no annotations checks clean, warnings included.
 //! - [type-query] `//~ type[T]` asserts a `type` diagnostic (a `type?`'s)
 //!   whose type is `T`: the one annotation whose payload is a type, not an
-//!   id, compared as a type ([`canonical_type`]) and held in [`Expect::id`].
-//!   Exactly, like the rest: an unannotated `type?` fails the file.
+//!   id. It is judged by the checker where the `type?` is
+//!   (`CheckCache::check_annotated`): `T`'s names resolved in the scope
+//!   there and compared as `type!(place: T)` compares, claims by the value
+//!   they are about, qualifier and union arm order aside. So it is exactly
+//!   as strong as the assertion, and an annotation whose names mean nothing
+//!   there fails the file saying so. Exactly, like the rest: an
+//!   unannotated `type?` fails the file.
 //! - `// FILE: name.sv` starts another file of the same program; before the
 //!   first, the file is `main.sv`. `//--- name` starts another program,
 //!   checked on its own: for what must not share a program with the rest (a
@@ -41,9 +46,24 @@ pub struct Expect {
     /// 1-based, within its file's text.
     pub line: usize,
     pub severity: &'static str,
-    /// The diagnostic's id; for a `type` report, its type in
-    /// [`canonical_type`]'s spelling.
+    /// The diagnostic's id; for a `type` annotation, its type as written,
+    /// and for a `type` report, the annotation's text it was judged to hold
+    /// ([`TypeExpect`]), else the type it reported, marked so that it
+    /// matches no annotation.
     pub id: String,
+}
+
+/// [test-data] [type-query] A `//~ type[T]` annotation, for the checker to
+/// judge at the line it names (`salvo_core::TypeAnnotations`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TypeExpect {
+    pub file: String,
+    /// The 1-based line it names.
+    pub line: usize,
+    /// `T`, trimmed.
+    pub text: String,
+    /// Where `T` starts in its file's text.
+    pub offset: u32,
 }
 
 impl std::fmt::Display for Expect {
@@ -76,6 +96,9 @@ pub struct Case {
     pub at: usize,
     pub files: Vec<(String, String)>,
     pub expected: Vec<Expect>,
+    /// [type-query] The `//~ type[T]` annotations (each also in
+    /// `expected`), with where their types are written.
+    pub types: Vec<TypeExpect>,
     /// [test-emit-data] `//~ emits: …` and `//~ !emits: …`.
     pub emits: Vec<Emit>,
     /// [test-emit-data] `//~ refused[id]`: the ids emission fails with.
@@ -117,16 +140,26 @@ fn parse_emit(rest: &str, at: usize) -> Option<Result<Emit, String>> {
     Some(Ok(Emit { at, path, text, count, absent }))
 }
 
+/// An annotation waiting for the line it names: its data-file line, and
+/// what it asserts; a `type` annotation's `offset` is where its type starts
+/// in its file.
+struct Pending {
+    at: usize,
+    severity: &'static str,
+    id: String,
+    offset: Option<u32>,
+}
+
 /// Splits a data file into its programs and their annotations.
 pub fn parse(text: &str) -> Result<Vec<Case>, String> {
     let mut cases: Vec<Case> = Vec::new();
     let mut case = Case { name: "main".into(), at: 1, ..Case::default() };
     let mut file = ("main.sv".to_string(), String::new());
-    let mut pending: Vec<(usize, &'static str, String)> = Vec::new();
+    let mut pending: Vec<Pending> = Vec::new();
     let mut line_in_file = 0usize;
-    let finish_file = |case: &mut Case, file: &mut (String, String), pending: &mut Vec<(usize, &'static str, String)>, at: usize| -> Result<(), String> {
-        if let Some((n, _, id)) = pending.first() {
-            return Err(format!("line {n}: annotation `{id}` names no line (at {at})"));
+    let finish_file = |case: &mut Case, file: &mut (String, String), pending: &mut Vec<Pending>, at: usize| -> Result<(), String> {
+        if let Some(p) = pending.first() {
+            return Err(format!("line {}: annotation `{}` names no line (at {at})", p.at, p.id));
         }
         pending.clear();
         let (name, content) = std::mem::take(file);
@@ -156,6 +189,7 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
         }
         // Every other line, annotations included, is the file's text, so
         // the lines a diagnostic reports are the data file's own.
+        let line_start = file.1.len();
         file.1.push_str(raw);
         file.1.push('\n');
         line_in_file += 1;
@@ -186,8 +220,8 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
         if let Some(rest) = t.strip_prefix("//~") {
             let rest = rest.trim();
             // [test-data] [type-query] `//~ type[T]`: a `type` diagnostic
-            // whose type is `T`, compared as a type. Brackets balance, since
-            // a type may hold some (an effect list).
+            // whose type is `T`, judged by the checker at the `type?`.
+            // Brackets balance, since a type may hold some (an effect list).
             if let Some(r) = rest.strip_prefix("type[") {
                 let Some(close) = closing_bracket(r) else {
                     return Err(format!("line {n}: unclosed `[` in `{t}`"));
@@ -195,10 +229,14 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
                 if !r[close + 1..].trim().is_empty() {
                     return Err(format!("line {n}: nothing follows an annotation's type: `{t}`"));
                 }
-                let Some(ty) = canonical_type(&r[..close]) else {
-                    return Err(format!("line {n}: `{}` is not a type", &r[..close]));
-                };
-                pending.push((n, "type", ty));
+                let written = &r[..close];
+                let ty = written.trim();
+                if salvo_syntax::parse_type(ty).is_none() {
+                    return Err(format!("line {n}: `{ty}` is not a type"));
+                }
+                // Where `T` starts in the file: `r` is a slice of `raw`.
+                let in_line = (r.as_ptr() as usize - raw.as_ptr() as usize) + (written.len() - written.trim_start().len());
+                pending.push(Pending { at: n, severity: "type", id: ty.to_string(), offset: Some((line_start + in_line) as u32) });
                 continue;
             }
             let (severity, rest) = if let Some(r) = rest.strip_prefix("error[") {
@@ -217,11 +255,14 @@ pub fn parse(text: &str) -> Result<Vec<Case>, String> {
             if !tail.trim().is_empty() {
                 return Err(format!("line {n}: nothing follows an annotation's id (tests assert ids, not text): `{t}`"));
             }
-            pending.push((n, severity, id.to_string()));
+            pending.push(Pending { at: n, severity, id: id.to_string(), offset: None });
             continue;
         }
-        for (_, severity, id) in pending.drain(..) {
-            case.expected.push(Expect { file: file.0.clone(), line: line_in_file, severity, id });
+        for p in pending.drain(..) {
+            if let Some(offset) = p.offset {
+                case.types.push(TypeExpect { file: file.0.clone(), line: line_in_file, text: p.id.clone(), offset });
+            }
+            case.expected.push(Expect { file: file.0.clone(), line: line_in_file, severity: p.severity, id: p.id });
         }
     }
     finish_file(&mut case, &mut file, &mut pending, text.lines().count())?;
@@ -246,76 +287,38 @@ fn closing_bracket(text: &str) -> Option<usize> {
     None
 }
 
-/// [test-data] [type-query] A written type in one spelling, so two that
-/// differ only in qualifier order, union arm order, `T?` against `T | None`
-/// or whitespace compare equal: parsed, each qualifier list and union
-/// sorted, and printed. `None` when the text is not a type.
-pub fn canonical_type(text: &str) -> Option<String> {
-    use salvo_syntax::ast::{Type, TypeRef};
-    fn sort_refs(refs: &mut [TypeRef]) {
-        for r in refs.iter_mut() {
-            canon_ref(r);
-        }
-        refs.sort_by_key(|r| r.to_string());
-    }
-    fn canon_ref(r: &mut TypeRef) {
-        for a in r.args.iter_mut().chain(r.value_args.iter_mut()) {
-            canon(a);
-        }
-    }
-    fn canon(t: &mut Type) {
-        match t {
-            Type::Named { qualifiers, base } => {
-                sort_refs(qualifiers);
-                canon_ref(base);
-            }
-            Type::QualifiedGroup { qualifiers, base, .. } => {
-                sort_refs(qualifiers);
-                canon(base);
-            }
-            Type::Nullable { inner, span } => {
-                let none = salvo_syntax::parse_type("None").expect("`None` is a type");
-                let mut arms = vec![(**inner).clone(), none];
-                arms.iter_mut().for_each(canon);
-                *t = flat_union(arms, *span);
-            }
-            Type::Union { arms, span } => {
-                let mut arms = std::mem::take(arms);
-                arms.iter_mut().for_each(canon);
-                *t = flat_union(arms, *span);
-            }
-            Type::Spread { inner, .. } | Type::Array { elem: inner, .. } => canon(inner),
-            Type::Tuple { elems, .. } => elems.iter_mut().for_each(canon),
-            Type::Fn { params, ret, .. } => {
-                params.iter_mut().for_each(canon);
-                canon(ret);
-            }
-            Type::Literal { .. } => {}
-        }
-    }
-    fn flat_union(arms: Vec<Type>, span: salvo_syntax::Span) -> Type {
-        let mut flat: Vec<Type> = Vec::new();
-        for a in arms {
-            match a {
-                Type::Union { arms, .. } => flat.extend(arms),
-                other => flat.push(other),
-            }
-        }
-        flat.sort_by_key(salvo_syntax::print::type_text);
-        flat.dedup_by_key(|a| salvo_syntax::print::type_text(a));
-        Type::Union { arms: flat, span }
-    }
-    let mut ty = salvo_syntax::parse_type(text.trim())?;
-    canon(&mut ty);
-    Some(salvo_syntax::print::type_text(&ty))
+/// What checking a case reported, in the annotations' terms.
+pub struct Reported {
+    /// Each diagnostic, as an annotation would say it.
+    pub got: Vec<Expect>,
+    /// Each diagnostic with its message, in `got`'s order, for reports.
+    pub shown: Vec<String>,
+    /// [type-query] The `//~ type[T]` annotations that mean no type at their
+    /// `type?` (a name that resolves to nothing there), with why.
+    pub unresolved: Vec<String>,
 }
 
-/// What checking `case` reported, in the annotations' terms.
-pub fn diagnostics(case: &Case) -> (Vec<Expect>, Vec<String>) {
+/// [test-data] [type-query] The case's `//~ type[T]` annotations, by the
+/// index of their file in `program` and the line they name.
+fn type_annotations(case: &Case, program: &salvo_core::Program) -> salvo_core::TypeAnnotations {
+    let mut out = salvo_core::TypeAnnotations::default();
+    for t in &case.types {
+        let file = program.files.iter().position(|f| !f.is_std && f.name == t.file).unwrap_or_else(|| panic!("no file `{}` in the program", t.file));
+        out.at.entry((file, t.line)).or_default().push(salvo_core::TypeAnnotation { text: t.text.clone(), offset: t.offset });
+    }
+    out
+}
+
+/// What checking `case` reported. A `type` report is named by the first
+/// annotation on its line the checker judged it to hold, not yet taken by
+/// another report there, and by the type it shows when there is none.
+pub fn diagnostics(case: &Case) -> Reported {
     let files: Vec<(&str, &str)> = case.files.iter().map(|(n, c)| (n.as_str(), c.as_str())).collect();
-    let checked = crate::front::check(&files);
-    let mut got = Vec::new();
-    let mut shown = Vec::new();
+    let built = crate::front::program("kt", &files);
+    let annotations = type_annotations(case, &built.program);
+    let checked = crate::front::check_built_annotated(built, &annotations);
+    let mut reported = Reported { got: Vec::new(), shown: Vec::new(), unresolved: Vec::new() };
+    let mut taken: std::collections::HashSet<(usize, usize, usize)> = std::collections::HashSet::new();
     for d in checked.diagnostics() {
         let file = &checked.program.files[d.file];
         let line = if d.span.is_expanded() {
@@ -325,22 +328,37 @@ pub fn diagnostics(case: &Case) -> (Vec<Expect>, Vec<String>) {
         };
         let name = if file.is_std { format!("<std>/{}", file.name) } else { file.name.clone() };
         let e = match d.severity {
-            // [type-query] A type report is compared by its type, read
-            // back from the message (`type of `x`: T`) and canonicalised as
-            // an annotation's is.
             Severity::Type => {
-                // A type holds no backtick, so its text follows the last
-                // `` `: `` (an origin prefix may hold others).
-                let shown = d.message.rsplit_once("`: ").map(|(_, t)| t).unwrap_or(&d.message);
-                Expect { file: name, line, severity: "type", id: canonical_type(shown).unwrap_or_else(|| shown.to_string()) }
+                let written = annotations.at.get(&(d.file, line)).map(Vec::as_slice).unwrap_or_default();
+                for (a, v) in written.iter().zip(&d.type_verdicts) {
+                    if let salvo_core::TypeVerdict::Unresolved(why) = v {
+                        let note = format!("  {name}:{line}: type[{}]: {why}", a.text);
+                        if !reported.unresolved.contains(&note) {
+                            reported.unresolved.push(note);
+                        }
+                    }
+                }
+                let held = d.type_verdicts.iter().enumerate().find(|(i, v)| **v == salvo_core::TypeVerdict::Holds && !taken.contains(&(d.file, line, *i)));
+                let id = match held {
+                    Some((i, _)) => {
+                        taken.insert((d.file, line, i));
+                        written[i].text.clone()
+                    }
+                    // The type as shown: it holds no backtick, so it
+                    // follows the last `` `: `` (an origin prefix may hold
+                    // others). Marked, so it never matches an annotation
+                    // by its spelling: only a verdict names one.
+                    None => format!("{} (held by no annotation here)", d.message.rsplit_once("`: ").map(|(_, t)| t).unwrap_or(&d.message)),
+                };
+                Expect { file: name, line, severity: "type", id }
             }
             Severity::Error => Expect { file: name, line, severity: "error", id: d.id.unwrap_or("?").to_string() },
             Severity::Warning => Expect { file: name, line, severity: "warning", id: d.id.unwrap_or("?").to_string() },
         };
-        shown.push(format!("{e}: {}", d.message));
-        got.push(e);
+        reported.shown.push(format!("{e}: {}", d.message));
+        reported.got.push(e);
     }
-    (got, shown)
+    reported
 }
 
 /// The mismatch between what `case` must report and what it did, or `None`.
@@ -348,7 +366,7 @@ pub fn check_case(case: &Case) -> Option<String> {
     if !case.emits.is_empty() || !case.refused.is_empty() {
         return Some(format!("case `{}` (line {}): `emits` and `refused` belong to a backend's emit data, not the checker's", case.name, case.at));
     }
-    let (got, shown) = diagnostics(case);
+    let Reported { got, shown, unresolved } = diagnostics(case);
     let mut want: BTreeMap<&Expect, isize> = BTreeMap::new();
     for e in &case.expected {
         *want.entry(e).or_default() += 1;
@@ -362,10 +380,13 @@ pub fn check_case(case: &Case) -> Option<String> {
         .filter(|(_, n)| **n < 0)
         .flat_map(|(e, _)| shown.iter().filter(move |s| s.starts_with(&e.to_string())).map(|s| format!("  {s}")))
         .collect();
-    if missing.is_empty() && unexpected.is_empty() {
+    if missing.is_empty() && unexpected.is_empty() && unresolved.is_empty() {
         return None;
     }
     let mut out = format!("case `{}` (line {}):", case.name, case.at);
+    if !unresolved.is_empty() {
+        out.push_str(&format!("\n annotated types that mean nothing at their `type?`:\n{}", unresolved.join("\n")));
+    }
     if !missing.is_empty() {
         out.push_str(&format!("\n expected, not reported:\n{}", missing.join("\n")));
     }
@@ -546,18 +567,66 @@ mod tests {
     }
 
     /// [test-data] [type-query] `//~ type[T]` holds a type, brackets and
-    /// all, compared in one spelling whatever the order of its qualifiers
-    /// and arms.
+    /// all, kept as written with where it is written, for the checker to
+    /// judge at the `type?`.
     #[test]
-    fn a_type_annotation_is_compared_as_a_type() {
-        let cases = parse("fn a() {}\n//~ type[(Int) [Log, Console] -> Mut  Ok Str]\ntype?(x)\n").unwrap();
+    fn a_type_annotation_is_kept_with_where_it_is() {
+        let cases = parse("fn a() {}\n//~ type[ (Int) [Log, Console] -> Mut  Ok Str ]\ntype?(x)\n").unwrap();
         assert_eq!(cases[0].expected[0].severity, "type");
-        assert_eq!(cases[0].expected[0].id, canonical_type("(Int) [Log, Console] -> Ok Mut Str").unwrap());
-        assert_eq!(canonical_type("proj Idx(str)  Mut Int"), canonical_type("Mut Idx(str) proj Int"));
-        assert_eq!(canonical_type("Int?"), canonical_type("None | Int"));
-        assert_ne!(canonical_type("Idx(str) Int"), canonical_type("Idx(parsing.str) Int"));
+        assert_eq!(cases[0].expected[0].id, "(Int) [Log, Console] -> Mut  Ok Str");
+        let t = &cases[0].types[0];
+        assert_eq!((t.file.as_str(), t.line), ("main.sv", 3));
+        let content = &cases[0].files[0].1;
+        assert_eq!(&content[t.offset as usize..t.offset as usize + t.text.len()], t.text);
         assert!(parse("//~ type[Int\nfn a() {}\n").is_err(), "unclosed");
         assert!(parse("//~ type[Int] more\nfn a() {}\n").is_err(), "a tail");
         assert!(parse("//~ type[Int |]\nfn a() {}\n").is_err(), "not a type");
+    }
+
+    const CURSOR: &str = "struct Cursor canbe Mut {\n    str: proj Str\n    pos: Idx(str) Int\n}\n";
+
+    fn checked(body: &str) -> Option<String> {
+        let cases = parse(&format!("{CURSOR}{body}\nfn main() {{}}\n")).unwrap();
+        crate::front::std("kt");
+        check_case(&cases[0])
+    }
+
+    /// [test-data] [type-query] An annotation is judged as `type!(place: T)`
+    /// is, at the `type?`: a destructured `str` and the read `cursor.str`
+    /// are one value whichever spelling the annotation uses, and qualifier
+    /// order does not matter.
+    #[test]
+    fn a_type_annotation_compares_claims_by_identity() {
+        let body = "fn f(cursor: Mut Cursor) [] -> None => cursor {\n    let { str, pos } = cursor\n    \
+                    //~ type[Idx(cursor.str) Int]\n    type?(pos)\n    \
+                    //~ type[Idx(str) Int]\n    type?(cursor.pos)\n    \
+                    //~ type[Mut Cursor]\n    type?(cursor)\n    \
+                    let _n = str.char_at(pos)\n}\n";
+        assert_eq!(checked(body), None);
+    }
+
+    /// [test-data] [type-query] Two cursors each destructured into a local
+    /// `str`: the first's index prints `Idx(str)` where `str` is the
+    /// second's. An annotation spelled as the report is printed is about
+    /// the wrong value there, and fails; one naming a local that is not in
+    /// scope at the `type?` fails saying so.
+    #[test]
+    fn a_type_annotation_spelled_alike_but_about_another_value_fails() {
+        let head = "fn f(a: Cursor, b: Cursor) [] -> None => a, b {\n    \
+                    let _p = if size(a.str) > 0 {\n        let { str, pos } = a\n        let _c = size(str)\n        pos\n    \
+                    } else {\n        let { str, pos } = a\n        let _c = size(str)\n        pos\n    }\n";
+        let shadowed = format!(
+            "{head}    if size(b.str) > 0 {{\n        let {{ str, pos }} = b\n        \
+             //~ type[Idx(str) Int]\n        type?(_p)\n        let _d = str.char_at(pos)\n    }}\n}}\n"
+        );
+        let failure = checked(&shadowed).expect("`Idx(str)` is about `b.str` at the `type?`");
+        assert!(failure.contains("expected, not reported:\n  main.sv:18: type[Idx(str) Int]"), "{failure}");
+        assert!(failure.contains("type[Idx(str) Int (held by no annotation here)]"), "{failure}");
+        let out_of_scope = format!("{head}    //~ type[Idx(str) Int]\n    type?(_p)\n}}\n");
+        let failure = checked(&out_of_scope).expect("no `str` is in scope at the `type?`");
+        assert!(failure.contains("annotated types that mean nothing at their `type?`:\n  main.sv:16: type[Idx(str) Int]: `str` names no local here"), "{failure}");
+        let unannotated = format!("{head}    type?(_p)\n}}\n");
+        let failure = checked(&unannotated).expect("a `type?` with no annotation fails");
+        assert!(failure.contains("reported, not annotated"), "{failure}");
     }
 }

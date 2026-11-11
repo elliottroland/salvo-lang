@@ -717,7 +717,7 @@ pub fn walk_expr<V: Visitor>(v: &mut V, e: &Expr) {
             v.visit_span(span);
             walk_expr(v, place);
         }
-        Expr::AssertType { place, ty, span } => {
+        Expr::TypeAssert { place, ty, span } => {
             v.visit_span(span);
             walk_expr(v, place);
             if let Some(t) = ty {

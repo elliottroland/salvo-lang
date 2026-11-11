@@ -143,9 +143,9 @@
           "match": "\\b(if|elif|else|when|while|for|in|return|break|continue|try)\\b"
         },
         {
-          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword; [type-query] `type?(` is the type query",
+          "comment": "[comptime-fields] `type:` is a field name (`Field.type` in std.core.comptime), not the keyword; [type-query] [type-assert] `type?(` and `type!(` are the compiler forms",
           "name": "keyword.declaration.salvo",
-          "match": "\\b(fn|let|struct|qualifier|effect|handler|fns|type|intrinsic|platform|import|provenance|refn|rename|state)\\b(?!\\s*:|\\?\\()"
+          "match": "\\b(fn|let|struct|qualifier|effect|handler|fns|type|intrinsic|platform|import|provenance|refn|rename|state)\\b(?!\\s*:|[?!]\\()"
         },
         {
           "name": "keyword.other.salvo",
@@ -245,6 +245,11 @@
           "comment": "the answering compiler forms — a keyword by position, not a reserved word",
           "name": "keyword.other.salvo",
           "match": "\\b(?:whynot|type)\\?(?=\\()"
+        },
+        {
+          "comment": "the compile-time type check — a keyword by position, not a reserved word",
+          "name": "keyword.other.salvo",
+          "match": "\\btype!(?=\\()"
         },
         {
           "comment": "the mailbox slot of a handler — a keyword by position, not a reserved word",

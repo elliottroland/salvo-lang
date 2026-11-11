@@ -39,7 +39,7 @@ A few things work differently from the languages you may know:
 
 The sections below take each construct in turn, then the operators that join
 expressions (`|>`, `?:`, `?>`), then re-typing, which drops a qualifier from
-a value, and finally `type?` and `assert!(x: T)`, which show and check what a
+a value, and finally `type?` and `type!`, which show and check what a
 place's type is at a given line.
 
 ## If/elif/else blocks
@@ -493,15 +493,16 @@ The rules:
   afterwards. `Mut` is no exception: a `Mut Str` variable takes a plain `Str`,
   and reads as a `Str` until a `Mut Str` is assigned.
 
-## Finding out a type: `type?` and `assert!(x: T)`
+## Finding out a type: `type?` and `type!`
 
 Narrowing, re-typing, mutation and loops all change what a place's type is
 from one line to the next. Two compiler forms let you see it. `type?(place)`
 asks: the compiler reports the place's type at that point, as a warning that
-fails nothing, and the program does not change. `assert!(place: T)` states
+fails nothing, and the program does not change. `type!(place: T)` states
 it: the program does not compile unless the place's type is exactly `T`. It is
 TypeScript's hover type, or a `static_assert` on the type, written in the
-program.
+program. Both are checked when compiling, never at run time: the `?` asks,
+and the `!` says the build can break.
 
 ```salvo
 struct Parsing canbe Mut {
@@ -513,9 +514,9 @@ fn step(parsing: Mut Parsing) [] -> None => parsing: Mut {
     let { str, pos } = parsing
     type?(pos)                          // warning: type of `pos`: Idx(str) Int
     type?(parsing.pos)                  // warning: type of `parsing.pos`: Idx(parsing.str) Int
-    assert!(pos: Idx(parsing.str) Int)  // holds: `str` is `parsing.str`
+    type!(pos: Idx(parsing.str) Int)    // holds: `str` is `parsing.str`
     pos++
-    assert!(pos: Int)                   // the step left the claim behind
+    type!(pos: Int)                     // the step left the claim behind
     if pos is Idx(str) {
         parsing.pos = pos
     }
@@ -531,14 +532,18 @@ fn step(parsing: Mut Parsing) [] -> None => parsing: Mut {
   named only in them is still reported as unused.
 - **The type is the whole type**, every qualifier included (`proj`, `Mut`,
   claims such as `Idx(str)`), written with a borrow first and the rest in name
-  order. The order you write them in `assert!` does not matter.
+  order. The order you write them in `type!` does not matter.
 - **A claim is compared by the value it is about**, not by its spelling: in
   the example, `Idx(str)` and `Idx(parsing.str)` are one claim, because the
   destructured `str` is `parsing.str`. A claim about another cursor's `str`
-  fails the assertion even when it prints the same.
-- **Exact means exact**: `assert!` checks the type, it does not test or
+  fails the check even when it prints the same.
+- **Exact means exact**: `type!` checks the type, it does not test or
   convert (`is` tests; `x := -Q` drops). A `-Q` or `+Q` list is refused, and
   so is a message, since the check never fails at run time.
+- **`assert!` is not a type check.** `assert!(cond)` is a run-time
+  assertion ([Testing](Testing.md#assertions)), so `assert!(x: Int)` asserts
+  the re-typing `x: Int` as a condition, and is refused because an `Int` is
+  not a `Bool`.
 - **Inside a loop**, the compiler may walk the body twice, the second time
   with what the first walk left at the end of the body. `type?` reports what
-  the last walk saw, once.
+  the last walk saw, once, and `type!` is judged on that walk.

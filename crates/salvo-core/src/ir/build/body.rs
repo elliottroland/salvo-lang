@@ -452,8 +452,8 @@ impl<'a, 'p> Lower<'a, 'p> {
                 out
             }
             AExpr::Continue { .. } => vec![Stmt::Continue],
-            // [type-query] [assert-type] As a statement: nothing at all.
-            AExpr::TypeQuery { .. } | AExpr::AssertType { .. } => Vec::new(),
+            // [type-query] [type-assert] As a statement: nothing at all.
+            AExpr::TypeQuery { .. } | AExpr::TypeAssert { .. } => Vec::new(),
             AExpr::While { cond, body, else_block, span } => {
                 let mut stmts = self.while_stmt(cond, body, else_block.as_ref(), *span, None);
                 // [loop-never] A non-escaping `while true` is `Never`: append

@@ -5795,17 +5795,19 @@ impl<'s> Parser<'s> {
         Some(Retype { kind, span })
     }
 
-    /// [assert-type] The rest of `assert!(place: T)`, from its `:`: the type
-    /// (`-Q`/`+Q` lists are refused, and skipped to the `)`), and the `)`.
-    /// A message is refused: the form is checked when compiling.
-    fn parse_assert_type(&mut self, place: Expr, start: Span, saved_depth: u32) -> Option<Expr> {
-        self.bump(); // `:`
-        // A `-` before a number is a negative literal type (`assert!(x: -1)`),
+    /// [type-assert] The rest of `type!(place: T)`, after its `(`: the place
+    /// (read without the re-typing postfix, whose `:` this form takes), the
+    /// `:`, the type (`-Q`/`+Q` lists are refused, and skipped to the `)`),
+    /// and the `)`. A message is refused: the form is checked when compiling.
+    fn parse_type_assert(&mut self, start: Span, saved_depth: u32) -> Option<Expr> {
+        let place = self.parse_binary(0).and_then(|e| self.newline_postfix(e))?;
+        self.expect(&TokenKind::Colon)?;
+        // A `-` before a number is a negative literal type (`type!(x: -1)`),
         // not a drop.
         let negative_literal = self.at(&TokenKind::Minus) && matches!(self.peek_at(1).kind, TokenKind::Int { .. } | TokenKind::Float { .. });
         let ty = if matches!(self.kind(), TokenKind::Minus | TokenKind::Plus) && !negative_literal {
             let at = self.peek().span;
-            self.error(messages::assert_type_signed(), at);
+            self.error(messages::type_assert_signed(), at);
             let mut depth = 0usize;
             while !self.at_eof() {
                 match self.kind() {
@@ -5822,11 +5824,11 @@ impl<'s> Parser<'s> {
         };
         if let Some(comma) = self.eat(&TokenKind::Comma) {
             let message = self.parse_expr()?;
-            self.error(messages::assert_type_message(), comma.span.to(message.span()));
+            self.error(messages::type_assert_message(), comma.span.to(message.span()));
         }
         let end = self.expect(&TokenKind::RParen)?.span;
         self.group_depth = saved_depth;
-        Some(Expr::AssertType { place: Box::new(place), ty, span: start.to(end) })
+        Some(Expr::TypeAssert { place: Box::new(place), ty, span: start.to(end) })
     }
 
     /// Attempts `(a, b) -> ...`; rolls back and returns `None` when the
@@ -7285,20 +7287,8 @@ impl<'s> Parser<'s> {
                 self.expect(&TokenKind::LParen)?;
                 let saved_depth = self.group_depth;
                 self.group_depth += 1;
-                // [assert-type] `assert!(place: T)` is decided by its `:`:
-                // the operand is read without the re-typing postfix, whose
-                // `:` this form takes (`assert!((x: -Ok) is Int)` keeps its
-                // parentheses).
                 let cond = if assert {
-                    let lambda = if self.at(&TokenKind::LParen) { self.try_parse_paren_lambda() } else { None };
-                    let first = match lambda {
-                        Some(l) => l,
-                        None => self.parse_binary(0).and_then(|e| self.newline_postfix(e))?,
-                    };
-                    if self.at(&TokenKind::Colon) && self.same_line() {
-                        return self.parse_assert_type(first, start, saved_depth);
-                    }
-                    Some(Box::new(first))
+                    Some(Box::new(self.parse_expr()?))
                 } else {
                     None
                 };
@@ -7362,6 +7352,20 @@ impl<'s> Parser<'s> {
                 let end = self.expect(&TokenKind::RParen)?.span;
                 self.group_depth = saved_depth;
                 Some(Expr::TypeQuery { place: Box::new(place), span: start.to(end) })
+            }
+            // [type-assert] `type!(place: T)`: read as `type?(` is (a
+            // declaration's `type` is never followed by `!` either). The `!`
+            // marks a form that can fail, here the build.
+            TokenKind::KwType
+                if matches!(self.peek_at(1).kind, TokenKind::Bang)
+                    && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
+            {
+                let start = self.bump().span;
+                self.bump(); // `!`
+                self.expect(&TokenKind::LParen)?;
+                let saved_depth = self.group_depth;
+                self.group_depth += 1;
+                self.parse_type_assert(start, saved_depth)
             }
             // [expr-escape] The three escapes are **expressions** of type
             // `Never` (user decision 2026-09-21), so a tail position can hold

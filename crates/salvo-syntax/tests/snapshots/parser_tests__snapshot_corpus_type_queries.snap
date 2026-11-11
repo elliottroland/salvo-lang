@@ -4,7 +4,7 @@ expression: "parse_clean(&corpus(\"type_queries.sv\"))"
 ---
 Module {
     docs: [
-        "[type-query] [assert-type] Asking for a place's type, and asserting it,",
+        "[type-query] [type-assert] Asking for a place's type, and asserting it,",
         "as docs/language/Control-Flow.md \"Finding out a type\" writes them.",
     ],
     items: [
@@ -355,11 +355,11 @@ Module {
                                 },
                             ),
                             Expr(
-                                AssertType {
+                                TypeAssert {
                                     place: Ident(
                                         Ident {
                                             name: "pos",
-                                            span: 356..359,
+                                            span: 354..357,
                                         },
                                     ),
                                     ty: Some(
@@ -368,7 +368,7 @@ Module {
                                                 TypeRef {
                                                     name: Ident {
                                                         name: "Idx",
-                                                        span: 361..364,
+                                                        span: 359..362,
                                                     },
                                                     args: [],
                                                     value_args: [
@@ -377,7 +377,7 @@ Module {
                                                             base: TypeRef {
                                                                 name: Ident {
                                                                     name: "str",
-                                                                    span: 365..368,
+                                                                    span: 363..366,
                                                                 },
                                                                 args: [],
                                                                 value_args: [],
@@ -386,7 +386,7 @@ Module {
                                                                 binder: false,
                                                                 established: false,
                                                                 alias: None,
-                                                                span: 365..368,
+                                                                span: 363..366,
                                                             },
                                                         },
                                                     ],
@@ -395,13 +395,13 @@ Module {
                                                     binder: false,
                                                     established: false,
                                                     alias: None,
-                                                    span: 361..369,
+                                                    span: 359..367,
                                                 },
                                             ],
                                             base: TypeRef {
                                                 name: Ident {
                                                     name: "Int",
-                                                    span: 370..373,
+                                                    span: 368..371,
                                                 },
                                                 args: [],
                                                 value_args: [],
@@ -410,19 +410,19 @@ Module {
                                                 binder: false,
                                                 established: false,
                                                 alias: None,
-                                                span: 370..373,
+                                                span: 368..371,
                                             },
                                         },
                                     ),
-                                    span: 348..374,
+                                    span: 348..372,
                                 },
                             ),
                             Expr(
-                                AssertType {
+                                TypeAssert {
                                     place: Ident(
                                         Ident {
                                             name: "pos",
-                                            span: 387..390,
+                                            span: 383..386,
                                         },
                                     ),
                                     ty: Some(
@@ -431,7 +431,7 @@ Module {
                                                 TypeRef {
                                                     name: Ident {
                                                         name: "Idx",
-                                                        span: 392..395,
+                                                        span: 388..391,
                                                     },
                                                     args: [],
                                                     value_args: [
@@ -440,7 +440,7 @@ Module {
                                                             base: TypeRef {
                                                                 name: Ident {
                                                                     name: "parsing.str",
-                                                                    span: 396..407,
+                                                                    span: 392..403,
                                                                 },
                                                                 args: [],
                                                                 value_args: [],
@@ -449,7 +449,7 @@ Module {
                                                                 binder: false,
                                                                 established: false,
                                                                 alias: None,
-                                                                span: 396..407,
+                                                                span: 392..403,
                                                             },
                                                         },
                                                     ],
@@ -458,13 +458,13 @@ Module {
                                                     binder: false,
                                                     established: false,
                                                     alias: None,
-                                                    span: 392..408,
+                                                    span: 388..404,
                                                 },
                                             ],
                                             base: TypeRef {
                                                 name: Ident {
                                                     name: "Int",
-                                                    span: 409..412,
+                                                    span: 405..408,
                                                 },
                                                 args: [],
                                                 value_args: [],
@@ -473,11 +473,11 @@ Module {
                                                 binder: false,
                                                 established: false,
                                                 alias: None,
-                                                span: 409..412,
+                                                span: 405..408,
                                             },
                                         },
                                     ),
-                                    span: 379..413,
+                                    span: 377..409,
                                 },
                             ),
                             Expr(
@@ -485,20 +485,20 @@ Module {
                                     operand: Ident(
                                         Ident {
                                             name: "pos",
-                                            span: 418..421,
+                                            span: 414..417,
                                         },
                                     ),
                                     down: false,
                                     prefix: false,
-                                    span: 418..423,
+                                    span: 414..419,
                                 },
                             ),
                             Expr(
-                                AssertType {
+                                TypeAssert {
                                     place: Ident(
                                         Ident {
                                             name: "pos",
-                                            span: 436..439,
+                                            span: 430..433,
                                         },
                                     ),
                                     ty: Some(
@@ -507,7 +507,7 @@ Module {
                                             base: TypeRef {
                                                 name: Ident {
                                                     name: "Int",
-                                                    span: 441..444,
+                                                    span: 435..438,
                                                 },
                                                 args: [],
                                                 value_args: [],
@@ -516,11 +516,11 @@ Module {
                                                 binder: false,
                                                 established: false,
                                                 alias: None,
-                                                span: 441..444,
+                                                span: 435..438,
                                             },
                                         },
                                     ),
-                                    span: 428..445,
+                                    span: 424..439,
                                 },
                             ),
                             Expr(
@@ -531,14 +531,14 @@ Module {
                                                 subject: Ident(
                                                     Ident {
                                                         name: "pos",
-                                                        span: 453..456,
+                                                        span: 447..450,
                                                     },
                                                 ),
                                                 check: [
                                                     TypeRef {
                                                         name: Ident {
                                                             name: "Idx",
-                                                            span: 460..463,
+                                                            span: 454..457,
                                                         },
                                                         args: [],
                                                         value_args: [
@@ -547,7 +547,7 @@ Module {
                                                                 base: TypeRef {
                                                                     name: Ident {
                                                                         name: "str",
-                                                                        span: 464..467,
+                                                                        span: 458..461,
                                                                     },
                                                                     args: [],
                                                                     value_args: [],
@@ -556,7 +556,7 @@ Module {
                                                                     binder: false,
                                                                     established: false,
                                                                     alias: None,
-                                                                    span: 464..467,
+                                                                    span: 458..461,
                                                                 },
                                                             },
                                                         ],
@@ -565,20 +565,20 @@ Module {
                                                         binder: false,
                                                         established: false,
                                                         alias: None,
-                                                        span: 460..468,
+                                                        span: 454..462,
                                                     },
                                                 ],
                                                 binding: None,
-                                                span: 453..468,
+                                                span: 447..462,
                                             },
                                             Block {
                                                 stmts: [
                                                     Expr(
-                                                        AssertType {
+                                                        TypeAssert {
                                                             place: Ident(
                                                                 Ident {
                                                                     name: "pos",
-                                                                    span: 487..490,
+                                                                    span: 479..482,
                                                                 },
                                                             ),
                                                             ty: Some(
@@ -587,7 +587,7 @@ Module {
                                                                         TypeRef {
                                                                             name: Ident {
                                                                                 name: "Idx",
-                                                                                span: 492..495,
+                                                                                span: 484..487,
                                                                             },
                                                                             args: [],
                                                                             value_args: [
@@ -596,7 +596,7 @@ Module {
                                                                                     base: TypeRef {
                                                                                         name: Ident {
                                                                                             name: "str",
-                                                                                            span: 496..499,
+                                                                                            span: 488..491,
                                                                                         },
                                                                                         args: [],
                                                                                         value_args: [],
@@ -605,7 +605,7 @@ Module {
                                                                                         binder: false,
                                                                                         established: false,
                                                                                         alias: None,
-                                                                                        span: 496..499,
+                                                                                        span: 488..491,
                                                                                     },
                                                                                 },
                                                                             ],
@@ -614,13 +614,13 @@ Module {
                                                                             binder: false,
                                                                             established: false,
                                                                             alias: None,
-                                                                            span: 492..500,
+                                                                            span: 484..492,
                                                                         },
                                                                     ],
                                                                     base: TypeRef {
                                                                         name: Ident {
                                                                             name: "Int",
-                                                                            span: 501..504,
+                                                                            span: 493..496,
                                                                         },
                                                                         args: [],
                                                                         value_args: [],
@@ -629,11 +629,11 @@ Module {
                                                                         binder: false,
                                                                         established: false,
                                                                         alias: None,
-                                                                        span: 501..504,
+                                                                        span: 493..496,
                                                                     },
                                                                 },
                                                             ),
-                                                            span: 479..505,
+                                                            span: 473..497,
                                                         },
                                                     ),
                                                     Assign {
@@ -641,39 +641,39 @@ Module {
                                                             base: Ident(
                                                                 Ident {
                                                                     name: "parsing",
-                                                                    span: 514..521,
+                                                                    span: 506..513,
                                                                 },
                                                             ),
                                                             field: Ident {
                                                                 name: "pos",
-                                                                span: 522..525,
+                                                                span: 514..517,
                                                             },
-                                                            span: 514..525,
+                                                            span: 506..517,
                                                             grouped: false,
                                                         },
                                                         value: Ident(
                                                             Ident {
                                                                 name: "pos",
-                                                                span: 528..531,
+                                                                span: 520..523,
                                                             },
                                                         ),
-                                                        span: 514..531,
+                                                        span: 506..523,
                                                     },
                                                 ],
-                                                span: 469..537,
+                                                span: 463..529,
                                                 terminal: false,
                                             },
                                         ),
                                     ],
                                     else_block: None,
-                                    span: 450..537,
+                                    span: 444..529,
                                 },
                             ),
                             Let {
                                 pattern: Ident(
                                     Ident {
                                         name: "_shown",
-                                        span: 546..552,
+                                        span: 538..544,
                                     },
                                 ),
                                 ty: None,
@@ -681,19 +681,19 @@ Module {
                                     place: Ident(
                                         Ident {
                                             name: "parsing",
-                                            span: 561..568,
+                                            span: 553..560,
                                         },
                                     ),
-                                    span: 555..569,
+                                    span: 547..561,
                                 },
-                                span: 542..569,
+                                span: 534..561,
                             },
                             Expr(
-                                AssertType {
+                                TypeAssert {
                                     place: Ident(
                                         Ident {
                                             name: "_shown",
-                                            span: 582..588,
+                                            span: 572..578,
                                         },
                                     ),
                                     ty: Some(
@@ -702,7 +702,7 @@ Module {
                                             base: TypeRef {
                                                 name: Ident {
                                                     name: "None",
-                                                    span: 590..594,
+                                                    span: 580..584,
                                                 },
                                                 args: [],
                                                 value_args: [],
@@ -711,19 +711,19 @@ Module {
                                                 binder: false,
                                                 established: false,
                                                 alias: None,
-                                                span: 590..594,
+                                                span: 580..584,
                                             },
                                         },
                                     ),
-                                    span: 574..595,
+                                    span: 566..585,
                                 },
                             ),
                         ],
-                        span: 273..597,
+                        span: 273..587,
                         terminal: false,
                     },
                 ),
-                span: 216..597,
+                span: 216..587,
             },
         ),
         Fn(
@@ -738,7 +738,7 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "arms",
-                    span: 602..606,
+                    span: 592..596,
                 },
                 type_name: None,
                 scoped_to: None,
@@ -754,7 +754,7 @@ Module {
                         annotations: [],
                         name: Ident {
                             name: "v",
-                            span: 607..608,
+                            span: 597..598,
                         },
                         ty: Union {
                             arms: [
@@ -763,7 +763,7 @@ Module {
                                         TypeRef {
                                             name: Ident {
                                                 name: "Ok",
-                                                span: 610..612,
+                                                span: 600..602,
                                             },
                                             args: [],
                                             value_args: [],
@@ -772,13 +772,13 @@ Module {
                                             binder: false,
                                             established: false,
                                             alias: None,
-                                            span: 610..612,
+                                            span: 600..602,
                                         },
                                     ],
                                     base: TypeRef {
                                         name: Ident {
                                             name: "Int",
-                                            span: 613..616,
+                                            span: 603..606,
                                         },
                                         args: [],
                                         value_args: [],
@@ -787,7 +787,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 613..616,
+                                        span: 603..606,
                                     },
                                 },
                                 Named {
@@ -795,7 +795,7 @@ Module {
                                     base: TypeRef {
                                         name: Ident {
                                             name: "Str",
-                                            span: 619..622,
+                                            span: 609..612,
                                         },
                                         args: [],
                                         value_args: [],
@@ -804,16 +804,16 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 619..622,
+                                        span: 609..612,
                                     },
                                 },
                             ],
-                            span: 610..622,
+                            span: 600..612,
                         },
                         variadic: false,
                         implicit: false,
                         default: None,
-                        span: 607..622,
+                        span: 597..612,
                     },
                 ],
                 implicit_groups: [],
@@ -826,12 +826,12 @@ Module {
                             target: Param {
                                 name: Ident {
                                     name: "v",
-                                    span: 638..639,
+                                    span: 628..629,
                                 },
                                 path: [],
                             },
                             kind: KeepAll,
-                            span: 638..639,
+                            span: 628..629,
                         },
                     ],
                 ),
@@ -841,7 +841,7 @@ Module {
                         base: TypeRef {
                             name: Ident {
                                 name: "None",
-                                span: 630..634,
+                                span: 620..624,
                             },
                             args: [],
                             value_args: [],
@@ -850,7 +850,7 @@ Module {
                             binder: false,
                             established: false,
                             alias: None,
-                            span: 630..634,
+                            span: 620..624,
                         },
                     },
                 ),
@@ -860,11 +860,11 @@ Module {
                     Block {
                         stmts: [
                             Expr(
-                                AssertType {
+                                TypeAssert {
                                     place: Ident(
                                         Ident {
                                             name: "v",
-                                            span: 654..655,
+                                            span: 642..643,
                                         },
                                     ),
                                     ty: Some(
@@ -875,7 +875,7 @@ Module {
                                                         TypeRef {
                                                             name: Ident {
                                                                 name: "Ok",
-                                                                span: 657..659,
+                                                                span: 645..647,
                                                             },
                                                             args: [],
                                                             value_args: [],
@@ -884,13 +884,13 @@ Module {
                                                             binder: false,
                                                             established: false,
                                                             alias: None,
-                                                            span: 657..659,
+                                                            span: 645..647,
                                                         },
                                                     ],
                                                     base: TypeRef {
                                                         name: Ident {
                                                             name: "Int",
-                                                            span: 660..663,
+                                                            span: 648..651,
                                                         },
                                                         args: [],
                                                         value_args: [],
@@ -899,7 +899,7 @@ Module {
                                                         binder: false,
                                                         established: false,
                                                         alias: None,
-                                                        span: 660..663,
+                                                        span: 648..651,
                                                     },
                                                 },
                                                 Named {
@@ -907,7 +907,7 @@ Module {
                                                     base: TypeRef {
                                                         name: Ident {
                                                             name: "Str",
-                                                            span: 666..669,
+                                                            span: 654..657,
                                                         },
                                                         args: [],
                                                         value_args: [],
@@ -916,14 +916,14 @@ Module {
                                                         binder: false,
                                                         established: false,
                                                         alias: None,
-                                                        span: 666..669,
+                                                        span: 654..657,
                                                     },
                                                 },
                                             ],
-                                            span: 657..669,
+                                            span: 645..657,
                                         },
                                     ),
-                                    span: 646..670,
+                                    span: 636..658,
                                 },
                             ),
                             Expr(
@@ -934,14 +934,14 @@ Module {
                                                 subject: Ident(
                                                     Ident {
                                                         name: "v",
-                                                        span: 678..679,
+                                                        span: 666..667,
                                                     },
                                                 ),
                                                 check: [
                                                     TypeRef {
                                                         name: Ident {
                                                             name: "Ok",
-                                                            span: 683..685,
+                                                            span: 671..673,
                                                         },
                                                         args: [],
                                                         value_args: [],
@@ -950,11 +950,11 @@ Module {
                                                         binder: false,
                                                         established: false,
                                                         alias: None,
-                                                        span: 683..685,
+                                                        span: 671..673,
                                                     },
                                                 ],
                                                 binding: None,
-                                                span: 678..685,
+                                                span: 666..673,
                                             },
                                             Block {
                                                 stmts: [
@@ -965,7 +965,7 @@ Module {
                                                                     subject: Ident(
                                                                         Ident {
                                                                             name: "v",
-                                                                            span: 705..706,
+                                                                            span: 693..694,
                                                                         },
                                                                     ),
                                                                     retype: Retype {
@@ -974,7 +974,7 @@ Module {
                                                                                 TypeRef {
                                                                                     name: Ident {
                                                                                         name: "Ok",
-                                                                                        span: 709..711,
+                                                                                        span: 697..699,
                                                                                     },
                                                                                     args: [],
                                                                                     value_args: [],
@@ -983,19 +983,19 @@ Module {
                                                                                     binder: false,
                                                                                     established: false,
                                                                                     alias: None,
-                                                                                    span: 709..711,
+                                                                                    span: 697..699,
                                                                                 },
                                                                             ],
                                                                         ),
-                                                                        span: 708..711,
+                                                                        span: 696..699,
                                                                     },
-                                                                    span: 705..711,
+                                                                    span: 693..699,
                                                                 },
                                                                 check: [
                                                                     TypeRef {
                                                                         name: Ident {
                                                                             name: "Int",
-                                                                            span: 716..719,
+                                                                            span: 704..707,
                                                                         },
                                                                         args: [],
                                                                         value_args: [],
@@ -1004,32 +1004,32 @@ Module {
                                                                         binder: false,
                                                                         established: false,
                                                                         alias: None,
-                                                                        span: 716..719,
+                                                                        span: 704..707,
                                                                     },
                                                                 ],
                                                                 binding: None,
-                                                                span: 705..719,
+                                                                span: 693..707,
                                                             },
                                                             message: None,
-                                                            span: 696..720,
+                                                            span: 684..708,
                                                         },
                                                     ),
                                                 ],
-                                                span: 686..726,
+                                                span: 674..714,
                                                 terminal: false,
                                             },
                                         ),
                                     ],
                                     else_block: None,
-                                    span: 675..726,
+                                    span: 663..714,
                                 },
                             ),
                         ],
-                        span: 640..728,
+                        span: 630..716,
                         terminal: false,
                     },
                 ),
-                span: 599..728,
+                span: 589..716,
             },
         ),
         Fn(
@@ -1044,7 +1044,7 @@ Module {
                 is_send: false,
                 name: Ident {
                     name: "main",
-                    span: 733..737,
+                    span: 721..725,
                 },
                 type_name: None,
                 scoped_to: None,
@@ -1065,11 +1065,11 @@ Module {
                 body: Some(
                     Block {
                         stmts: [],
-                        span: 740..742,
+                        span: 728..730,
                         terminal: false,
                     },
                 ),
-                span: 730..742,
+                span: 718..730,
             },
         ),
     ],

@@ -1032,7 +1032,7 @@ fn dump_prints_the_type_check_phase() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("type-check phase"));
 }
 
-/// [type-query] [assert-type] [cli-dump] The two forms in the dumps that
+/// [type-query] [type-assert] [cli-dump] The two forms in the dumps that
 /// print source — resolution's bindings and the checker's choices — and in
 /// none of the IR; a `type?` shows as a warning and leaves the exit code
 /// alone, while a failed type assertion is an error.
@@ -1041,7 +1041,7 @@ fn type_queries_are_warnings_and_print_in_the_dumps() {
     let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("analyze_type_queries");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join("main.sv"), "fn main() {\n    let s = \"abc\"\n    let i = 1\n    type?(s)\n    assert!(i: Int)\n    let _n = size(s) + i\n}\n").unwrap();
+    fs::write(dir.join("main.sv"), "fn main() {\n    let s = \"abc\"\n    let i = 1\n    type?(s)\n    type!(i: Int)\n    let _n = size(s) + i\n}\n").unwrap();
     let src = dir.to_str().unwrap();
     let out = salvo(&["-v", "analyze", "--src", src]);
     let stderr = String::from_utf8_lossy(&out.stderr);
@@ -1050,19 +1050,19 @@ fn type_queries_are_warnings_and_print_in_the_dumps() {
     let out = salvo(&["dump", "--phase", "resolve", "--src", src]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("type?(s#{2:9})"), "{stdout}");
-    assert!(stdout.contains("assert!(i#{3:9}: Int)"), "{stdout}");
+    assert!(stdout.contains("type!(i#{3:9}: Int)"), "{stdout}");
     let out = salvo(&["dump", "--phase", "type-check", "--src", src]);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    assert!(stdout.contains("    type?(s)\n    assert!(i: Int)\n"), "{stdout}");
+    assert!(stdout.contains("    type?(s)\n    type!(i: Int)\n"), "{stdout}");
     let out = salvo(&["dump", "--phase", "generate-ir", "--src", src]);
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    assert!(!stdout.contains("type?") && !stdout.contains("assert"), "nothing is lowered: {stdout}");
-    fs::write(dir.join("main.sv"), "fn main() {\n    let i = 1\n    assert!(i: Str)\n    let _n = i\n}\n").unwrap();
+    assert!(!stdout.contains("type?") && !stdout.contains("type!"), "nothing is lowered: {stdout}");
+    fs::write(dir.join("main.sv"), "fn main() {\n    let i = 1\n    type!(i: Str)\n    let _n = i\n}\n").unwrap();
     let out = salvo(&["-v", "analyze", "--src", src]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(!out.status.success(), "{stderr}");
-    assert!(stderr.contains("error[assert-type:mismatch]: `i` is `Int`, not `Str`"), "{stderr}");
+    assert!(stderr.contains("error[type-assert:mismatch]: `i` is `Int`, not `Str`"), "{stderr}");
 }
 
 /// [doc-example] The examples in doc comments are checked with the program,

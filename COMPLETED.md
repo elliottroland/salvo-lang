@@ -35,7 +35,7 @@ messages, and virtual time in a test).
 Ownership on the Rust side is derived mechanically from deductions — no
 lifetimes in emitted signatures except the one deliberate exception
 ([proj-readonly-return]). Around it: `salvo analyze` (with `type?(place)` and
-`assert!(place: T)` to show and pin a place's type), a language server, a VS Code
+`type!(place: T)` to show and pin a place's type), a language server, a VS Code
 extension (Salvo and its platform templates), worked [examples/](examples/), and `salvo test` — `test "name" { … }`
 blocks in `*.test.sv` annexes, run by a generated Salvo harness with one report
 on both backends, which is how std's own modules are tested.
@@ -150,45 +150,129 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
-### 2026-11-11 — `type?(place)` and `assert!(place: T)`: a place's type, shown and checked ([type-query] [assert-type] [test-data])
+### 2026-11-11 — `type!(place: T)` replaces `assert!(place: T)`; `//~ type[T]` judged by identity ([type-assert] [type-query] [test-data])
+
+**User decisions:** (1) The static type check is spelled `type!(place: T)`,
+not `assert!(place: T)`: it is not a run-time check, so it is not an
+`assert!`; `type?` and `type!` are the two compile-time forms, aligned with
+the `//~ type[…]` annotation, and the `!` says the build can break. Its
+semantics are unchanged. `assert!` keeps only its run-time meaning; the
+diagnostic ids are `type-assert:*` and the rule `[type-assert]`. (2) The
+checker data's `//~ type[T]` is identity-aware: its names are resolved in
+the scope at the `type?` and claims compared by rooted identity, so the
+annotation is exactly as strong as `type!(place: T)` for the same `T`.
+
+- **Parsing.** `KwType` `!` `(` where an expression starts makes
+  `Expr::TypeAssert` (renamed from `AssertType`), read as `type?(` is; the
+  place is parsed without the re-typing postfix and the `:` is required (a
+  plain parse error without it). The `:`-decides-the-form branch inside
+  `assert!(` and the printer's parentheses around a re-typing condition
+  existed only to tell the two forms apart, and are gone: `assert!(` parses
+  its condition with `parse_expr` again, as before `type?` existed.
+- **`assert!(x: T)` is not a parse error** (agent's call, ROADMAP §0bh
+  (e)): its condition is the re-typing `x: T`, so a non-`Bool` place is
+  `expr-cond-bool:not-bool`. A parse error would need the special case the
+  rename removed.
+- **The annotation, judged by the checker.** The runner hands each
+  annotation's text, file and line to the checker
+  (`CheckCache::check_annotated` with `salvo_core::TypeAnnotations`); at a
+  `type?` on that line, `type_annotation_verdicts` parses it
+  (`salvo_syntax::parse_type_at`, spans inside the comment), lowers it by
+  `expected_type` (the function `type!` now uses too: `validate_type`,
+  `lower_type`, `root_annotation`), and compares by `same_type`. The
+  report carries one `TypeVerdict` per annotation (`Holds`, `Differs`,
+  `Unresolved(why)`); the runner names a report by the annotation it holds,
+  and a report no annotation holds by its type, marked so it can never
+  match an annotation by spelling. A name the scope does not bind
+  (`unbound_value_ref`), a refused type or an unknown one is `Unresolved`,
+  listed in the failure as "annotated types that mean nothing at their
+  `type?`". The lowering leaves nothing behind: its diagnostics, copy
+  warnings and cache log entries are cut back, its written-type rows
+  removed (nested ones too), and while it runs (`judging_annotation`)
+  `record_ref` and `record_carried_identities` record nothing and an
+  ambiguous identity is reported every time, since the comment's names
+  are no node of the program and a carried identity recorded for one would
+  hide the program's own later reference (a gpu-reviewer find, with a
+  `flow/identity.sv` case that panics without the guard). Only a `type?`
+  written in the file is judged, by its span before the comptime origin is
+  rendered. `canonical_type` and its qualifier/arm sorting are gone:
+  `same_type` compares sets, effect lists included, so the ROADMAP item
+  about a fn type's effect order went with it. The user-facing `type?`
+  text is unchanged.
+- **Why the checker, not the runner** (agent's design): the runner has
+  text; whether `str` at a line is `cursor.str` is a fact only the checker
+  has, at that point of its walk, and only in that walk (the loop's last
+  walk decides, as for `type!`). Recording a scope snapshot per `type?` for
+  later resolution would duplicate `claim_identity`; judging in place reuses
+  `type!`'s path, so the two cannot drift.
+- **Found on the way:** the resumed working tree (an aborted run) had the
+  rename and the verdict machinery but judged with spans no numbered node
+  holds (`record_ref` panicked under `debug_assert`), compared an unjudged
+  report by its printed type (a false pass for the very case decision 2
+  targets), and had cut the first line of `fn_name_clash`'s doc comment.
+  An open defect is recorded in ROADMAP §0bh: an `if` whose branches give
+  one claim in two spellings (`pos` destructured, `a.pos` read) makes a
+  two-arm union of one identity.
+- **Tests**: `flow/identity.sv` gains both annotation spellings on a
+  destructured `pos` and on `cursor.pos`, and two cursors destructured into
+  `str` in separate blocks (the annotation names `a.str`, and `type!(_p:
+  Idx(str) Int)` is a mismatch there), and a keyed type's identities
+  written in an annotation (`Mut Set<Key>(key_hash, key_eq)`) before the
+  program writes them; `flow/refusals.sv` gains
+  `assert!(i: Int)` as `expr-cond-bool:not-bool` and `type!(i)` as a parse
+  error. The testkit's `a_type_annotation_is_kept_with_where_it_is`,
+  `a_type_annotation_compares_claims_by_identity` and
+  `a_type_annotation_spelled_alike_but_about_another_value_fails` (a
+  spelling that prints as the report but is about `b.str` fails; a name not
+  in scope fails saying so; an unannotated `type?` fails) through
+  `check_case`'s own failure text; the parser's
+  `type_bang_is_the_type_assertion`; the rest renamed.
+- 777 tests under `cargo nextest run`, all green, in a worktree of HEAD
+  plus this change (`tmp/wt4`), as the user's uncommitted std edits fail
+  goldens in the main tree.
+
+### 2026-11-11 — `type?(place)` and `type!(place: T)`: a place's type, shown and checked ([type-query] [type-assert] [test-data])
+
+Built as `assert!(place: T)`, decided by its `:`; renamed `type!(place: T)`
+by the entry above, which this entry's spellings follow.
 
 **User decisions (final):** (A) `type?(place)`, a compiler form spelled like
 `whynot?`, reports a place's exact current type, every qualifier included and
 in canonical order, as a diagnostic of a new kind, `type`, shown as a warning
 and never failing a build; it is flow-neutral, `None`, and emits nothing; in a
-loop only the last walk's type is reported. (B) `assert!(place: T)` is a static,
-exact type check, decided by its `:`, with `T` rooted in scope as an `is`
+loop only the last walk's type is reported. (B) `type!(place: T)` is a static,
+exact type check, with `T` rooted in scope as an `is`
 test's claims are and compared by rooted identity; `-Q`/`+Q` are refused; a
-failure is `assert-type:mismatch` showing both types; the runtime `assert!(x is
+failure is `type-assert:mismatch` showing both types; the runtime `assert!(x is
 Q)` is unchanged. (C) Checker test data gains `//~ type[T]`, parsed and
-compared as a type, under the exactness rule. (D) No trailing-assertion form,
-no `has`/`lacks` forms.
+compared as a type, under the exactness rule (judged by identity since the
+entry above). (D) No trailing-assertion form, no `has`/`lacks` forms.
 
 - **Lexing and parsing.** `type` is a keyword, so the primary-expression
   parser reads `KwType` `?` `(` (`Expr::TypeQuery`); no other reading of those
-  tokens exists (a declaration's `type` is never followed by `?`). Inside
-  `assert!(` the operand is parsed without the re-typing postfix, and a `:`
-  on the same line makes `Expr::AssertType { place, ty: Option<Type> }`; `ty`
-  is `None` only where the parse refused a `-Q`/`+Q` list (skipped to the
-  `)`). The printer parenthesizes a re-typing condition of a runtime
-  assertion, which would otherwise print as the new form.
+  tokens exists (a declaration's `type` is never followed by `?`). The type
+  check was first read inside `assert!(`, decided by a `:` after the
+  operand, with the printer parenthesizing a re-typing condition; the entry
+  above replaced that with `type!(`. `ty` in `Expr::TypeAssert { place, ty:
+  Option<Type> }` is `None` only where the parse refused a `-Q`/`+Q` list
+  (skipped to the `)`).
 - **Checking.** `place_type_unread` checks the place as a read (so a field
   path is rooted where read, [qual-depend-field]) and puts the local's
   `used` flag back; a non-place is refused without being checked, an unknown
   name is the read's own error. `type?` pushes a `Severity::Type`
   `FileDiagnostic` (`type_report`), id `type-query:type`, text ``type of
-  `place`: T``. `assert!` lowers `T` as a `let` annotation and compares with
+  `place`: T``. `type!` lowers `T` as a `let` annotation and compares with
   the new `types::same_type` (qualifier sets, `same_identity` for rooted
   places, union arms as sets). The loop re-walk (`check_loop_body_in`)
   drops the first walk's `type` reports and type-assertion verdicts and
   keeps the second's.
 - **Review.** A gpu-reviewer pass found four holes, each fixed with a test
   that fails without the fix (checked by breaking it on purpose): a
-  first-walk `assert-type:mismatch` survived a second walk on which the
+  first-walk `type-assert:mismatch` survived a second walk on which the
   assertion holds; inside a lambda, asking about an outer local recorded a
   capture, so the closure became a view of it (`fate-poison:shared-root`
   after mutating the local); a fn named by itself was checked as a value
-  (recording a reference) and silently passed; and `assert!(x: -1)` was
+  (recording a reference) and silently passed; and `type!(x: -1)` was
   refused as a signed list.
 - **Found on the way, fixed:** a written claim rooted only its first name
   (`root_annotation` → `identity_below`), so `let j: Idx(cursor.str) Int =
@@ -209,7 +293,7 @@ no `has`/`lacks` forms.
   highlights `whynot?(`/`type?(` and keeps `type?(` out of the
   declaration-keyword rule.
 - **Agent's calls inside the decisions** (ROADMAP §0bh, to confirm): a local
-  named only in these forms is still unused; a message in `assert!(x: T)` is
+  named only in these forms is still unused; a message in `type!(x: T)` is
   refused; union arms compare in any order; a subscript is not a place.
 - **`@compilerknown`**: nothing to tag — neither form names a std
   declaration ([doc-compilerknown] lists std declarations the compiler
@@ -221,14 +305,15 @@ no `has`/`lacks` forms.
   Idx(s)` with reports inside and after, the last loop walk reported once
   (nested too), a claim kept across a loop, `continue`, a loop that may run
   no times, borrowed elements, destructured against field-read identity
-  through `assert!`, another cursor's string, two fields, a literal's
+  through `type!`, another cursor's string, two fields, a literal's
   borrow, a temporary, no use after a move, no read for [var-unused], no
   capture in a lambda, no discharge of a linear value; mismatches,
   `-Q`/`+Q`, a message, a negative literal type, non-places, a fn named by
   itself and unknown names, a loop assertion judged on the last walk); the
-  runner's `a_type_annotation_is_compared_as_a_type`;
+  runner's `a_type_annotation_is_compared_as_a_type` (since replaced);
   a parser snapshot of the new corpus file `type_queries.sv` (also printed
-  back and round-tripped) and `an_assertion_is_decided_by_its_colon`; the
+  back and round-tripped) and `an_assertion_is_decided_by_its_colon` (now
+  `type_bang_is_the_type_assertion`); the
   CLI's `type_queries_are_warnings_and_print_in_the_dumps`; the LSP's
   `a_type_query_is_a_warning_in_the_editor`; emit data `qualifiers/type_queries.sv`
   on both backends; run data `qualifiers/type_queries_leave_no_trace.sv`
@@ -42155,7 +42240,7 @@ snapshot diffs.
 ## Gotchas / lessons learned
 
 - **A written claim roots its whole path** (2026-11-11, [qual-depend-field]
-  [assert-type]): a `let` annotation's or a type assertion's `Idx(cursor.str)`
+  [type-assert]): a `let` annotation's or a type assertion's `Idx(cursor.str)`
   goes through `claim_identity_of_path` as an `is` test's does
   (`root_annotation`); rooting the first name and stepping below it
   (`identity_below`) misses the held-borrow shortcut of `claim_identity`, so
@@ -42163,13 +42248,13 @@ snapshot diffs.
   written claim (about `cursor` at `str`) disagreed. Two routes to one
   identity must be one function.
 - **The checker walks a loop body twice; a report about the walk's state
-  is the last walk's** (2026-11-11, [type-query] [assert-type]):
+  is the last walk's** (2026-11-11, [type-query] [type-assert]):
   `check_loop_body_in` re-walks when the first walk changed the state and
   keeps the second walk's diagnostics that differ in text. That is right
   for an ordinary error (fewer facts only add errors), wrong for what
   reports the state: a `type?`'s text *is* the state, so it would be said
   once per walk, and an exact type assertion is not monotone (a claim the
-  first walk still had fails `assert!(i: Int)`, which the last walk
+  first walk still had fails `type!(i: Int)`, which the last walk
   passes). Those are dropped from the first walk and kept from the second.
   Dropping moves no index a speculative check holds: those cut back below
   the loop's start.
@@ -42178,10 +42263,15 @@ snapshot diffs.
   closure a view of the local (a gpu-reviewer find); `place_type_unread`
   cuts the captures back and puts `used` back. A new non-use of a place
   must undo every side effect a read has, not only the unused flag.
-- **A `:` right inside `assert!(` is a type assertion** (2026-11-11,
-  [assert-type]): the printer parenthesizes a re-typing condition
-  (`assert!((o: -Ok) is Int)`), or the printed text would parse as the other
-  form.
+- **A test annotation about a type is judged where the type is**
+  (2026-11-11, [test-data] [type-assert]): comparing a `type?`'s printed
+  text with an annotation's compares spellings, and a claim's spelling
+  says nothing about its value (`Idx(str)` printed in a block where `str`
+  is another cursor's). The checker lowers the annotation at the site, the
+  way `type!` lowers its type, and a report no annotation holds must never
+  fall back to text, or the false pass returns. Lowering text that is no
+  node of the program must record nothing keyed by node: `record_ref`
+  panics (in a debug build) on a span no numbered node holds.
 
 - **A claim's identity is roots *and* projections** (2026-11-10,
   [qual-depend-field]): compare `ValueRef`s with `types::same_identity`, never

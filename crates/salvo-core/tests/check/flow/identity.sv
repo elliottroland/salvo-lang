@@ -1,7 +1,8 @@
-// [type-query] [assert-type] [qual-depend-field] Claims about one value,
-// however it is spelled. `type?` prints a claim as it is spelled where the
-// place was read; `assert!(place: T)` compares claims by the value they are
-// about, so a destructured `str` and the field read `cursor.str` are one.
+// [type-query] [type-assert] [test-data] [qual-depend-field] Claims about one
+// value, however it is spelled. `type?` prints a claim as it is spelled where
+// the place was read; `type!(place: T)` compares claims by the value they are
+// about, so a destructured `str` and the field read `cursor.str` are one. A
+// `//~ type[T]` annotation is judged as `type!` judges, at the `type?`.
 
 struct Cursor canbe Mut {
     str: proj Str
@@ -9,18 +10,48 @@ struct Cursor canbe Mut {
 }
 
 // A field read is rooted at its sibling; a destructured local at the local
-// bound beside it. The two are one identity.
+// bound beside it. The two are one identity, for the annotation too.
 fn destructured_and_read_are_one(cursor: Mut Cursor) [] -> None => cursor {
     let { str, pos } = cursor
     //~ type[Idx(str) Int]
     type?(pos)
     //~ type[Idx(cursor.str) Int]
+    type?(pos)
+    //~ type[Idx(cursor.str) Int]
     type?(cursor.pos)
-    assert!(pos: Idx(str) Int)
-    assert!(pos: Idx(cursor.str) Int)
-    assert!(cursor.pos: Idx(str) Int)
-    assert!(cursor.pos: Idx(cursor.str) Int)
+    //~ type[Idx(str) Int]
+    type?(cursor.pos)
+    type!(pos: Idx(str) Int)
+    type!(pos: Idx(cursor.str) Int)
+    type!(cursor.pos: Idx(str) Int)
+    type!(cursor.pos: Idx(cursor.str) Int)
     let _n = str.char_at(pos)
+}
+
+// Two cursors, each destructured into a local `str` in its own block: the
+// index from the first prints `Idx(str)` in the second block, where `str`
+// is the other cursor's. The annotation names the value.
+fn two_cursors_one_spelling(a: Cursor, b: Cursor) [] -> None => a, b {
+    let _p = if size(a.str) > 0 {
+        let { str, pos } = a
+        let _c = size(str)
+        pos
+    } else {
+        let { str, pos } = a
+        let _c = size(str)
+        pos
+    }
+    //~ type[Idx(a.str) Int]
+    type?(_p)
+    if size(b.str) > 0 {
+        let { str, pos } = b
+        //~ type[Idx(a.str) Int]
+        type?(_p)
+        //~ error[type-assert:mismatch]
+        type!(_p: Idx(str) Int)
+        type!(_p: Idx(a.str) Int)
+        let _d = str.char_at(pos)
+    }
 }
 
 // A `pos` destructured alone still names `cursor.str`.
@@ -28,7 +59,7 @@ fn only_the_index_destructured(cursor: Cursor) [] -> None => cursor {
     let { pos } = cursor
     //~ type[Idx(cursor.str) Int]
     type?(pos)
-    assert!(pos: Idx(cursor.str) Int)
+    type!(pos: Idx(cursor.str) Int)
     let _c = cursor.str.char_at(pos)
 }
 
@@ -36,22 +67,22 @@ fn only_the_index_destructured(cursor: Cursor) [] -> None => cursor {
 fn the_cursor_itself(cursor: Mut Cursor) [] -> None => cursor {
     //~ type[Mut Cursor]
     type?(cursor)
-    assert!(cursor: Mut Cursor)
+    type!(cursor: Mut Cursor)
     //~ type[proj Str]
     type?(cursor.str)
-    assert!(cursor.str: proj Str)
-    //~ error[assert-type:mismatch]
-    assert!(cursor: Cursor)
+    type!(cursor.str: proj Str)
+    //~ error[type-assert:mismatch]
+    type!(cursor: Cursor)
 }
 
 // Another cursor's string is another value, however it is spelled.
 fn another_cursors_string(a: Cursor, b: Cursor) [] -> None => a, b {
-    //~ error[assert-type:mismatch]
-    assert!(a.pos: Idx(b.str) Int)
+    //~ error[type-assert:mismatch]
+    type!(a.pos: Idx(b.str) Int)
     let { str, pos } = b
-    //~ error[assert-type:mismatch]
-    assert!(a.pos: Idx(str) Int)
-    assert!(pos: Idx(b.str) Int)
+    //~ error[type-assert:mismatch]
+    type!(a.pos: Idx(str) Int)
+    type!(pos: Idx(b.str) Int)
     let _c = str.char_at(pos)
 }
 
@@ -64,12 +95,12 @@ fn two_fields(p: Two) [] -> None => p {
     assert!(i is Idx(a))
     //~ type[Idx(a) Int]
     type?(i)
-    assert!(i: Idx(a) Int)
-    assert!(i: Idx(p.a) Int)
-    //~ error[assert-type:mismatch]
-    assert!(i: Idx(b) Int)
-    //~ error[assert-type:mismatch]
-    assert!(i: Idx(p.b) Int)
+    type!(i: Idx(a) Int)
+    type!(i: Idx(p.a) Int)
+    //~ error[type-assert:mismatch]
+    type!(i: Idx(b) Int)
+    //~ error[type-assert:mismatch]
+    type!(i: Idx(p.b) Int)
     let _n = size(b)
 }
 
@@ -79,12 +110,12 @@ fn a_local_cursor(s: Str) [] -> None => s {
     let { str, pos } = cursor
     //~ type[Idx(str) Int]
     type?(pos)
-    assert!(pos: Idx(s) Int)
-    assert!(cursor.pos: Idx(s) Int)
+    type!(pos: Idx(s) Int)
+    type!(cursor.pos: Idx(s) Int)
     // Its `str` field is `s`, and a written claim about it is rooted as a
     // read's is (an annotation's `Idx(cursor.str)` was a claim about a
     // field of `cursor` until 2026-11-11).
-    assert!(pos: Idx(cursor.str) Int)
+    type!(pos: Idx(cursor.str) Int)
     let _j: Idx(cursor.str) Int = cursor.pos
     let _c = str.char_at(pos)
 }
@@ -105,7 +136,7 @@ fn asking_is_not_a_use(s: Str) [] -> None => !s {
     eat(s)
     //~ type[Str]
     type?(s)
-    assert!(s: Str)
+    type!(s: Str)
 }
 
 // Nor is it a read for the unused-variable warning.
@@ -127,7 +158,7 @@ fn asking_in_a_lambda_captures_nothing() -> Int {
     let f = (n: Int) -> Int {
         //~ type[NonEmpty Mut List<Int>]
         type?(xs)
-        assert!(xs: Mut NonEmpty List<Int>)
+        type!(xs: Mut NonEmpty List<Int>)
         return n
     }
     let before = apply(f, 1)
@@ -157,3 +188,35 @@ fn asking_then_discharging() {
 }
 
 fn main() {}
+//--- a_keyed_identity
+// An annotation may write a keyed type's identities; judging it records
+// nothing of them (a written identity is a reference of the program's, and
+// the program's own, written below, must still be recorded).
+import keyed.Key
+import keyed.key_hash
+import keyed.key_eq
+import keyed.keyed
+
+fn a_keyed_identity_in_an_annotation() [] -> Int {
+    let u = keyed()
+    //~ type[Mut Set<Key>(key_hash, key_eq)]
+    type?(u)
+    return size(u)
+}
+
+fn the_program_writes_them_after() [] -> Int {
+    let v: Mut Set<Key>(key_hash, key_eq) = keyed()
+    return size(v)
+}
+
+fn main() {}
+
+// FILE: keyed.sv
+export struct Key { x: Int }
+
+export fn key_hash(v: Key) [] -> Long => v { return hash(v.x) }
+export fn key_eq(a: Key, b: Key) [] -> Bool => a, b { return a.x == b.x }
+
+export fn keyed() [] -> Mut Set<Key>(key_hash, key_eq) {
+    return Mut Set(hash = key_hash, eq = key_eq)
+}

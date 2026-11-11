@@ -1,4 +1,4 @@
-// [type-query] [assert-type] `type?(place)` and `assert!(place: T)` are the
+// [type-query] [type-assert] `type?(place)` and `type!(place: T)` are the
 // checker's: as statements they emit nothing, and as a value `type?` is the
 // unit value.
 
@@ -8,7 +8,7 @@ fn quiet(s: Str) [] -> Int => s {
     //~ emits: let mut i: i32 = crate::std_core_string::size_platform(s);
     //~|     return i;
     type?(i)
-    assert!(i: Int)
+    type!(i: Int)
     return i
 }
 

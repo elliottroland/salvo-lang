@@ -1,4 +1,4 @@
-// [type-query] [assert-type] `type?(place)` and `assert!(place: T)` are the
+// [type-query] [type-assert] `type?(place)` and `type!(place: T)` are the
 // checker's: they lower to nothing, so a program holding them prints what it
 // would without them, identically on both backends.
 
@@ -14,15 +14,15 @@ fn main() [use] -> None {
     let i = 1
     println("start")
     type?(s)
-    assert!(s: Str)
+    type!(s: Str)
     if i is Idx(s) {
         type?(i)
-        assert!(i: Idx(s) Int)
+        type!(i: Idx(s) Int)
         let cursor = Cursor { str: s, pos: i }
         let { str, pos } = cursor
         type?(cursor.pos)
-        assert!(pos: Idx(cursor.str) Int)
-        assert!(cursor.pos: Idx(str) Int)
+        type!(pos: Idx(cursor.str) Int)
+        type!(cursor.pos: Idx(str) Int)
         println("at ${pos} of ${size(str)}")
     }
     // As a value it is `None`.

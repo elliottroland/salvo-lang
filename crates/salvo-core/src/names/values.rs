@@ -884,9 +884,9 @@ impl<'b, 'p> Binder<'b, 'p> {
             Expr::WhyNot { test, .. } => self.expr(test),
             // [type-query] The place is a name like any other.
             Expr::TypeQuery { place, .. } => self.expr(place),
-            // [assert-type] And the type's place arguments, as an
+            // [type-assert] And the type's place arguments, as an
             // annotation's.
-            Expr::AssertType { place, ty, .. } => {
+            Expr::TypeAssert { place, ty, .. } => {
                 self.expr(place);
                 if let Some(t) = ty {
                     self.type_values(t);

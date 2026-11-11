@@ -16,18 +16,21 @@ let _a = 1 + 2.5
   never message text ([diag-id]; the text is `messages.rs`'s).
 - **`//~ type[T]`** asserts the `type` diagnostic a `type?(place)` reports
   on the next line ([type-query]): the one annotation whose payload is a
-  type rather than an id. `T` is parsed as a type (brackets balance, so an
-  effect list may appear) and compared as a type, not as text: qualifier
-  order, union arm order, `T?` against `T | None` and whitespace do not
-  matter. A claim compares by its spelling here (`Idx(str)` is not
-  `Idx(parsing.str)`); whether two spellings are one value is
-  `assert!(place: T)`'s to say ([assert-type]).
+  type rather than an id. `T` must parse as a type (brackets balance, so an
+  effect list may appear), and the checker judges it where the `type?` is,
+  exactly as `type!(place: T)` would there ([type-assert]): its names are
+  resolved in the scope at the `type?`, qualifier and union arm order do
+  not matter, and a claim is compared by the value it is about, not by its
+  spelling. So `Idx(cursor.str)` holds of a `pos` destructured from
+  `cursor` (which `type?` prints `Idx(str)`), and `Idx(str)` does not hold
+  where that `str` is another value's. An annotation naming something that
+  is not in scope at the `type?` fails the file, saying so.
 - **Exactly**: every diagnostic the program reports — errors, warnings and
   `type` reports, parse, checker and IR analyses — must be annotated, at
   the line its span starts on, as many times as it is reported. A file with
   no annotations checks clean, so a stray `type?` fails it. Prefix a local
   nobody reads with `_`, or the unused warning must be annotated (a local
-  only named in `type?` or `assert!(x: T)` is unread).
+  only named in `type?` or `type!(x: T)` is unread).
 - **`// FILE: name.sv`** starts another file of the same program (before
   the first, the file is `main.sv`); a `.test.sv` name is a test annex.
 - **`//--- name`** starts another program, checked on its own. Share a

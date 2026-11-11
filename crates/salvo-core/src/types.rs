@@ -867,7 +867,7 @@ pub fn same_claim(a: &Qual, b: &Qual) -> bool {
         })
 }
 
-/// [assert-type] Whether two types are **the same type exactly**: the same
+/// [type-assert] Whether two types are **the same type exactly**: the same
 /// base and the same set of qualifiers, in whatever order, down through type
 /// arguments, qualifier arguments, union arms (in any order), tuple
 /// elements and fn types. Two rooted place arguments agree by identity, as

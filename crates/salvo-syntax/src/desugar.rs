@@ -925,8 +925,8 @@ impl Rewrite {
                 }
             }
             Expr::WhyNot { test, .. } => self.expr(test),
-            // [type-query] [assert-type] The place, rewritten as any other.
-            Expr::TypeQuery { place, .. } | Expr::AssertType { place, .. } => self.expr(place),
+            // [type-query] [type-assert] The place, rewritten as any other.
+            Expr::TypeQuery { place, .. } | Expr::TypeAssert { place, .. } => self.expr(place),
             Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
                 if let Some(m) = message {
                     self.expr(m);
@@ -1329,7 +1329,7 @@ fn collect_shadowing(body: &Block, reserved: &[&Ident], out: &mut Vec<(String, S
                 }
             }
             Expr::WhyNot { test, .. } => walk_expr(test, reserved, out),
-            Expr::TypeQuery { place, .. } | Expr::AssertType { place, .. } => walk_expr(place, reserved, out),
+            Expr::TypeQuery { place, .. } | Expr::TypeAssert { place, .. } => walk_expr(place, reserved, out),
             Expr::Unreachable { message, .. } | Expr::Todo { message, .. } => {
                 if let Some(m) = message {
                     walk_expr(m, reserved, out);

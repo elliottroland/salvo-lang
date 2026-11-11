@@ -200,11 +200,24 @@ pub fn check(files: &[(&str, &str)]) -> Checked {
 
 /// A program built over the `"kt"` front, checked as [`check`] does.
 pub fn check_built(built: Built) -> Checked {
+    check_built_over(built, None)
+}
+
+/// [test-data] [`check_built`], the checker judging each checker data
+/// annotation `//~ type[T]` at its `type?` (`CheckCache::check_annotated`).
+pub fn check_built_annotated(built: Built, annotations: &salvo_core::TypeAnnotations) -> Checked {
+    check_built_over(built, Some(annotations))
+}
+
+fn check_built_over(built: Built, annotations: Option<&salvo_core::TypeAnnotations>) -> Checked {
     let Built { program, diagnostics, .. } = built;
     let front = std("kt");
     let symbols = Symbols::collect(&program);
     let resolution = front.resolve(&program);
-    let checked = front.check(&program, &resolution, &symbols);
+    let checked = match annotations {
+        Some(a) => front.warm.transient().check_annotated(&program, &resolution, &symbols, a),
+        None => front.check(&program, &resolution, &symbols),
+    };
     let (ir, _decision) = salvo_core::ir::analyze::analyze_full(&program, &symbols, &resolution, &checked, &diagnostics);
     drop((symbols, resolution));
     Checked { program, checked, parse: diagnostics, ir }
