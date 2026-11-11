@@ -190,9 +190,13 @@ impl __Platform_StdConsole {
     }
 }
 
-pub fn println(console: &crate::std_core_console::Console, message: &String) {
+pub fn println__Str(console: &crate::std_core_console::Console, message: &String) {
     console.print(message);
     console.print(&String::from("\n"));
+}
+
+pub fn println__T<T: Clone>(console: &crate::std_core_console::Console, value: &T, to_str: &mut dyn FnMut(&T) -> String) {
+    crate::std_core_console::println__Str(console, &to_str(value));
 }
 
 // ===== std/core/index.rs =====
@@ -1225,7 +1229,7 @@ pub mod platform_std_core_string;
 use crate::std_core_console::Console;
 use crate::std_core_list::List__T_TArray;
 use crate::std_core_list::get_platform;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_list::size_platform;
 
 
@@ -1311,7 +1315,7 @@ impl<T: Clone + Send + Sync + 'static> crate::__Stateful_Random<T> for CyclicRan
 pub fn draw(random: &crate::Random<i32>, random__1: &crate::Random<String>, console: &crate::std_core_console::Console) {
     let mut n: i32 = random.next_random();
     let mut s: String = random__1.next_random();
-    crate::std_core_console::println(console, &format!("{}: {}", s, n));
+    crate::std_core_console::println__Str(console, &format!("{}: {}", s, n));
 }
 
 pub fn lucky_number(random: &crate::Random<i32>) -> i32 {
@@ -1327,8 +1331,8 @@ pub fn main() {
     let __handle_6 = crate::Random::locked(__use_5);
     crate::draw(&__handle_4, &__handle_6, &__handle_2);
     crate::draw(&__handle_4, &__handle_6, &__handle_2);
-    crate::std_core_console::println(&__handle_2, &format!("lucky: {}", __handle_4.next_random()));
-    crate::std_core_console::println(&__handle_2, &format!("again: {}", crate::lucky_number(&__handle_4)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("lucky: {}", __handle_4.next_random()));
+    crate::std_core_console::println__Str(&__handle_2, &format!("again: {}", crate::lucky_number(&__handle_4)));
 }
 
 // ===== unions/union2.rs =====

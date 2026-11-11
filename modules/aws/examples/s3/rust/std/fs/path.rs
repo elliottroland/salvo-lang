@@ -112,17 +112,17 @@ pub fn extension(p: &crate::std_fs_path::Path) -> Option<String> {
 pub fn stem(p: &crate::std_fs_path::Path) -> Option<String> {
     let mut name: Option<String> = crate::std_fs_path::file_name(p);
     if name.is_some() {
-        let mut n = name.as_ref().unwrap();
-        let mut cut: Option<(String, String)> = crate::std_core_string::split_last(n, &String::from("."));
+        let mut n = name.unwrap();
+        let mut cut: Option<(String, String)> = crate::std_core_string::split_last(&n, &String::from("."));
         if cut.is_none() {
-            return Some(n.clone());
+            return Some(n);
         };
         let mut cut_1 = cut.unwrap();
         let mut __destructured_2: (String, String) = cut_1;
         let mut stem: String = __destructured_2.0;
         let mut _ext: String = __destructured_2.1;
         if crate::std_core_string::is_empty(&stem) {
-            return Some(n.clone());
+            return Some(n);
         };
         return Some(stem);
     };

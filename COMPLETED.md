@@ -150,6 +150,65 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — `println` prints any value with a `to_str` ([std-console])
+
+**The user wrote the overload** in `lib/std/core/console.sv`:
+`export fn println<T>(value: T, ?to_str: (T) -> Str) [Console] -> None =>
+value { println(to_str(value)) }`, beside `println(message: Str)`. Its code
+checked as written and is unchanged; the agent added its doc comment (and
+an overload line on the `Str` one, and a sentence in the module doc), and
+the file's final newline.
+
+- **What it means**: `println(42)`, `println(xs)` and `println(point)`
+  print what `to_str` answers, the `to_str` the call `to_str(value)` would
+  reach at the call; a `Str` goes to `println(message: Str)`, the more
+  specific [fn-overload-rank]. A type with no `to_str` drops the generic
+  candidate [implicit-fit], so the call is `implicit-fit:no-fill` naming
+  the `?to_str` nothing fills. No `to_str` can be ambiguous there, since a
+  type's `to_str` lives in its own file [op-unique-shape] (a second one, or
+  a catch-all `to_str<T>`, is refused where it is written). Probed, not
+  assumed: each of those, on the checker, before writing them down.
+- **What changed for existing code**: `println` is overloaded now, so
+  every call emits under a mangled name (`println__Str` on both backends,
+  `println(Str)@std.core.console` in the IR dump, `console::println(Str)`
+  in `--rows`), and std's console file gains `println__T`. `println` named
+  as a value still works where the position has a fn type (`each(xs,
+  println)` with an `Int` or a `Str` element), and is
+  `fn-value-select:overloaded` in an unannotated `let g = println`; nothing
+  in the repository did that.
+- **Regenerated, every diff reviewed as only the rename and the added
+  `println__T`**: the twelve examples' `rust/` and `kotlin/` (`main` and
+  `std/core/console` of each; `expected.txt` unchanged, the output is the
+  same), ten codegen goldens, thirteen IR/facts goldens and the parser's
+  `snapshot_std_console` (the new declaration and doc). Eight emit-data
+  annotations, in six files of the backends' `tests/emit/`, named
+  `println(` and now name `println__Str(`. `modules/aws`'s four examples
+  (which the suite does not run; `modules/aws/check.sh examples` does) were
+  regenerated too: besides the rename, their diffs carry std's earlier
+  `append(Mut Str, Char)`/`char_at` and narrowed-local changes, which had
+  left them stale before this one; four empty, untracked `std/runtime`
+  directories in `examples/profile/` made the check fail and were removed.
+  `check.sh examples` and `glue` pass; `host` reports the host project
+  stale, from those earlier std changes (ROADMAP §0bi). The checked-in host project was already current (std's
+  console declares no new platform surface). `docs/language/Dumps.md`,
+  `The-IR.md` and BACKEND_SPEC.rust.md's two `println` spellings follow the
+  dumps and the emitter; `Data-and-Types.md` says `println` takes a value
+  with a text form, and LANGUAGE_SPEC.md's [std-console] has a sub-bullet.
+- **Found, not fixed (ROADMAP §0bi)**: `println(u)` of an anonymous union
+  is refused, since it cannot have a `to_str` of its own, though `"${u}"`
+  renders it arm by arm (a DECISION); and `println("hi", to_str = f)` is
+  `implicit-override:no-implicit`, since the `Str` overload wins the
+  ranking before the override is looked at.
+- **Tests added**: run data `implicits/println_of_any_value.sv` (an `Int`,
+  a struct with a `to_str`, a named union with one, a `Str`, an explicit
+  `to_str = …` and `println` passed to a fn-typed parameter; identical on
+  both backends), and checker data `implicits/println.sv` (a type with no
+  `to_str` and an `Int | Str`, both `implicit-fit:no-fill`, and `println`
+  as a value, `fn-value-select:overloaded` unannotated). 778 tests under
+  nextest (the new cases are data), all green; the warm run took 221s with
+  load averages of 100–270 and every toolchain stamp missed, since every
+  program's generated code changed.
+
 ### 2026-11-11 — A join keeps only the claims every path holds ([qual-depend-field])
 
 **User decision (2026-11-11)**, the general rule for dependent claims at a

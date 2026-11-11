@@ -109,7 +109,7 @@ use crate::std_net::node_of;
 use crate::std_net::on_leader;
 use crate::std_core_actor::pool;
 use crate::std_net::pool_at;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_deque::remove_first_platform;
 use crate::std_net::route_view;
 use crate::std_net::route_wait;
@@ -1160,7 +1160,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
                 panic!("salvo: unreachable at main:233:43")
             }
         });
-        crate::std_core_console::println(console, &format!("  {}: {} reserved on its shard so far", sku, {
+        crate::std_core_console::println__Str(console, &format!("  {}: {} reserved on its shard so far", sku, {
             let mut __pick2: Option<&String> = crate::std_core_list::get_platform::<String>(&parts, 1i32);
             if __pick2.is_some() {
                 let mut __pick2_2 = __pick2.unwrap();
@@ -1170,7 +1170,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             }
         }));
     }
-    crate::std_core_console::println(console, &format!("  apple and apple on one shard: {}", (&{
+    crate::std_core_console::println__Str(console, &format!("  apple and apple on one shard: {}", (&{
         let mut __pick3: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
         if __pick3.is_some() {
             let mut __pick3_3 = __pick3.unwrap();
@@ -1187,7 +1187,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             panic!("salvo: unreachable at main:236:103")
         }
     }[..])));
-    crate::std_core_console::println(console, &format!("  apple and fig on one shard: {}", (&{
+    crate::std_core_console::println__Str(console, &format!("  apple and fig on one shard: {}", (&{
         let mut __pick5: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
         if __pick5.is_some() {
             let mut __pick5_5 = __pick5.unwrap();
@@ -1204,7 +1204,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             panic!("salvo: unreachable at main:237:101")
         }
     }[..])));
-    crate::std_core_console::println(console, &format!("  apple and pear on one shard: {}", (&{
+    crate::std_core_console::println__Str(console, &format!("  apple and pear on one shard: {}", (&{
         let mut __pick7: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 0i32);
         if __pick7.is_some() {
             let mut __pick7_7 = __pick7.unwrap();
@@ -1244,7 +1244,7 @@ pub fn find(lookup: &crate::Lookup, mut key: String) -> String {
 pub fn two_ids(leader: &crate::std_net::Leader, console: &crate::std_core_console::Console, mut seq: usize) {
     let mut __use_1: crate::Elected__Sequencer = crate::Elected__Sequencer::new(seq, crate::std_net::default_route_config(), leader.clone());
     let __handle_2 = crate::Sequencer::locked(__use_1);
-    crate::std_core_console::println(console, &format!("  {} {}", crate::fresh_id(&__handle_2), crate::fresh_id(&__handle_2)));
+    crate::std_core_console::println__Str(console, &format!("  {} {}", crate::fresh_id(&__handle_2), crate::fresh_id(&__handle_2)));
 }
 
 pub fn shop(console: &crate::std_core_console::Console, mut stock: usize) {
@@ -1449,26 +1449,26 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(nodes, crate::std_net::__Msg_NodeGroup::Members(out), crate::std_net::__PROTO_NodeGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<crate::std_net::Node>>().expect("the awaited answer")
     };
-    crate::std_core_console::println(&__handle_2, &format!("nodes: {}, sequencers: {}", i32::wrapping_add(crate::std_core_list::size_platform::<crate::std_net::Node>(&members), 1i32), crate::std_core_list::size_platform::<usize>(&{
+    crate::std_core_console::println__Str(&__handle_2, &format!("nodes: {}, sequencers: {}", i32::wrapping_add(crate::std_core_list::size_platform::<crate::std_net::Node>(&members), 1i32), crate::std_core_list::size_platform::<usize>(&{
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Vec<usize>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(seq, crate::std_net::__Msg_ActorGroup::Members(out), crate::std_net::__PROTO_ActorGroup);
         *crate::scheduler::salvo_wait(__wid).downcast::<Vec<usize>>().expect("the awaited answer")
     })));
-    crate::std_core_console::println(&__handle_2, &format!("singleton (b's sequencer is remote: {}):", !(crate::std_net::eq__NodeId_NodeId(&crate::std_net::node_of(remote_seq), &crate::std_net::this_node()))));
+    crate::std_core_console::println__Str(&__handle_2, &format!("singleton (b's sequencer is remote: {}):", !(crate::std_net::eq__NodeId_NodeId(&crate::std_net::node_of(remote_seq), &crate::std_net::this_node()))));
     let mut __use_5: crate::LastHost = crate::LastHost::new(nodes, (a).clone());
     let __handle_6 = crate::std_net::Leader::shared(__use_5);
     crate::two_ids(&__handle_6, &__handle_2, seq);
-    crate::std_core_console::println(&__handle_2, &String::from("sharded:"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("sharded:"));
     crate::shop(&__handle_2, stock);
-    crate::std_core_console::println(&__handle_2, &String::from("scatter:"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("scatter:"));
     let mut __use_7: crate::Scattering = crate::Scattering::new(index, ({ let __h = crate::Gathering::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Gathering::new(__h)), crate::__DECODE_Gathering); __a }));
     let __handle_8 = crate::Search::shared(__use_7);
-    crate::std_core_console::println(&__handle_2, &format!("  salvo: {}, actors: {}, none: {}", crate::count(&__handle_8, String::from("salvo")), crate::count(&__handle_8, String::from("actors")), crate::count(&__handle_8, String::from("none"))));
-    crate::std_core_console::println(&__handle_2, &String::from("hedge:"));
+    crate::std_core_console::println__Str(&__handle_2, &format!("  salvo: {}, actors: {}, none: {}", crate::count(&__handle_8, String::from("salvo")), crate::count(&__handle_8, String::from("actors")), crate::count(&__handle_8, String::from("none"))));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("hedge:"));
     let mut __use_9: crate::Hedging = crate::Hedging::new(looks, ({ let __h = crate::Racing::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::__Actor_Racing::new(__h)), crate::__DECODE_Racing); __a }));
     let __handle_10 = crate::Lookup::shared(__use_9);
-    crate::std_core_console::println(&__handle_2, &format!("  {}", crate::find(&__handle_10, String::from("k1"))));
+    crate::std_core_console::println__Str(&__handle_2, &format!("  {}", crate::find(&__handle_10, String::from("k1"))));
     let mut _stopped: bool = {
         let (mut done, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<bool>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
@@ -1476,8 +1476,8 @@ pub fn main() {
         *crate::scheduler::salvo_wait(__wid).downcast::<bool>().expect("the awaited answer")
     };
     crate::settle(timer);
-    crate::std_core_console::println(&__handle_2, &String::from("after b left:"));
-    crate::std_core_console::println(&__handle_2, &format!("  sequencers: {}", crate::std_core_list::size_platform::<usize>(&{
+    crate::std_core_console::println__Str(&__handle_2, &String::from("after b left:"));
+    crate::std_core_console::println__Str(&__handle_2, &format!("  sequencers: {}", crate::std_core_list::size_platform::<usize>(&{
         let (mut out, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|__b: &[u8]| crate::wire::salvo_decode::<Vec<usize>>(__b).map(|__v| std::boxed::Box::new(__v) as crate::scheduler::SalvoMsg)));
         crate::scheduler::salvo_send_wire(seq, crate::std_net::__Msg_ActorGroup::Members(out), crate::std_net::__PROTO_ActorGroup);

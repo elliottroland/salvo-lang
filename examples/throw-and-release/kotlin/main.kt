@@ -14,19 +14,19 @@ object __Codec_FileHandle : salvo.WireCodec<FileHandle> {
 }
 
 fun openFile(console: salvo.std.core.console.Console, name: String): FileHandle {
-    salvo.std.core.console.println(console, "1. open ${name}")
+    salvo.std.core.console.println__Str(console, "1. open ${name}")
     return FileHandle(name = name)
 }
 
 fun close(console: salvo.std.core.console.Console, handle: FileHandle) {
-    salvo.std.core.console.println(console, "1. close ${handle.name}")
+    salvo.std.core.console.println__Str(console, "1. close ${handle.name}")
 }
 
 fun readSize(console: salvo.std.core.console.Console, name: String, want: Int): Int {
     val thereIs: Int = salvo.std.core.string.sizePlatform(name)
     val handle: FileHandle = salvo.main.openFile(console, name)
     if ((want > thereIs)) {
-        salvo.std.core.console.println(console, "1. asked for more than there is")
+        salvo.std.core.console.println__Str(console, "1. asked for more than there is")
         salvo.main.close(console, handle)
         return thereIs
     }
@@ -56,7 +56,7 @@ fun portFromFile(console: salvo.std.core.console.Console, name: String, text: St
     val handle: FileHandle = salvo.main.openFile(console, name)
     val from: String = handle.name
     salvo.main.close(console, handle)
-    salvo.std.core.console.println(console, "2. reading a port out of ${from}")
+    salvo.std.core.console.println__Str(console, "2. reading a port out of ${from}")
     return salvo.main.parsePort(text)
 }
 
@@ -82,11 +82,11 @@ fun report(console: salvo.std.core.console.Console, label: String, config: Strin
     when {
         (outcome is Union2.U1<*, *>) -> {
             val outcome_1: Int = ((outcome as Union2.U1<*, *>).value as Int)
-            salvo.std.core.console.println(console, "3. ${label}: port ${outcome_1}")
+            salvo.std.core.console.println__Str(console, "3. ${label}: port ${outcome_1}")
         }
         (outcome is Union2.U2<*, *>) -> {
             val outcome_2: String = ((outcome as Union2.U2<*, *>).value as String)
-            salvo.std.core.console.println(console, "3. ${label}: rejected — ${outcome_2}")
+            salvo.std.core.console.println__Str(console, "3. ${label}: rejected — ${outcome_2}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:115:5"))
@@ -99,9 +99,9 @@ fun main() {
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
     val small: Int = salvo.main.readSize(__handle_2, "notes.txt", 3)
-    salvo.std.core.console.println(__handle_2, "1. read ${small}")
+    salvo.std.core.console.println__Str(__handle_2, "1. read ${small}")
     val clamped: Int = salvo.main.readSize(__handle_2, "notes.txt", 99)
-    salvo.std.core.console.println(__handle_2, "1. read ${clamped}")
+    salvo.std.core.console.println__Str(__handle_2, "1. read ${clamped}")
     salvo.main.report(__handle_2, "good", "8080")
     salvo.main.report(__handle_2, "bad", "http")
     val guarded: Union2<Int, String> = try {
@@ -112,11 +112,11 @@ fun main() {
     when {
         (guarded is Union2.U1<*, *>) -> {
             val guarded_3: Int = ((guarded as Union2.U1<*, *>).value as Int)
-            salvo.std.core.console.println(__handle_2, "3. guarded: ${guarded_3}")
+            salvo.std.core.console.println__Str(__handle_2, "3. guarded: ${guarded_3}")
         }
         (guarded is Union2.U2<*, *>) -> {
             val guarded_4: String = ((guarded as Union2.U2<*, *>).value as String)
-            salvo.std.core.console.println(__handle_2, "3. guarded: rejected — ${guarded_4}")
+            salvo.std.core.console.println__Str(__handle_2, "3. guarded: rejected — ${guarded_4}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:142:5"))
@@ -135,7 +135,7 @@ fun main() {
     when {
         (mixed is Union2.U1<*, *>) -> {
             val mixed_5: Int = ((mixed as Union2.U1<*, *>).value as Int)
-            salvo.std.core.console.println(__handle_2, "3. mixed: ${mixed_5}")
+            salvo.std.core.console.println__Str(__handle_2, "3. mixed: ${mixed_5}")
         }
         (mixed is Union2.U2<*, *>) -> {
             val mixed_6: Union2<String, Int> = ((mixed as Union2.U2<*, *>).value as Union2<String, Int>)
@@ -143,11 +143,11 @@ fun main() {
             when {
                 (why is Union2.U1<*, *>) -> {
                     val why_7: String = ((why as Union2.U1<*, *>).value as String)
-                    salvo.std.core.console.println(__handle_2, "3. mixed: message ${why_7}")
+                    salvo.std.core.console.println__Str(__handle_2, "3. mixed: message ${why_7}")
                 }
                 (why is Union2.U2<*, *>) -> {
                     val why_8: Int = ((why as Union2.U2<*, *>).value as Int)
-                    salvo.std.core.console.println(__handle_2, "3. mixed: length ${why_8}")
+                    salvo.std.core.console.println__Str(__handle_2, "3. mixed: length ${why_8}")
                 }
                 else -> {
                     throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:162:13"))
@@ -172,7 +172,7 @@ fun main() {
             }
             (inner is Union2.U2<*, *>) -> {
                 val inner_10: String = ((inner as Union2.U2<*, *>).value as String)
-                salvo.std.core.console.println(__handle_2, "3. inner caught: ${inner_10}")
+                salvo.std.core.console.println__Str(__handle_2, "3. inner caught: ${inner_10}")
                 salvo.main.parsePort("also nope")
             }
             else -> {
@@ -185,11 +185,11 @@ fun main() {
     when {
         (outer is Union2.U1<*, *>) -> {
             val outer_11: Int = ((outer as Union2.U1<*, *>).value as Int)
-            salvo.std.core.console.println(__handle_2, "3. outer: ${outer_11}")
+            salvo.std.core.console.println__Str(__handle_2, "3. outer: ${outer_11}")
         }
         (outer is Union2.U2<*, *>) -> {
             val outer_12: String = ((outer as Union2.U2<*, *>).value as String)
-            salvo.std.core.console.println(__handle_2, "3. outer caught: ${outer_12}")
+            salvo.std.core.console.println__Str(__handle_2, "3. outer caught: ${outer_12}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:190:5"))

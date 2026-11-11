@@ -147,13 +147,13 @@ fun main() {
             }
         }
     }
-    salvo.std.core.console.println(__handle_2, "1. found ${ada.name}, hp ${ada.hp}")
+    salvo.std.core.console.println__Str(__handle_2, "1. found ${ada.name}, hp ${ada.hp}")
     val names: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     salvo.std.core.list.addPlatform(names, ada.name)
-    salvo.std.core.console.println(__handle_2, "1. copied out ${salvo.std.core.list.toStr(names, { __a0 -> __a0 })}")
+    salvo.std.core.console.println__Str(__handle_2, "1. copied out ${salvo.std.core.list.toStr(names, { __a0 -> __a0 })}")
     var w: Window = salvo.main.window(roster)
     w.at = 1
-    salvo.std.core.console.println(__handle_2, "1. window at ${w.at}: ${kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "1. window at ${w.at}: ${kotlin.run {
         val __proj_5: Fighter = kotlin.run {
             val __pick3: Fighter? = salvo.main.peek(w)
             when {
@@ -174,10 +174,10 @@ fun main() {
     }, fun(__fx0: Unit, __a0: salvo.std.core.list.ListIter<Fighter>): Union2<Fighter, salvo.std.core.iterator.Finished> {
         return salvo.std.core.list.next__ListIter(__a0)
     })
-    salvo.std.core.console.println(__handle_2, "1. ${salvo.std.core.list.sizePlatform(standing)} of ${salvo.std.core.list.sizePlatform(roster)} still standing")
+    salvo.std.core.console.println__Str(__handle_2, "1. ${salvo.std.core.list.sizePlatform(standing)} of ${salvo.std.core.list.sizePlatform(roster)} still standing")
     val bench: salvo.platform.std.core.list.MutList<Fighter> = salvo.std.core.list.Mut_List(Fighter(name = "Cy", hp = 12, energy = 2), arrayOf<Fighter>())
     salvo.std.core.list.addPlatform(bench, Fighter(name = "Dee", hp = 6, energy = 7))
-    salvo.std.core.console.println(__handle_2, "2. bench ${salvo.std.core.list.sizePlatform(bench)}, front ${kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "2. bench ${salvo.std.core.list.sizePlatform(bench)}, front ${kotlin.run {
         val __proj_7: Fighter = kotlin.run {
             val __pick4: Fighter? = salvo.std.core.list.getPlatform(bench, 0)
             when {
@@ -208,7 +208,7 @@ fun main() {
     boss.hp = (boss.hp + 1)
     val n: Int = salvo.std.core.list.sizePlatform(squad)
     boss.hp = (boss.hp + n)
-    salvo.std.core.console.println(__handle_2, "2. ${kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "2. ${kotlin.run {
         val __proj_10: Fighter = kotlin.run {
             val __pick6: Fighter? = salvo.std.core.list.getPlatform(squad, 0)
             when {
@@ -250,7 +250,7 @@ fun main() {
         }
     })
     salvo.main.rallyAt(squad, 1, { __a0, __a1 -> salvo.std.core.list.atPlatform(__a0, __a1) })
-    salvo.std.core.console.println(__handle_2, "2. after the searches: ${kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "2. after the searches: ${kotlin.run {
         val __proj_15: Fighter = kotlin.run {
             val __pick9: Fighter? = salvo.std.core.list.getPlatform(squad, 0)
             when {
@@ -317,7 +317,7 @@ fun main() {
             salvo.std.core.list.update(Unit, squad, i, fun(__leff0: Unit, f: Fighter) {
                 f.energy = (f.energy + 1)
             })
-            salvo.std.core.console.println(__handle_2, "3. ${kotlin.run {
+            salvo.std.core.console.println__Str(__handle_2, "3. ${kotlin.run {
                 val __proj_20: Fighter = salvo.std.core.list.get(squad, i)
                 __proj_20.energy
             }} ${kotlin.run {
@@ -372,7 +372,7 @@ fun main() {
             }
         }
     })
-    salvo.std.core.console.println(__handle_2, "4. ${kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "4. ${kotlin.run {
         val __proj_27: Fighter = kotlin.run {
             val __pick17: Fighter? = salvo.std.core.list.getPlatform(squad, 0)
             when {
@@ -425,7 +425,7 @@ fun main() {
             }
         }
     })
-    salvo.std.core.console.println(__handle_2, "4. ${team.banner}: ${kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "4. ${team.banner}: ${kotlin.run {
         val __proj_33: Fighter = kotlin.run {
             val __pick21: Fighter? = salvo.std.core.list.getPlatform(team.members, 0)
             when {
@@ -458,6 +458,6 @@ fun main() {
     val banners: salvo.platform.std.core.list.MutList<String> = camp.banners
     salvo.main.spend(camp, 3)
     salvo.main.hoist(camp, "blue")
-    salvo.std.core.console.println(__handle_2, "5. supplies ${camp.supplies}, banners ${salvo.std.core.list.toStr(banners, { __a0 -> __a0 })}")
+    salvo.std.core.console.println__Str(__handle_2, "5. supplies ${camp.supplies}, banners ${salvo.std.core.list.toStr(banners, { __a0 -> __a0 })}")
 }
 

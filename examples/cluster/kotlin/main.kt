@@ -693,7 +693,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 }
             }
         })
-        salvo.std.core.console.println(console, "  ${sku}: ${kotlin.run {
+        salvo.std.core.console.println__Str(console, "  ${sku}: ${kotlin.run {
             val __pick2: String? = salvo.std.core.list.getPlatform(parts, 1)
             when {
                 (__pick2 != null) -> {
@@ -706,7 +706,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
             }
         }} reserved on its shard so far")
     }
-    salvo.std.core.console.println(console, "  apple and apple on one shard: ${((kotlin.run {
+    salvo.std.core.console.println__Str(console, "  apple and apple on one shard: ${((kotlin.run {
         val __pick3: String? = salvo.std.core.list.getPlatform(shards, 0)
         when {
             (__pick3 != null) -> {
@@ -729,7 +729,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
             }
         }
     }))}")
-    salvo.std.core.console.println(console, "  apple and fig on one shard: ${((kotlin.run {
+    salvo.std.core.console.println__Str(console, "  apple and fig on one shard: ${((kotlin.run {
         val __pick5: String? = salvo.std.core.list.getPlatform(shards, 0)
         when {
             (__pick5 != null) -> {
@@ -752,7 +752,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
             }
         }
     }))}")
-    salvo.std.core.console.println(console, "  apple and pear on one shard: ${((kotlin.run {
+    salvo.std.core.console.println__Str(console, "  apple and pear on one shard: ${((kotlin.run {
         val __pick7: String? = salvo.std.core.list.getPlatform(shards, 0)
         when {
             (__pick7 != null) -> {
@@ -801,7 +801,7 @@ fun twoIds(leader: salvo.std.net.Leader, console: salvo.std.core.console.Console
     val __use_1: Elected__Sequencer = Elected__Sequencer(group = seq, config = salvo.std.net.defaultRouteConfig(), leader)
     val __lock___use_1 = java.util.concurrent.locks.ReentrantLock()
     val __handle_2: Sequencer = __Mon_Sequencer(__use_1, __lock___use_1)
-    salvo.std.core.console.println(console, "  ${salvo.main.freshId(__handle_2)} ${salvo.main.freshId(__handle_2)}")
+    salvo.std.core.console.println__Str(console, "  ${salvo.main.freshId(__handle_2)} ${salvo.main.freshId(__handle_2)}")
 }
 
 fun shop(console: salvo.std.core.console.Console, stock: Int) {
@@ -965,29 +965,29 @@ fun main() {
         salvo.SalvoSched.sendWire(nodes, salvo.std.net.__Msg_NodeGroup.Members(out), salvo.std.net.__PROTO_NodeGroup, salvo.std.net.__Codec___Msg_NodeGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<salvo.std.net.Node>
     }
-    salvo.std.core.console.println(__handle_2, "nodes: ${(salvo.std.core.list.sizePlatform(members) + 1)}, sequencers: ${salvo.std.core.list.sizePlatform(kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "nodes: ${(salvo.std.core.list.sizePlatform(members) + 1)}, sequencers: ${salvo.std.core.list.sizePlatform(kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.EffCodec)) })
         salvo.SalvoSched.sendWire(seq, salvo.std.net.__Msg_ActorGroup.Members(out), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup)
         salvo.SalvoSched.awaitReply(__wid) as List<Int>
     })}")
-    salvo.std.core.console.println(__handle_2, "singleton (b's sequencer is remote: ${!(salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(remoteSeq), salvo.std.net.thisNode()))}):")
+    salvo.std.core.console.println__Str(__handle_2, "singleton (b's sequencer is remote: ${!(salvo.std.net.eq__NodeId_NodeId(salvo.std.net.nodeOf(remoteSeq), salvo.std.net.thisNode()))}):")
     val __use_5: LastHost = LastHost(nodes = nodes, me = a)
     val __lock___use_5 = java.util.concurrent.locks.ReentrantLock()
     val __handle_6: salvo.std.net.Leader = salvo.std.net.__Mon_Leader(__use_5, __lock___use_5)
     salvo.main.twoIds(__handle_6, __handle_2, seq)
-    salvo.std.core.console.println(__handle_2, "sharded:")
+    salvo.std.core.console.println__Str(__handle_2, "sharded:")
     salvo.main.shop(__handle_2, stock)
-    salvo.std.core.console.println(__handle_2, "scatter:")
+    salvo.std.core.console.println__Str(__handle_2, "scatter:")
     val __use_7: Scattering = Scattering(group = index, gather = kotlin.run { val __h = Gathering(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Gathering(__h), __Actor_Gathering.__DECODE); __a })
     val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
     val __handle_8: Search = __Mon_Search(__use_7, __lock___use_7)
-    salvo.std.core.console.println(__handle_2, "  salvo: ${salvo.main.count(__handle_8, "salvo")}, actors: ${salvo.main.count(__handle_8, "actors")}, none: ${salvo.main.count(__handle_8, "none")}")
-    salvo.std.core.console.println(__handle_2, "hedge:")
+    salvo.std.core.console.println__Str(__handle_2, "  salvo: ${salvo.main.count(__handle_8, "salvo")}, actors: ${salvo.main.count(__handle_8, "actors")}, none: ${salvo.main.count(__handle_8, "none")}")
+    salvo.std.core.console.println__Str(__handle_2, "hedge:")
     val __use_9: Hedging = Hedging(group = looks, racer = kotlin.run { val __h = Racing(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, __Actor_Racing(__h), __Actor_Racing.__DECODE); __a })
     val __lock___use_9 = java.util.concurrent.locks.ReentrantLock()
     val __handle_10: Lookup = __Mon_Lookup(__use_9, __lock___use_9)
-    salvo.std.core.console.println(__handle_2, "  ${salvo.main.find(__handle_10, "k1")}")
+    salvo.std.core.console.println__Str(__handle_2, "  ${salvo.main.find(__handle_10, "k1")}")
     val _stopped: Boolean = kotlin.run {
         val (done, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.BoolCodec) })
@@ -995,8 +995,8 @@ fun main() {
         salvo.SalvoSched.awaitReply(__wid) as Boolean
     }
     salvo.main.settle(timer)
-    salvo.std.core.console.println(__handle_2, "after b left:")
-    salvo.std.core.console.println(__handle_2, "  sequencers: ${salvo.std.core.list.sizePlatform(kotlin.run {
+    salvo.std.core.console.println__Str(__handle_2, "after b left:")
+    salvo.std.core.console.println__Str(__handle_2, "  sequencers: ${salvo.std.core.list.sizePlatform(kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.ListCodec(salvo.EffCodec)) })
         salvo.SalvoSched.sendWire(seq, salvo.std.net.__Msg_ActorGroup.Members(out), salvo.std.net.__PROTO_ActorGroup, salvo.std.net.__Codec___Msg_ActorGroup)

@@ -40,7 +40,7 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.con
     val opened: Union2<salvo.std.stream.InStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = fs.openRead(path)
     if ((opened is Union2.U2<*, *>)) {
         val opened_1: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((opened as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-        salvo.std.core.console.println(console, "open ${salvo.std.fs.path.toStr(path)}: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(opened_1))}")
+        salvo.std.core.console.println__Str(console, "open ${salvo.std.fs.path.toStr(path)}: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(opened_1))}")
         null
         return
     }
@@ -54,7 +54,7 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.con
     when {
         (put is Union2.U1<*, *>) -> {
             val put_3: salvo.aws.s3.PutObjectOutput = ((put as Union2.U1<*, *>).value as salvo.aws.s3.PutObjectOutput)
-            salvo.std.core.console.println(console, "put ${key}: etag ${when {
+            salvo.std.core.console.println__Str(console, "put ${key}: etag ${when {
                 (put_3.eTag != null) -> {
                     val __narrowed_4: String = put_3.eTag!!
                     __narrowed_4
@@ -66,7 +66,7 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.con
         }
         (put is Union2.U2<*, *>) -> {
             val put_5: salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>> = ((put as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "put ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(put_5))}")
+            salvo.std.core.console.println__Str(console, "put ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(put_5))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:58:5"))
@@ -84,7 +84,7 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
     }
     if ((got is Union2.U2<*, *>)) {
         val got_1: salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.s3.S3Error, salvo.aws.AwsError>>)
-        salvo.std.core.console.println(console, "get ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(got_1))}")
+        salvo.std.core.console.println__Str(console, "get ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(got_1))}")
         null
         return
     }
@@ -92,7 +92,7 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
     val __destructured_3: salvo.aws.s3.GetObjectOutput = got_2
     val body: salvo.std.stream.InStream = __destructured_3.body
     val contentLength: Long? = __destructured_3.contentLength
-    salvo.std.core.console.println(console, "get ${key}: ${when {
+    salvo.std.core.console.println__Str(console, "get ${key}: ${when {
         (contentLength != null) -> {
             val contentLength_4: Long = contentLength!!
             contentLength_4
@@ -104,7 +104,7 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
     val target: Union2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = fs.openWrite(path)
     if ((target is Union2.U2<*, *>)) {
         val target_5: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((target as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-        salvo.std.core.console.println(console, "open ${salvo.std.fs.path.toStr(path)}: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(target_5))}")
+        salvo.std.core.console.println__Str(console, "open ${salvo.std.fs.path.toStr(path)}: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(target_5))}")
         val closed: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>> = streams.close__InStream(body)
         if ((closed is Union2.U2<*, *>)) {
             val closed_6: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((closed as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
@@ -123,11 +123,11 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
     when {
         (copied is Union2.U1<*, *>) -> {
             val copied_8: Long = ((copied as Union2.U1<*, *>).value as Long)
-            salvo.std.core.console.println(console, "piped ${copied_8} bytes into ${salvo.std.fs.path.toStr(path)}")
+            salvo.std.core.console.println__Str(console, "piped ${copied_8} bytes into ${salvo.std.fs.path.toStr(path)}")
         }
         (copied is Union2.U2<*, *>) -> {
             val copied_9: salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>> = ((copied as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>)
-            salvo.std.core.console.println(console, "pipe: ${salvo.std.stream.toStr(salvo.std.core.checked.detach(copied_9))}")
+            salvo.std.core.console.println__Str(console, "pipe: ${salvo.std.stream.toStr(salvo.std.core.checked.detach(copied_9))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:88:5"))
@@ -143,12 +143,12 @@ fun roundTrip(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.
     when {
         (back is Union2.U1<*, *>) -> {
             val back_1: String = ((back as Union2.U1<*, *>).value as String)
-            salvo.std.core.console.println(console, "back.txt: ${salvo.std.core.string.sizePlatform(back_1)} bytes")
+            salvo.std.core.console.println__Str(console, "back.txt: ${salvo.std.core.string.sizePlatform(back_1)} bytes")
             console.print(back_1)
         }
         (back is Union2.U2<*, *>) -> {
             val back_2: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((back as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-            salvo.std.core.console.println(console, "back.txt: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(back_2))}")
+            salvo.std.core.console.println__Str(console, "back.txt: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(back_2))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:99:5"))
@@ -208,11 +208,11 @@ fun main() {
     val written: Union2<Long, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>> = salvo.std.fs.writeStr(__handle_4, __handle_5, salvo.std.fs.path.path("notes.txt"), "hello from Salvo\nsecond line\n")
     if ((written is Union2.U2<*, *>)) {
         val written_6: salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>> = ((written as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>)
-        salvo.std.core.console.println(__handle_2, "write: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(written_6))}")
+        salvo.std.core.console.println__Str(__handle_2, "write: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(written_6))}")
         null
         return
     }
-    salvo.std.core.console.println(__handle_2, "-- FakeS3 --")
+    salvo.std.core.console.println__Str(__handle_2, "-- FakeS3 --")
     kotlin.run {
         val __use_7: salvo.aws.s3.FakeS3 = salvo.aws.s3.FakeS3(__handle_5)
         val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
@@ -220,9 +220,9 @@ fun main() {
         val __handle_9: salvo.aws.s3.S3Calls = salvo.aws.s3.__Mon_S3Calls(__use_7, __lock___use_7)
         salvo.main.roundTrip(__handle_8, __handle_4, __handle_2, __handle_5, "greeting.txt")
         salvo.main.upload(__handle_8, __handle_4, __handle_2, __handle_5, "notes", "unsized.txt", salvo.std.fs.path.path("notes.txt"), null)
-        salvo.std.core.console.println(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_9.calls(), { __a0 -> __a0 })}")
+        salvo.std.core.console.println__Str(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_9.calls(), { __a0 -> __a0 })}")
     }
-    salvo.std.core.console.println(__handle_2, "-- MemS3 --")
+    salvo.std.core.console.println__Str(__handle_2, "-- MemS3 --")
     kotlin.run {
         val __use_10: MemS3 = MemS3(__handle_5)
         val __lock___use_10 = java.util.concurrent.locks.ReentrantLock()

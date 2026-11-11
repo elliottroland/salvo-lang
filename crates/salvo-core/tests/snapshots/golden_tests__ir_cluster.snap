@@ -238,7 +238,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         }
       }
     }))
-    call println@std.core.console(read console, concat("  ", read sku, ": ", branch#12 cond#0 true {
+    call println(Str)@std.core.console(read console, concat("  ", read sku, ": ", branch#12 cond#0 true {
       bind#10 let __pick2: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read parts), 1)
       value switch#9 read __pick2 {
         arm#0 (arm 0) {
@@ -251,7 +251,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
       }
     }, " reserved on its shard so far"))
   }
-  call println@std.core.console(read console, concat("  apple and apple on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#16 cond#0 true {
+  call println(Str)@std.core.console(read console, concat("  apple and apple on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#16 cond#0 true {
     bind#14 let __pick3: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
     value switch#13 read __pick3 {
       arm#0 (arm 0) {
@@ -274,7 +274,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
       }
     }
   })))))
-  call println@std.core.console(read console, concat("  apple and fig on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#24 cond#0 true {
+  call println(Str)@std.core.console(read console, concat("  apple and fig on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#24 cond#0 true {
     bind#22 let __pick5: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
     value switch#21 read __pick5 {
       arm#0 (arm 0) {
@@ -297,7 +297,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
       }
     }
   })))))
-  call println@std.core.console(read console, concat("  apple and pear on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#32 cond#0 true {
+  call println(Str)@std.core.console(read console, concat("  apple and pear on one shard: ", call to_str(Bool)@std.core.basic(call eq@std.core.string(borrow_as[proj Str -> Str](branch#32 cond#0 true {
     bind#30 let __pick7: proj Str? = call get(List<T>, Int)@std.core.list<Str>(drop_mut(read shards), 0)
     value switch#29 read __pick7 {
       arm#0 (arm 0) {
@@ -341,7 +341,7 @@ fn find@main(lent lookup: Lookup@main; moved key: Str) -> Str {
 fn two_ids@main(lent leader: Leader, lent console: Console; moved seq: eff[ActorGroup<Sequencer@main>]) -> None {
   bind#1 let __use~1: Elected<Sequencer@main> = construct Elected<Sequencer@main> { group: !read seq, config: call default_route_config@std.net(), __dep0: read leader }
   bind#2 let __handle~2: Sequencer@main = handle[Sequencer@main](read __use~1)
-  call println@std.core.console(read console, concat("  ", call fresh_id@main(read __handle~2), " ", call fresh_id@main(read __handle~2)))
+  call println(Str)@std.core.console(read console, concat("  ", call fresh_id@main(read __handle~2), " ", call fresh_id@main(read __handle~2)))
 }
 
 fn shop@main(lent console: Console; moved stock: eff[ActorGroup<Inventory@main>]) -> None {
@@ -428,31 +428,31 @@ fn main@main() -> None {
     obligation release [out]
     send members@NodeGroup(read nodes, !read out)
   }
-  call println@std.core.console(read __handle~2, concat("nodes: ", call to_str(Int)@std.core.basic((call size@std.core.list<Node>(read members) + 1)), ", sequencers: ", call to_str(Int)@std.core.basic(call size@std.core.list<eff[Sequencer@main]>(waitfor out: Reply<List<eff[Sequencer@main]>> {
+  call println(Str)@std.core.console(read __handle~2, concat("nodes: ", call to_str(Int)@std.core.basic((call size@std.core.list<Node>(read members) + 1)), ", sequencers: ", call to_str(Int)@std.core.basic(call size@std.core.list<eff[Sequencer@main]>(waitfor out: Reply<List<eff[Sequencer@main]>> {
     send members@ActorGroup(read seq, !read out)
   }))))
-  call println@std.core.console(read __handle~2, concat("singleton (b's sequencer is remote: ", call to_str(Bool)@std.core.basic(!(call eq(NodeId, NodeId)@std.net(call node_of@std.net<Sequencer@main>(read remote_seq), call this_node@std.net()))), "):"))
+  call println(Str)@std.core.console(read __handle~2, concat("singleton (b's sequencer is remote: ", call to_str(Bool)@std.core.basic(!(call eq(NodeId, NodeId)@std.net(call node_of@std.net<Sequencer@main>(read remote_seq), call this_node@std.net()))), "):"))
   bind#20 let __use~5: LastHost@main = construct LastHost@main { nodes: call copy@std.core.basic<eff[NodeGroup]>(read nodes), me: call copy@std.core.basic<NodeEndpoint>(read a) }
   bind#21 let __handle~6: Leader = handle[Leader](read __use~5)
   call two_ids@main(read __handle~6, read __handle~2, call copy@std.core.basic<eff[ActorGroup<Sequencer@main>]>(read seq))
-  call println@std.core.console(read __handle~2, "sharded:")
+  call println(Str)@std.core.console(read __handle~2, "sharded:")
   call shop@main(read __handle~2, !read stock)
-  call println@std.core.console(read __handle~2, "scatter:")
+  call println(Str)@std.core.console(read __handle~2, "scatter:")
   bind#22 let __use~7: Scattering@main = construct Scattering@main { group: call copy@std.core.basic<eff[ActorGroup<Search@main>]>(read index), gather: spawn[eff[Gather@main]](construct Gathering@main { }, on: read p) serves [Gather@main] }
   bind#23 let __handle~8: Search@main = handle[Search@main](read __use~7)
-  call println@std.core.console(read __handle~2, concat("  salvo: ", call to_str(Int)@std.core.basic(call count@main(read __handle~8, "salvo")), ", actors: ", call to_str(Int)@std.core.basic(call count@main(read __handle~8, "actors")), ", none: ", call to_str(Int)@std.core.basic(call count@main(read __handle~8, "none"))))
-  call println@std.core.console(read __handle~2, "hedge:")
+  call println(Str)@std.core.console(read __handle~2, concat("  salvo: ", call to_str(Int)@std.core.basic(call count@main(read __handle~8, "salvo")), ", actors: ", call to_str(Int)@std.core.basic(call count@main(read __handle~8, "actors")), ", none: ", call to_str(Int)@std.core.basic(call count@main(read __handle~8, "none"))))
+  call println(Str)@std.core.console(read __handle~2, "hedge:")
   bind#24 let __use~9: Hedging@main = construct Hedging@main { group: call copy@std.core.basic<eff[ActorGroup<Lookup@main>]>(read looks), racer: spawn[eff[Race@main]](construct Racing@main { }, on: read p) serves [Race@main] }
   bind#25 let __handle~10: Lookup@main = handle[Lookup@main](read __use~9)
-  call println@std.core.console(read __handle~2, concat("  ", call find@main(read __handle~10, "k1")))
+  call println(Str)@std.core.console(read __handle~2, concat("  ", call find@main(read __handle~10, "k1")))
   bind#26 let _stopped: Bool = waitfor done: Reply<Bool> {
     obligation gain [done]
     obligation release [done]
     send stop@Boot(read booter, !read done)
   }
   call settle@main(call copy@std.core.basic<eff[Timer]>(read timer))
-  call println@std.core.console(read __handle~2, "after b left:")
-  call println@std.core.console(read __handle~2, concat("  sequencers: ", call to_str(Int)@std.core.basic(call size@std.core.list<eff[Sequencer@main]>(waitfor out: Reply<List<eff[Sequencer@main]>> {
+  call println(Str)@std.core.console(read __handle~2, "after b left:")
+  call println(Str)@std.core.console(read __handle~2, concat("  sequencers: ", call to_str(Int)@std.core.basic(call size@std.core.list<eff[Sequencer@main]>(waitfor out: Reply<List<eff[Sequencer@main]>> {
     send members@ActorGroup(read seq, !read out)
   }))))
   call two_ids@main(read __handle~6, read __handle~2, !read seq)

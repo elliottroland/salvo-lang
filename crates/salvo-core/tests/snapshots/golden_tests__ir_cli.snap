@@ -98,7 +98,7 @@ fn describe@main(lent t: Tool@main) -> Str {
 }
 
 fn show@main(lent console: Console; lent line: List<Str>) -> None {
-  call println@std.core.console(read console, concat("$ tool ", call join@std.core.string(read line, " ")))
+  call println(Str)@std.core.console(read console, concat("$ tool ", call join@std.core.string(read line, " ")))
   bind#1 let r: Tool@main | List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = call parse_args@std.args<Tool@main>(read line, fn arg_spec()@main, fn from_found(Found)@main)
   switch#2 read r {
     arm#0 (arm 0) {
@@ -108,7 +108,7 @@ fn show@main(lent console: Console; lent line: List<Str>) -> None {
       } else {
         value ""
       }
-      call println@std.core.console(read console, concat("  ", call describe@main(read r~1), read loud))
+      call println(Str)@std.core.console(read console, concat("  ", call describe@main(read r~1), read loud))
     }
     arm#1 (arm 1) {
       narrow#6[switch#2.arm#1] r~2: List<UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested> = r
@@ -119,7 +119,7 @@ fn show@main(lent console: Console; lent line: List<Str>) -> None {
           member print@Console(read console, read one~3.text)
         } else {
           narrow#12[after branch#0.cond#0] one~4: UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand = one
-          call println@std.core.console(read console, concat("  error: ", call message@std.args(rewrap[UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand -> UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested](read one~4))))
+          call println(Str)@std.core.console(read console, concat("  error: ", call message@std.args(rewrap[UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand -> UnknownOption | MissingValue | Missing | Invalid | Unexpected | Repeated | Requires | Conflict | MissingOne | UnknownCommand | HelpRequested](read one~4))))
         }
       }
     }
@@ -146,7 +146,7 @@ fn main@main() -> None {
   call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("--help", array[Str[]]()))
   call show@main(read __handle~2, call List(T, T[])@std.core.list<Str>("serve", array[Str[]]("--help")))
   bind#7 let tool: Tool@main = call args_or_exit@std.args<Tool@main>(read __handle~2, read __handle~6, member args@Args(read __handle~4), fn arg_spec()@main, fn from_found(Found)@main)
-  call println@std.core.console(read __handle~2, concat("argv: ", call describe@main(read tool)))
+  call println(Str)@std.core.console(read __handle~2, concat("argv: ", call describe@main(read tool)))
 }
 
 fn arg_spec()@main() -> Spec<Tool@main> {

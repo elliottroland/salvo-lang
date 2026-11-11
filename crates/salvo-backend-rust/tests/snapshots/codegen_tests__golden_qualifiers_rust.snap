@@ -190,9 +190,13 @@ impl __Platform_StdConsole {
     }
 }
 
-pub fn println(console: &crate::std_core_console::Console, message: &String) {
+pub fn println__Str(console: &crate::std_core_console::Console, message: &String) {
     console.print(message);
     console.print(&String::from("\n"));
+}
+
+pub fn println__T<T: Clone>(console: &crate::std_core_console::Console, value: &T, to_str: &mut dyn FnMut(&T) -> String) {
+    crate::std_core_console::println__Str(console, &to_str(value));
 }
 
 // ===== std/core/index.rs =====
@@ -1327,7 +1331,7 @@ pub mod platform_std_core_string;
 
 use crate::std_core_console::Console;
 use crate::std_core_result::ok;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1371,17 +1375,17 @@ pub fn full_name__SurnamePerson(person: &crate::Person) -> String {
 
 pub fn describe(console: &crate::std_core_console::Console, person: &crate::Person) {
     if crate::Surname__Person_qualifies(person) {
-        crate::std_core_console::println(console, &crate::full_name__SurnamePerson(person));
+        crate::std_core_console::println__Str(console, &crate::full_name__SurnamePerson(person));
     } else {
-        crate::std_core_console::println(console, &crate::full_name__Person(person));
+        crate::std_core_console::println__Str(console, &crate::full_name__Person(person));
     };
 }
 
 pub fn check(console: &crate::std_core_console::Console, mut n: i32) {
     if crate::Positive__Int_qualifies(n) {
-        crate::std_core_console::println(console, &format!("{} is positive", n));
+        crate::std_core_console::println__Str(console, &format!("{} is positive", n));
     } else {
-        crate::std_core_console::println(console, &format!("{} is not positive", n));
+        crate::std_core_console::println__Str(console, &format!("{} is not positive", n));
     };
 }
 
@@ -1398,7 +1402,7 @@ pub fn main() {
             break;
         };
         let mut c = current.unwrap();
-        crate::std_core_console::println(&__handle_2, &format!("tick {}", c));
+        crate::std_core_console::println__Str(&__handle_2, &format!("tick {}", c));
         current = if (c > 1i32) {
             Some(i32::wrapping_sub(c, 1i32))
         } else {
@@ -1412,7 +1416,7 @@ pub fn main() {
         let mut back = nested_3;
         if matches!(back, crate::unions::Union2::U1(_)) {
             let mut back_4 = match &back { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            crate::std_core_console::println(&__handle_2, &format!("inner ok: {}", back_4));
+            crate::std_core_console::println__Str(&__handle_2, &format!("inner ok: {}", back_4));
         };
     };
 }

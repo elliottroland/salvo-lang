@@ -39,14 +39,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
     arm#0 (arm 0) {
       narrow#3[switch#2.arm#0] wrote~1: Long = wrote
       obligation discharge [wrote.arms{1}]
-      call println@std.core.console(read console, concat("wrote ", call to_str(Long)@std.core.basic(read wrote~1), " bytes"))
+      call println(Str)@std.core.console(read console, concat("wrote ", call to_str(Long)@std.core.basic(read wrote~1), " bytes"))
     }
     arm#1 (arm 1) {
       narrow#4[switch#2.arm#1] wrote~2: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = wrote
       obligation discharge [wrote.arms{1}]
       obligation gain [wrote~2]
       obligation release [wrote~2]
-      call println@std.core.console(read console, concat("write failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read wrote~2))))
+      call println(Str)@std.core.console(read console, concat("write failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read wrote~2))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:70:5
@@ -58,14 +58,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
     arm#0 (arm 0) {
       narrow#7[switch#6.arm#0] text~3: Str = text
       obligation discharge [text.arms{1}]
-      call println@std.core.console(read console, concat("read back ", call to_str(Long)@std.core.basic(call byte_size@std.core.string(read text~3)), " bytes"))
+      call println(Str)@std.core.console(read console, concat("read back ", call to_str(Long)@std.core.basic(call byte_size@std.core.string(read text~3)), " bytes"))
     }
     arm#1 (arm 1) {
       narrow#8[switch#6.arm#1] text~4: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = text
       obligation discharge [text.arms{1}]
       obligation gain [text~4]
       obligation release [text~4]
-      call println@std.core.console(read console, concat("read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
+      call println(Str)@std.core.console(read console, concat("read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:75:5
@@ -87,7 +87,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           arm#0 (arm 0) {
             narrow#16[switch#15.arm#0] __emitted~8: Str = __step~7
             bind#17 let line: Str = !read __emitted~8
-            call println@std.core.console(read console, concat("line: ", read line))
+            call println(Str)@std.core.console(read console, concat("line: ", read line))
           }
           arm#1 (else) {
             break
@@ -102,7 +102,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         obligation discharge [closed.arms{1}]
         obligation gain [closed~9]
         obligation release [closed~9]
-        call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read closed~9))))
+        call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read closed~9))))
       }
     }
     arm#1 (arm 1) {
@@ -110,7 +110,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [opened.arms{0,1}]
       obligation gain [opened~10]
       obligation release [opened~10]
-      call println@std.core.console(read console, concat("open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
+      call println(Str)@std.core.console(read console, concat("open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:84:5
@@ -128,7 +128,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation gain [w]
       bind#27 let at: Long = member position(OutStream)@Streams(read streams, read w)
       bind#28 let n: Long = member write_line@Streams(read streams, read w, "delta")
-      call println@std.core.console(read console, concat("appended ", call to_str(Long)@std.core.basic(read n), " bytes at offset ", call to_str(Long)@std.core.basic(read at)))
+      call println(Str)@std.core.console(read console, concat("appended ", call to_str(Long)@std.core.basic(read n), " bytes at offset ", call to_str(Long)@std.core.basic(read at)))
       obligation release [w]
       bind#29 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member close(OutStream)@Streams(read streams, !read w)
       obligation gain [shut.arms{1}]
@@ -137,7 +137,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         obligation discharge [shut.arms{1}]
         obligation gain [shut~12]
         obligation release [shut~12]
-        call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read shut~12))))
+        call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read shut~12))))
       }
       bind#33 let resumed: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_read_at@Fs(read fs, call path@std.fs.path("notes.txt"), read at)
       obligation gain [resumed.arms{0,1}]
@@ -153,10 +153,10 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           switch#38 read line {
             arm#0 (arm 0) {
               narrow#39[switch#38.arm#0] line~14: Str = line
-              call println@std.core.console(read console, concat("at ", call to_str(Long)@std.core.basic(read at), ": ", read line~14))
+              call println(Str)@std.core.console(read console, concat("at ", call to_str(Long)@std.core.basic(read at), ": ", read line~14))
             }
             arm#1 (none) {
-              call println@std.core.console(read console, concat("at ", call to_str(Long)@std.core.basic(read at), ": end of file"))
+              call println(Str)@std.core.console(read console, concat("at ", call to_str(Long)@std.core.basic(read at), ": end of file"))
             }
             arm#2 (else) {
               unreachable("unhandled union arm") at main:123:21
@@ -170,7 +170,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
             obligation discharge [done.arms{1}]
             obligation gain [done~15]
             obligation release [done~15]
-            call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~15))))
+            call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~15))))
           }
         }
         arm#1 (arm 1) {
@@ -178,7 +178,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           obligation discharge [resumed.arms{0,1}]
           obligation gain [resumed~16]
           obligation release [resumed~16]
-          call println@std.core.console(read console, concat("reopen failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
+          call println(Str)@std.core.console(read console, concat("reopen failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
         }
         arm#2 (else) {
           unreachable("unhandled union arm") at main:119:13
@@ -190,7 +190,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [out.arms{0,1}]
       obligation gain [out~17]
       obligation release [out~17]
-      call println@std.core.console(read console, concat("append failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
+      call println(Str)@std.core.console(read console, concat("append failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:102:5
@@ -209,7 +209,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       bind#50 let data: Bytes = call bytes_of@std.core.bytes(array[Byte[]](call to_byte@std.core.basic(0), call to_byte@std.core.basic(255), call to_byte@std.core.basic(200)))
       bind#51 let n: Long = member write_bytes@Streams(read streams, read w, read data)
       bind#52 let m: Long = member write@Streams(read streams, read w, "hé")
-      call println@std.core.console(read console, concat("wrote ", call to_str(Long)@std.core.basic(read n), " raw bytes and ", call to_str(Long)@std.core.basic(read m), " encoded"))
+      call println(Str)@std.core.console(read console, concat("wrote ", call to_str(Long)@std.core.basic(read n), " raw bytes and ", call to_str(Long)@std.core.basic(read m), " encoded"))
       obligation release [w]
       bind#53 let shut: Ok None | Checked<InvalidUtf8 | StreamFailed> = member close(OutStream)@Streams(read streams, !read w)
       obligation gain [shut.arms{1}]
@@ -218,7 +218,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         obligation discharge [shut.arms{1}]
         obligation gain [shut~19]
         obligation release [shut~19]
-        call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read shut~19))))
+        call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read shut~19))))
       }
     }
     arm#1 (arm 1) {
@@ -226,7 +226,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [bin.arms{0,1}]
       obligation gain [bin~20]
       obligation release [bin~20]
-      call println@std.core.console(read console, concat("raw open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
+      call println(Str)@std.core.console(read console, concat("raw open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:143:5
@@ -248,14 +248,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         arm#0 (arm 0) {
           narrow#64[switch#63.arm#0] head~22: Bytes = head
           obligation discharge [head.arms{1}]
-          call println@std.core.console(read console, concat("first three: ", call to_str@std.core.bytes(read head~22), " = ", call to_hex@std.core.bytes(read head~22)))
+          call println(Str)@std.core.console(read console, concat("first three: ", call to_str@std.core.bytes(read head~22), " = ", call to_hex@std.core.bytes(read head~22)))
         }
         arm#1 (arm 1) {
           narrow#65[switch#63.arm#1] head~23: Checked<InvalidUtf8 | StreamFailed> = head
           obligation discharge [head.arms{1}]
           obligation gain [head~23]
           obligation release [head~23]
-          call println@std.core.console(read console, concat("byte read failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read head~23))))
+          call println(Str)@std.core.console(read console, concat("byte read failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read head~23))))
         }
         arm#2 (else) {
           unreachable("unhandled union arm") at main:164:13
@@ -267,14 +267,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         arm#0 (arm 0) {
           narrow#68[switch#67.arm#0] tail~24: Str = tail
           obligation discharge [tail.arms{1}]
-          call println@std.core.console(read console, concat("the rest, as text: ", read tail~24))
+          call println(Str)@std.core.console(read console, concat("the rest, as text: ", read tail~24))
         }
         arm#1 (arm 1) {
           narrow#69[switch#67.arm#1] tail~25: Checked<InvalidUtf8 | StreamFailed> = tail
           obligation discharge [tail.arms{1}]
           obligation gain [tail~25]
           obligation release [tail~25]
-          call println@std.core.console(read console, concat("decode failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read tail~25))))
+          call println(Str)@std.core.console(read console, concat("decode failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read tail~25))))
         }
         arm#2 (else) {
           unreachable("unhandled union arm") at main:171:13
@@ -288,7 +288,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         obligation discharge [done.arms{1}]
         obligation gain [done~26]
         obligation release [done~26]
-        call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~26))))
+        call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~26))))
       }
     }
     arm#1 (arm 1) {
@@ -296,7 +296,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [raw.arms{0,1}]
       obligation gain [raw~27]
       obligation release [raw~27]
-      call println@std.core.console(read console, concat("raw read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
+      call println(Str)@std.core.console(read console, concat("raw read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:160:5
@@ -318,14 +318,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         arm#0 (arm 0) {
           narrow#81[switch#80.arm#0] broken~29: Str = broken
           obligation discharge [broken.arms{1}]
-          call println@std.core.console(read console, concat("unexpected: ", read broken~29, " decoded"))
+          call println(Str)@std.core.console(read console, concat("unexpected: ", read broken~29, " decoded"))
         }
         arm#1 (arm 1) {
           narrow#82[switch#80.arm#1] broken~30: Checked<InvalidUtf8 | StreamFailed> = broken
           obligation discharge [broken.arms{1}]
           obligation gain [broken~30]
           obligation release [broken~30]
-          call println@std.core.console(read console, concat("mid-character: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read broken~30))))
+          call println(Str)@std.core.console(read console, concat("mid-character: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read broken~30))))
         }
         arm#2 (else) {
           unreachable("unhandled union arm") at main:191:13
@@ -338,14 +338,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         arm#0 (arm 0) {
           narrow#85[switch#84.arm#0] done~31: Ok None = done
           obligation discharge [done.arms{1}]
-          call println@std.core.console(read console, "unexpected: the failure was not recorded")
+          call println(Str)@std.core.console(read console, "unexpected: the failure was not recorded")
         }
         arm#1 (arm 1) {
           narrow#86[switch#84.arm#1] done~32: Checked<InvalidUtf8 | StreamFailed> = done
           obligation discharge [done.arms{1}]
           obligation gain [done~32]
           obligation release [done~32]
-          call println@std.core.console(read console, concat("and again at close: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~32))))
+          call println(Str)@std.core.console(read console, concat("and again at close: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~32))))
         }
         arm#2 (else) {
           unreachable("unhandled union arm") at main:196:13
@@ -357,7 +357,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [split.arms{0,1}]
       obligation gain [split~33]
       obligation release [split~33]
-      call println@std.core.console(read console, concat("split open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
+      call println(Str)@std.core.console(read console, concat("split open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:187:5
@@ -401,7 +401,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
             obligation discharge [got.arms{1}]
             obligation gain [got~36]
             obligation release [got~36]
-            call println@std.core.console(read console, concat("fill failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read got~36))))
+            call println(Str)@std.core.console(read console, concat("fill failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read got~36))))
             assign reading = false
           }
           arm#2 (else) {
@@ -409,7 +409,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           }
         }
       }
-      call println@std.core.console(read console, concat("filled ", call to_str(Int)@std.core.basic(read moved), " bytes in ", call to_str(Int)@std.core.basic(read steps), " reads, one buffer"))
+      call println(Str)@std.core.console(read console, concat("filled ", call to_str(Int)@std.core.basic(read moved), " bytes in ", call to_str(Int)@std.core.basic(read steps), " reads, one buffer"))
       obligation release [s]
       bind#104 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member close(InStream)@Streams(read streams, !read s)
       obligation gain [done.arms{1}]
@@ -418,7 +418,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         obligation discharge [done.arms{1}]
         obligation gain [done~37]
         obligation release [done~37]
-        call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~37))))
+        call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~37))))
       }
     }
     arm#1 (arm 1) {
@@ -426,7 +426,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [held.arms{0,1}]
       obligation gain [held~38]
       obligation release [held~38]
-      call println@std.core.console(read console, concat("fill open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
+      call println(Str)@std.core.console(read console, concat("fill open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:209:5
@@ -458,7 +458,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           assign reading = false
         }
       }
-      call println@std.core.console(read console, concat("longest line: ", call to_str(Int)@std.core.basic(read longest), " characters"))
+      call println(Str)@std.core.console(read console, concat("longest line: ", call to_str(Int)@std.core.basic(read longest), " characters"))
       obligation release [s]
       bind#120 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = member close(InStream)@Streams(read streams, !read s)
       obligation gain [done.arms{1}]
@@ -467,7 +467,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         obligation discharge [done.arms{1}]
         obligation gain [done~40]
         obligation release [done~40]
-        call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~40))))
+        call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~40))))
       }
     }
     arm#1 (arm 1) {
@@ -475,7 +475,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [lined.arms{0,1}]
       obligation gain [lined~41]
       obligation release [lined~41]
-      call println@std.core.console(read console, concat("lines open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
+      call println(Str)@std.core.console(read console, concat("lines open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:246:5
@@ -505,7 +505,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           }
         }
       }
-      call println@std.core.console(read console, concat("chunks saw ", call to_str(Int)@std.core.basic(read seen), " bytes"))
+      call println(Str)@std.core.console(read console, concat("chunks saw ", call to_str(Int)@std.core.basic(read seen), " bytes"))
       obligation release [p.fields{s}]
       bind#135 let done: Ok None | Checked<InvalidUtf8 | StreamFailed> = call close(Chunks)@std.stream(read streams, drop_mut(!read p))
       obligation gain [done.arms{1}]
@@ -514,7 +514,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
         obligation discharge [done.arms{1}]
         obligation gain [done~46]
         obligation release [done~46]
-        call println@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~46))))
+        call println(Str)@std.core.console(read console, concat("close failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~46))))
       }
     }
     arm#1 (arm 1) {
@@ -522,7 +522,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [ch.arms{0,1}]
       obligation gain [ch~47]
       obligation release [ch~47]
-      call println@std.core.console(read console, concat("chunks failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
+      call println(Str)@std.core.console(read console, concat("chunks failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:275:5
@@ -534,14 +534,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
     arm#0 (arm 0) {
       narrow#142[switch#141.arm#0] copied~48: Long = copied
       obligation discharge [copied.arms{1}]
-      call println@std.core.console(read console, concat("copied ", call to_str(Long)@std.core.basic(read copied~48), " bytes"))
+      call println(Str)@std.core.console(read console, concat("copied ", call to_str(Long)@std.core.basic(read copied~48), " bytes"))
     }
     arm#1 (arm 1) {
       narrow#143[switch#141.arm#1] copied~49: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = copied
       obligation discharge [copied.arms{1}]
       obligation gain [copied~49]
       obligation release [copied~49]
-      call println@std.core.console(read console, concat("copy failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
+      call println(Str)@std.core.console(read console, concat("copy failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:295:5
@@ -553,14 +553,14 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
     arm#0 (arm 0) {
       narrow#146[switch#145.arm#0] whole~50: Bytes = whole
       obligation discharge [whole.arms{1}]
-      call println@std.core.console(read console, concat("raw.bin is ", call to_str(Int)@std.core.basic(call size@std.core.bytes(read whole~50)), " bytes: ", call to_hex@std.core.bytes(read whole~50)))
+      call println(Str)@std.core.console(read console, concat("raw.bin is ", call to_str(Int)@std.core.basic(call size@std.core.bytes(read whole~50)), " bytes: ", call to_hex@std.core.bytes(read whole~50)))
     }
     arm#1 (arm 1) {
       narrow#147[switch#145.arm#1] whole~51: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = whole
       obligation discharge [whole.arms{1}]
       obligation gain [whole~51]
       obligation release [whole~51]
-      call println@std.core.console(read console, concat("byte read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
+      call println(Str)@std.core.console(read console, concat("byte read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:300:5
@@ -573,7 +573,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
     arm#0 (arm 0) {
       narrow#151[switch#150.arm#0] missing~52: Str = missing
       obligation discharge [missing.arms{1}]
-      call println@std.core.console(read console, concat("unexpected: ", read missing~52))
+      call println(Str)@std.core.console(read console, concat("unexpected: ", read missing~52))
     }
     arm#1 (arm 1) {
       narrow#152[switch#150.arm#1] missing~53: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = missing
@@ -592,7 +592,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
     arm#0 (arm 0) {
       narrow#155[switch#154.arm#0] not_a_dir~54: List<Str> = not_a_dir
       obligation discharge [not_a_dir.arms{1}]
-      call println@std.core.console(read console, concat("unexpected: ", call to_str@std.core.list(read not_a_dir~54, fn to_str@std.core.string)))
+      call println(Str)@std.core.console(read console, concat("unexpected: ", call to_str@std.core.list(read not_a_dir~54, fn to_str@std.core.string)))
     }
     arm#1 (arm 1) {
       narrow#156[switch#154.arm#1] not_a_dir~55: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = not_a_dir
@@ -605,9 +605,9 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       unreachable("unhandled union arm") at main:315:5
     }
   }
-  call println@std.core.console(read console, concat("failures: ", call to_str(Int)@std.core.basic(call size@std.core.list<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
+  call println(Str)@std.core.console(read console, concat("failures: ", call to_str(Int)@std.core.basic(call size@std.core.list<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
   foreach#157 kind: proj (NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming) in read failures {
-    call println@std.core.console(read console, concat("  ", call kind_name(FsError)@main(call copy@std.core.basic<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read kind))))
+    call println(Str)@std.core.console(read console, concat("  ", call kind_name(FsError)@main(call copy@std.core.basic<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read kind))))
   }
   foreach#158 name: Str in call List(T, T[])@std.core.list<Str>("notes.txt", array[Str[]]("notes-copy.txt", "raw.bin")) {
     bind#159 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member delete@Fs(read fs, call path@std.fs.path(read name))
@@ -617,10 +617,10 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       obligation discharge [gone.arms{1}]
       obligation gain [gone~56]
       obligation release [gone~56]
-      call println@std.core.console(read console, concat("delete failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~56))))
+      call println(Str)@std.core.console(read console, concat("delete failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~56))))
     }
   }
-  call println@std.core.console(read console, "cleaned up")
+  call println(Str)@std.core.console(read console, "cleaned up")
 }
 
 fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> None {
@@ -630,14 +630,14 @@ fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams)
     arm#0 (arm 0) {
       narrow#3[switch#2.arm#0] inside~1: Long = inside
       obligation discharge [inside.arms{1}]
-      call println@std.core.console(read console, concat("through `..`: wrote ", call to_str(Long)@std.core.basic(read inside~1), " bytes"))
+      call println(Str)@std.core.console(read console, concat("through `..`: wrote ", call to_str(Long)@std.core.basic(read inside~1), " bytes"))
     }
     arm#1 (arm 1) {
       narrow#4[switch#2.arm#1] inside~2: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = inside
       obligation discharge [inside.arms{1}]
       obligation gain [inside~2]
       obligation release [inside~2]
-      call println@std.core.console(read console, concat("through `..`: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
+      call println(Str)@std.core.console(read console, concat("through `..`: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:340:5
@@ -649,14 +649,14 @@ fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams)
     arm#0 (arm 0) {
       narrow#7[switch#6.arm#0] up~3: Str = up
       obligation discharge [up.arms{1}]
-      call println@std.core.console(read console, "unexpected: read outside the sandbox")
+      call println(Str)@std.core.console(read console, "unexpected: read outside the sandbox")
     }
     arm#1 (arm 1) {
       narrow#8[switch#6.arm#1] up~4: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = up
       obligation discharge [up.arms{1}]
       obligation gain [up~4]
       obligation release [up~4]
-      call println@std.core.console(read console, concat("climbing out: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
+      call println(Str)@std.core.console(read console, concat("climbing out: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:345:5
@@ -668,21 +668,21 @@ fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams)
     arm#0 (arm 0) {
       narrow#11[switch#10.arm#0] absolute~5: Str = absolute
       obligation discharge [absolute.arms{1}]
-      call println@std.core.console(read console, "unexpected: an absolute path resolved")
+      call println(Str)@std.core.console(read console, "unexpected: an absolute path resolved")
     }
     arm#1 (arm 1) {
       narrow#12[switch#10.arm#1] absolute~6: Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = absolute
       obligation discharge [absolute.arms{1}]
       obligation gain [absolute~6]
       obligation release [absolute~6]
-      call println@std.core.console(read console, concat("absolute path: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
+      call println(Str)@std.core.console(read console, concat("absolute path: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
     }
     arm#2 (else) {
       unreachable("unhandled union arm") at main:350:5
     }
   }
   bind#13 let probe: Path = call path@std.fs.path("probe.txt")
-  call println@std.core.console(read console, concat("probe still there: ", call to_str(Bool)@std.core.basic(member exists@Fs(read fs, read probe))))
+  call println(Str)@std.core.console(read console, concat("probe still there: ", call to_str(Bool)@std.core.basic(member exists@Fs(read fs, read probe))))
   bind#14 let gone: Ok None | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member delete@Fs(read fs, read probe)
   obligation gain [gone.arms{1}]
   branch#15 cond#0 check#16 (read gone is arm 1) {
@@ -690,7 +690,7 @@ fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams)
     obligation discharge [gone.arms{1}]
     obligation gain [gone~7]
     obligation release [gone~7]
-    call println@std.core.console(read console, concat("delete failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~7))))
+    call println(Str)@std.core.console(read console, concat("delete failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~7))))
   }
 }
 
@@ -713,10 +713,10 @@ fn main@main() -> None {
     obligation discharge [made.arms{1}]
     obligation gain [made~11]
     obligation release [made~11]
-    call println@std.core.console(read __handle~2, concat("cannot create the working directory: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read made~11))))
+    call println(Str)@std.core.console(read __handle~2, concat("cannot create the working directory: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read made~11))))
     return none[None]
   }
-  call println@std.core.console(read __handle~2, "-- the real filesystem, scoped to one directory --")
+  call println(Str)@std.core.console(read __handle~2, "-- the real filesystem, scoped to one directory --")
   branch#16 cond#0 true {
     bind#17 let __use~12: RestrictedFs = construct RestrictedFs { root: call copy@std.core.basic<Path>(read root), __dep0: read __handle~10, __dep1: read __handle~6 }
     bind#18 let __handle~13: Fs = handle[Fs](read __use~12)
@@ -730,9 +730,9 @@ fn main@main() -> None {
     obligation discharge [gone.arms{1}]
     obligation gain [gone~14]
     obligation release [gone~14]
-    call println@std.core.console(read __handle~2, concat("cleanup failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~14))))
+    call println(Str)@std.core.console(read __handle~2, concat("cleanup failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read gone~14))))
   }
-  call println@std.core.console(read __handle~2, "-- the same code, with no disk at all --")
+  call println(Str)@std.core.console(read __handle~2, "-- the same code, with no disk at all --")
   branch#23 cond#0 true {
     bind#24 let __use~15: MemFs = construct MemFs { }
     bind#25 let __handle~16: Fs = handle[Fs](read __use~15)

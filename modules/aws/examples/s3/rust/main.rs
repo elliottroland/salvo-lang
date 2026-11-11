@@ -129,7 +129,7 @@ use crate::std_core_bytes::mut_bytes;
 use crate::std_core_result::ok;
 use crate::std_fs_path::path;
 use crate::std_stream::pipe;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_map::put_platform;
 use crate::std_fs::read_to_str;
 use crate::std_fs::write_str;
@@ -166,7 +166,7 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate::s
     let mut opened: crate::unions::Union2<crate::std_stream::InStream, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> = fs.open_read(path);
     if matches!(opened, crate::unions::Union2::U2(_)) {
         let mut opened_1 = match opened { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("open {}: {}", crate::std_fs_path::to_str(path), crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(opened_1))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("open {}: {}", crate::std_fs_path::to_str(path), crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(opened_1))).as_ref())));
         return;
     };
     let mut put: crate::unions::Union2<crate::aws_s3::PutObjectOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>> = {
@@ -178,7 +178,7 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate::s
     };
     if matches!(put, crate::unions::Union2::U1(_)) {
         let mut put_3 = match &put { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("put {}: etag {}", key, if put_3.e_tag.is_some() {
+        crate::std_core_console::println__Str(console, &format!("put {}: etag {}", key, if put_3.e_tag.is_some() {
             let mut __narrowed_4 = put_3.e_tag.as_ref().unwrap();
             __narrowed_4.clone()
         } else {
@@ -186,7 +186,7 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate::s
         }));
     } else if matches!(put, crate::unions::Union2::U2(_)) {
         let mut put_5 = match put { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("put {}: {}", key, crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(put_5))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("put {}: {}", key, crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(put_5))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:58:5");
     };
@@ -201,14 +201,14 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate:
     };
     if matches!(got, crate::unions::Union2::U2(_)) {
         let mut got_1 = match got { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("get {}: {}", key, crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(got_1))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("get {}: {}", key, crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(got_1))).as_ref())));
         return;
     };
     let mut got_2 = match got { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     let mut __destructured_3: crate::aws_s3::GetObjectOutput = got_2;
     let mut body: crate::std_stream::InStream = __destructured_3.body;
     let mut content_length: Option<i64> = __destructured_3.content_length;
-    crate::std_core_console::println(console, &format!("get {}: {} bytes", key, if content_length.is_some() {
+    crate::std_core_console::println__Str(console, &format!("get {}: {} bytes", key, if content_length.is_some() {
         let mut content_length_4 = content_length.unwrap();
         content_length_4
     } else {
@@ -217,7 +217,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate:
     let mut target: crate::unions::Union2<crate::std_stream::OutStream, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> = fs.open_write(path);
     if matches!(target, crate::unions::Union2::U2(_)) {
         let mut target_5 = match target { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("open {}: {}", crate::std_fs_path::to_str(path), crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(target_5))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("open {}: {}", crate::std_fs_path::to_str(path), crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(target_5))).as_ref())));
         let mut closed: crate::unions::Union2<(), crate::std_core_checked::Checked<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>> = streams.close__InStream(body);
         if matches!(closed, crate::unions::Union2::U2(_)) {
             let mut closed_6 = match closed { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
@@ -234,10 +234,10 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate:
     };
     if matches!(copied, crate::unions::Union2::U1(_)) {
         let mut copied_8 = match &copied { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("piped {} bytes into {}", copied_8, crate::std_fs_path::to_str(path)));
+        crate::std_core_console::println__Str(console, &format!("piped {} bytes into {}", copied_8, crate::std_fs_path::to_str(path)));
     } else if matches!(copied, crate::unions::Union2::U2(_)) {
         let mut copied_9 = match copied { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("pipe: {}", crate::std_stream::to_str((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(copied_9))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("pipe: {}", crate::std_stream::to_str((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(copied_9))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:88:5");
     };
@@ -249,11 +249,11 @@ pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crat
     let mut back: crate::unions::Union2<String, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> = crate::std_fs::read_to_str(fs, streams, &crate::std_fs_path::path(&String::from("back.txt")));
     if matches!(back, crate::unions::Union2::U1(_)) {
         let mut back_1 = match &back { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("back.txt: {} bytes", crate::std_core_string::size_platform(back_1)));
+        crate::std_core_console::println__Str(console, &format!("back.txt: {} bytes", crate::std_core_string::size_platform(back_1)));
         console.print(back_1);
     } else if matches!(back, crate::unions::Union2::U2(_)) {
         let mut back_2 = match back { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("back.txt: {}", crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(back_2))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("back.txt: {}", crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(back_2))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:99:5");
     };
@@ -320,19 +320,19 @@ pub fn main() {
     let mut written: crate::unions::Union2<i64, crate::std_core_checked::Checked<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>> = crate::std_fs::write_str(&__handle_4, &__handle_5, &crate::std_fs_path::path(&String::from("notes.txt")), &String::from("hello from Salvo\nsecond line\n"));
     if matches!(written, crate::unions::Union2::U2(_)) {
         let mut written_6 = match written { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(&__handle_2, &format!("write: {}", crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(written_6))).as_ref())));
+        crate::std_core_console::println__Str(&__handle_2, &format!("write: {}", crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(written_6))).as_ref())));
         return;
     };
-    crate::std_core_console::println(&__handle_2, &String::from("-- FakeS3 --"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("-- FakeS3 --"));
     {
         let __use_7 = std::sync::Arc::new(std::sync::Mutex::new(crate::aws_s3::FakeS3::new(__handle_5.clone())));
         let __handle_8 = crate::aws_s3::S3::share_locked(__use_7.clone());
         let __handle_9 = crate::aws_s3::S3Calls::share_locked(__use_7.clone());
         crate::round_trip(&__handle_8, &__handle_4, &__handle_2, &__handle_5, &String::from("greeting.txt"));
         crate::upload(&__handle_8, &__handle_4, &__handle_2, &__handle_5, &String::from("notes"), &String::from("unsized.txt"), &crate::std_fs_path::path(&String::from("notes.txt")), None);
-        crate::std_core_console::println(&__handle_2, &format!("calls: {}", crate::std_core_list::to_str(&__handle_9.calls(), &mut |__a0| format!("{}", __a0))));
+        crate::std_core_console::println__Str(&__handle_2, &format!("calls: {}", crate::std_core_list::to_str(&__handle_9.calls(), &mut |__a0| format!("{}", __a0))));
     };
-    crate::std_core_console::println(&__handle_2, &String::from("-- MemS3 --"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("-- MemS3 --"));
     {
         let mut __use_10: crate::MemS3 = crate::MemS3::new(__handle_5.clone());
         let __handle_11 = crate::aws_s3::S3::locked(__use_10);

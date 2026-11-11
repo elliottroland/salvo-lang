@@ -133,7 +133,7 @@ Conventions:
   * A Salvo module `std.core.console` emits to `std/core/console.rs` and mounts
     as `pub mod std_core_console` (path parts joined with `_`): Rust module
     paths are flat, and generated code names its items
-    `crate::std_core_console::println`.
+    `crate::std_core_console::println__Str`.
   * The generated union enums live under `unions/`, mounted as
     `#[path = "unions/mod.rs"] pub mod unions;` [rs-union-enums], and the
     float-text helpers in `strings.rs` [rs-float-text], each emitted only
@@ -1154,7 +1154,7 @@ the blanket rule:
     owned copy lent for a lent one:
     `{ let __arg9 = b.tag.clone(); let __arg10 = crate::bumped(&mut b); crate::label(&__arg9, __arg10) }`.
     A statement-position call whose arguments needed this is the same block
-    (`{ let __arg3 = …; crate::std_core_console::println(&__handle_2, &__arg3) };`).
+    (`{ let __arg3 = …; crate::std_core_console::println__Str(&__handle_2, &__arg3) };`).
   * **What it will not do**: a read of **mutable data** before a later
     argument mutates it cannot be copied out of the way, because a snapshot
     on Rust against a live handle on Kotlin is exactly the divergence the

@@ -77,7 +77,7 @@ fn main@main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let n: Int = call twice@main((2 + 3))
-  call println@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(read n)))
+  call println(Str)@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(read n)))
 }
 ```
 
@@ -566,7 +566,7 @@ main() -> None@main
   7:19    `2 + 3`                        Int  -> std.core.basic::plus(Int, Int)
   7:19    `2`                            Int
   7:23    `3`                            Int
-  8:5     `println("${n}")`              None  -> std.core.console::println  [passes Console (use 6:5)]
+  8:5     `println("${n}")`              None  -> std.core.console::println(Str)  [passes Console (use 6:5)]
   8:13    `"${n}"`                       Str
   8:16    `n`                            Int
 ```

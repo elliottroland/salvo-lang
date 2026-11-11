@@ -22,7 +22,8 @@
 // ```
 //
 // **Newlines are explicit.** [print] and [printerr] write exactly the text
-// they are given; [println] adds `"\n"`. Standard output is flushed before
+// they are given; [println] adds `"\n"`, and prints any value with a
+// `to_str` as well as a `Str`. Standard output is flushed before
 // [readln] waits, so a prompt printed without a newline is on the screen.
 // Under `salvo test` standard input is closed, so `readln` answers `None`
 // at once.
@@ -55,10 +56,50 @@ export threadsafe platform handler StdConsole() for Console
 
 // Prints to standard output, followed by a newline.
 //
+// This overload prints a `Str` as it is; the one below prints any other
+// value through its `to_str`.
+//
 // ```
 // println("total: ${1 + 2}")                           // total: 3
 // ```
 export fn println(message: Str) [Console] -> None => message {
     print(message)
     print("\n")
+}
+
+// Prints a value's text form to standard output, followed by a newline.
+//
+// Unlike `println(message: Str)`, this overload takes a value of any type
+// and prints what its `to_str` answers, so `println(n)` says what
+// `println("${n}")` does. The `to_str` is the one a call `to_str(value)`
+// would reach where `println` is called: std's for a scalar or a list, or
+// the one declared beside a type of your own. Pass another with
+// `println(n, to_str = hex)`. A `Str` goes to the overload above, which is
+// the more specific.
+//
+// ```
+// struct Point { x: Int, y: Int }
+//
+// fn to_str(p: Point) -> Str {
+//     return "(${p.x}, ${p.y})"
+// }
+//
+// fn show() [Console] -> None {
+//     println(42)                                      // 42
+//     println(List(1, 2, 3))                           // [1, 2, 3]
+//     println(Point { x: 1, y: 2 })                    // (1, 2)
+// }
+// ```
+//
+// A type with no `to_str` in scope does not print: the call is an error
+// naming the `?to_str` nothing fills. A named union prints when it
+// declares a `to_str` of its own; an anonymous one (`Int | Str`, or a
+// `T?`) cannot have one, so print it as `println("${u}")`, which renders
+// the arm it holds.
+//
+// @param value   the value to print
+// @param to_str  found at the call site: renders `value` as text
+// @compilerrules [std-console, implicit-resolve, interp-to-str]
+export fn println<T>(value: T, ?to_str: (T) -> Str) [Console] -> None => value {
+    println(to_str(value))
 }

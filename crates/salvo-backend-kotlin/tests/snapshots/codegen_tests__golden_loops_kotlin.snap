@@ -149,9 +149,13 @@ open class __Platform_Console(private val impl: ConsolePlatform) : Console {
 
 class __Platform_StdConsole() : __Platform_Console(salvo.platform.std.core.console.StdConsole())
 
-fun println(console: Console, message: String) {
+fun println__Str(console: Console, message: String) {
     console.print(message)
     console.print("\n")
+}
+
+fun<T> println__T(console: Console, value: T, toStr: (T) -> String) {
+    salvo.std.core.console.println__Str(console, toStr(value))
 }
 
 
@@ -1281,7 +1285,7 @@ fun main() {
         val __loop_value_6: Int = __loop_3!!
         __loop_value_6
     }
-    salvo.std.core.console.println(__handle_2, "last: ${last}")
+    salvo.std.core.console.println__Str(__handle_2, "last: ${last}")
     val j: Int = 9
     val never: Int = kotlin.run {
         var __loop_7: Int? = null
@@ -1299,7 +1303,7 @@ fun main() {
         val __loop_value_9: Int = __loop_7!!
         __loop_value_9
     }
-    salvo.std.core.console.println(__handle_2, "never: ${never}")
+    salvo.std.core.console.println__Str(__handle_2, "never: ${never}")
     val found: Int? = kotlin.run {
         var __loop_10: Int? = null
         for (x in salvo.platform.std.core.list.each(salvo.std.core.list.List__T_TArray(0, arrayOf<Int>(1, 2, 3, 4, 5)))) {
@@ -1314,7 +1318,7 @@ fun main() {
     }
     if ((found != null)) {
         val f: Int = found!!
-        salvo.std.core.console.println(__handle_2, "found: ${f}")
+        salvo.std.core.console.println__Str(__handle_2, "found: ${f}")
     }
     var __ran_12: Boolean = false
     val __pass_13: UptoIter2 = salvo.main.iter(salvo.main.upto(0, 0))
@@ -1325,7 +1329,7 @@ fun main() {
                 val __emitted_15: Int = ((__step_14 as Union2.U1<*, *>).value as Int)
                 val x: Int = __emitted_15
                 __ran_12 = true
-                salvo.std.core.console.println(__handle_2, "unreachable")
+                salvo.std.core.console.println__Str(__handle_2, "unreachable")
             }
             else -> {
                 break
@@ -1333,7 +1337,7 @@ fun main() {
         }
     }
     if (!(__ran_12)) {
-        salvo.std.core.console.println(__handle_2, "empty range")
+        salvo.std.core.console.println__Str(__handle_2, "empty range")
     }
     var k: Int = 0
     val capped: Int? = kotlin.run {
@@ -1355,7 +1359,7 @@ fun main() {
         val __loop_value_18: Int? = __loop_16
         __loop_value_18
     }
-    salvo.std.core.console.println(__handle_2, "capped: ${when {
+    salvo.std.core.console.println__Str(__handle_2, "capped: ${when {
         (capped != null) -> {
             val capped_19: Int = capped!!
             capped_19
@@ -1393,11 +1397,11 @@ fun main() {
     when {
         (verdict is Union2.U1<*, *>) -> {
             val verdict_24: Int = ((verdict as Union2.U1<*, *>).value as Int)
-            salvo.std.core.console.println(__handle_2, "ok: ${verdict_24}")
+            salvo.std.core.console.println__Str(__handle_2, "ok: ${verdict_24}")
         }
         (verdict is Union2.U2<*, *>) -> {
             val verdict_25: String = ((verdict as Union2.U2<*, *>).value as String)
-            salvo.std.core.console.println(__handle_2, "err: ${verdict_25}")
+            salvo.std.core.console.println__Str(__handle_2, "err: ${verdict_25}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:87:5"))

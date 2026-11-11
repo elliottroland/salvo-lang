@@ -13285,6 +13285,21 @@ replaced the working document TESTING.md).
   read error — the `Str | None` an `InStream`'s `read_line` answers too. It
   flushes standard output first, so a prompt `print`ed without a newline is
   on the screen while the program waits.
+  * **`println` prints any value with a text form** (the user's overload,
+    2026-11-11): beside `println(message: Str)`, std has
+    `println<T>(value: T, ?to_str: (T) -> Str)`, which prints
+    `to_str(value)`. A `Str` argument goes to the `Str` overload, the more
+    specific [fn-overload-rank]. A type with no `to_str` in scope drops
+    the generic one [implicit-fit], so the call is "no matching overload"
+    naming the unfilled `?to_str` (`implicit-fit:no-fill`); that includes an
+    anonymous union (`Int | Str`, `T?`), which cannot have a `to_str` of its
+    own [op-unique-shape] though `"${u}"` renders it arm by arm
+    [interp-to-str]; a named union prints through the `to_str` it declares.
+    No `to_str` is ever ambiguous here, since a
+    type's `to_str` lives in its own file [op-unique-shape]. `println` named as
+    a value is two functions: a position with a fn type selects one, and an
+    unannotated `let g = println` is `fn-value-select:overloaded`
+    [fn-value-select].
   * The handler is **`StdConsole`** (renamed from `StdOutConsole` the same
     day, since it is no longer only stdout): a `threadsafe platform handler`,
     stdout and stderr unbuffered on Rust, `System.err` flushed per write on

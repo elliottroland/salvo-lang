@@ -11,7 +11,7 @@ fn main() [use] -> None {
     use StdConsole
     // [kt-ir] A foreign reference is fully qualified, so a module imports
     // only the root runtime package.
-    //~ emits(main.kt): salvo.std.core.console.println(
+    //~ emits(main.kt): salvo.std.core.console.println__Str(
     //~ emits(main.kt): salvo.geometry.area(
     println("area: ${area(3, 4)}")
 }

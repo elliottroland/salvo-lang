@@ -12,7 +12,7 @@
 // in `codegen_tests.rs`: a file's absence is not an annotation.)
 // What it does use is still there.
 //~ emits(std/core/list.rs): pub fn iter<T: Clone>(list: &Vec<T>)
-//~ emits(std/core/console.rs): pub fn println(console: 
+//~ emits(std/core/console.rs): pub fn println__Str(console: 
 //~ emits(std/core/seq.rs): pub fn reduce__It_A_Fn<
 fn main() [use] -> None {
     use StdConsole()

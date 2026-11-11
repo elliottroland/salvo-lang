@@ -149,9 +149,13 @@ open class __Platform_Console(private val impl: ConsolePlatform) : Console {
 
 class __Platform_StdConsole() : __Platform_Console(salvo.platform.std.core.console.StdConsole())
 
-fun println(console: Console, message: String) {
+fun println__Str(console: Console, message: String) {
     console.print(message)
     console.print("\n")
+}
+
+fun<T> println__T(console: Console, value: T, toStr: (T) -> String) {
+    salvo.std.core.console.println__Str(console, toStr(value))
 }
 
 
@@ -1132,7 +1136,7 @@ class CyclicRandom<T>(private val values: List<T>, private val copy: (T) -> T) :
 fun draw(random: Random<Int>, random__1: Random<String>, console: salvo.std.core.console.Console) {
     val n: Int = random.nextRandom()
     val s: String = random__1.nextRandom()
-    salvo.std.core.console.println(console, "${s}: ${n}")
+    salvo.std.core.console.println__Str(console, "${s}: ${n}")
 }
 
 fun luckyNumber(random: Random<Int>): Int {
@@ -1150,8 +1154,8 @@ fun main() {
     val __handle_6: Random<String> = __Mon_Random<String>(__use_5, __lock___use_5)
     salvo.main.draw(__handle_4, __handle_6, __handle_2)
     salvo.main.draw(__handle_4, __handle_6, __handle_2)
-    salvo.std.core.console.println(__handle_2, "lucky: ${__handle_4.nextRandom()}")
-    salvo.std.core.console.println(__handle_2, "again: ${salvo.main.luckyNumber(__handle_4)}")
+    salvo.std.core.console.println__Str(__handle_2, "lucky: ${__handle_4.nextRandom()}")
+    salvo.std.core.console.println__Str(__handle_2, "again: ${salvo.main.luckyNumber(__handle_4)}")
 }
 
 

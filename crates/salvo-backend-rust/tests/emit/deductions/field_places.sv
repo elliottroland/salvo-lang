@@ -81,7 +81,7 @@ fn main() [use] {
     // The field moves out as a raw place (no clone), and the sibling is
     // still read afterwards: a genuine partial move.
     //~ emits: crate::eat(p.tags);
-    //~|     crate::std_core_console::println(&__handle_2, &format!("1 {}", p.name));
+    //~|     crate::std_core_console::println__Str(&__handle_2, &format!("1 {}", p.name));
     eat(p.tags)
     println("1 ${p.name}")
 
@@ -120,7 +120,7 @@ fn main() [use] {
         return
     }
     //~ emits: let mut head_3 = head.unwrap();
-    //~|     crate::std_core_console::println(&__handle_2, &format!("{}", crate::take((head_3).clone())));
+    //~|     crate::std_core_console::println__Str(&__handle_2, &format!("{}", crate::take((head_3).clone())));
     //~ !emits: head.as_ref().unwrap()
     println("${take(copy(head))}")
     println("${head.name}")

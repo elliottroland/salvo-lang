@@ -150,9 +150,9 @@ fn main@main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let b: Mut Box@main = construct Mut Box@main { n: 1, tag: "t" }
-  call println@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(call bumped@main(read b)), " ", read b.tag))
+  call println(Str)@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(call bumped@main(read b)), " ", read b.tag))
   bind#4 let xs: List<Int> = call List(T, T[])@std.core.list<Int>(3, array[Int[]](2, 1))
-  call println@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(call total@main(!read xs))))
+  call println(Str)@std.core.console(read __handle~2, concat(call to_str(Int)@std.core.basic(call total@main(!read xs))))
 }
 ```
 

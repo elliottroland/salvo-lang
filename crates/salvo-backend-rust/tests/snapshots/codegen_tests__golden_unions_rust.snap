@@ -190,9 +190,13 @@ impl __Platform_StdConsole {
     }
 }
 
-pub fn println(console: &crate::std_core_console::Console, message: &String) {
+pub fn println__Str(console: &crate::std_core_console::Console, message: &String) {
     console.print(message);
     console.print(&String::from("\n"));
+}
+
+pub fn println__T<T: Clone>(console: &crate::std_core_console::Console, value: &T, to_str: &mut dyn FnMut(&T) -> String) {
+    crate::std_core_console::println__Str(console, &to_str(value));
 }
 
 // ===== std/core/index.rs =====
@@ -1327,7 +1331,7 @@ pub mod platform_std_core_string;
 
 use crate::std_core_result::err;
 use crate::std_core_result::ok;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 
 
 pub fn parse_age(mut input: i32) -> crate::unions::Union2<i32, String> {
@@ -1354,21 +1358,21 @@ pub fn main() {
     let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     let mut good: crate::unions::Union2<i32, String> = crate::parse_age(36i32);
-    crate::std_core_console::println(&__handle_2, &crate::describe(match &good { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }));
+    crate::std_core_console::println__Str(&__handle_2, &crate::describe(match &good { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }));
     let mut bad: crate::unions::Union2<i32, String> = crate::parse_age(i32::wrapping_neg(1i32));
-    crate::std_core_console::println(&__handle_2, &crate::describe(match &bad { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }));
+    crate::std_core_console::println__Str(&__handle_2, &crate::describe(match &bad { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }));
     let mut precise: crate::unions::Union3<String, String, bool> = crate::unions::Union3::U1(crate::std_core_result::ok::<String>(String::from("yes")));
     if matches!(precise, crate::unions::Union3::U2(_)) {
         let mut precise_3 = match &precise { crate::unions::Union3::U2(__v) => __v, _ => unreachable!() };
         let mut precise_4 = &*precise_3;
-        crate::std_core_console::println(&__handle_2, &format!("err str: {}", precise_4));
+        crate::std_core_console::println__Str(&__handle_2, &format!("err str: {}", precise_4));
     } else if matches!(precise, crate::unions::Union3::U1(_)) {
         let mut precise_5 = match &precise { crate::unions::Union3::U1(__v) => __v, _ => unreachable!() };
         let mut precise_6 = &*precise_5;
-        crate::std_core_console::println(&__handle_2, &format!("ok: {}", precise_6));
+        crate::std_core_console::println__Str(&__handle_2, &format!("ok: {}", precise_6));
     } else {
         let mut precise_7 = match &precise { crate::unions::Union3::U3(__v) => *__v, _ => unreachable!() };
-        crate::std_core_console::println(&__handle_2, &format!("err bool: {}", precise_7));
+        crate::std_core_console::println__Str(&__handle_2, &format!("err bool: {}", precise_7));
     };
     let mut value: i32 = if matches!(good, crate::unions::Union2::U1(_)) {
         let mut good_8 = match &good { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
@@ -1379,7 +1383,7 @@ pub fn main() {
     } else {
         panic!("salvo: unhandled union arm at main:37:17");
     };
-    crate::std_core_console::println(&__handle_2, &format!("value plus one is {}", i32::wrapping_add(value, 1i32)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("value plus one is {}", i32::wrapping_add(value, 1i32)));
 }
 
 // ===== unions/union2.rs =====

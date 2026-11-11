@@ -91,7 +91,7 @@ use crate::std_core_actor::on_idle;
 use crate::std_time::plus__Duration_Duration;
 use crate::std_time::plus__Instant_Duration;
 use crate::std_core_actor::pool;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_time::seconds;
 use crate::std_time::times;
 use crate::std_time::to_epoch_second;
@@ -416,21 +416,21 @@ pub fn main() {
     let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     let mut budget: crate::std_time::Duration = crate::std_time::millis(1500i64);
-    crate::std_core_console::println(&__handle_2, &format!("budget {}, doubled {}, in millis {}", crate::std_time::to_str(&budget), crate::std_time::to_str(&crate::std_time::times(&budget, 2i64)), crate::std_time::to_millis(&budget)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("budget {}, doubled {}, in millis {}", crate::std_time::to_str(&budget), crate::std_time::to_str(&crate::std_time::times(&budget, 2i64)), crate::std_time::to_millis(&budget)));
     let mut stamp: crate::std_time::Instant = crate::std_time::epoch_milli(1700000000000i64);
-    crate::std_core_console::println(&__handle_2, &format!("stamp {}s, a minute later {}s", crate::std_time::to_epoch_second(&stamp), crate::std_time::to_epoch_second(&crate::std_time::plus__Instant_Duration(&stamp, &crate::std_time::minutes(1i64)))));
+    crate::std_core_console::println__Str(&__handle_2, &format!("stamp {}s, a minute later {}s", crate::std_time::to_epoch_second(&stamp), crate::std_time::to_epoch_second(&crate::std_time::plus__Instant_Duration(&stamp, &crate::std_time::minutes(1i64)))));
     let mut __use_3: crate::std_time::DefaultClock = crate::std_time::DefaultClock::new();
     let __handle_4 = crate::std_time::Clock::locked(__use_3);
     let mut __use_5: crate::std_time::DefaultTicker = crate::std_time::DefaultTicker::new();
     let __handle_6 = crate::std_time::Ticker::shared(__use_5);
-    crate::std_core_console::println(&__handle_2, &format!("wall clock is set: {}", (crate::std_time::to_epoch_second(&__handle_4.now()) > 1600000000i64)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("wall clock is set: {}", (crate::std_time::to_epoch_second(&__handle_4.now()) > 1600000000i64)));
     let mut __use_7: crate::SteppingTicker = crate::SteppingTicker::new(crate::std_time::millis(500i64));
     let __handle_8 = crate::std_time::Ticker::locked(__use_7);
     let mut started: crate::std_time::Tick = __handle_8.tick();
-    crate::std_core_console::println(&__handle_2, &format!("overdue after one more read: {}", crate::overdue(&__handle_8, &started, &budget)));
-    crate::std_core_console::println(&__handle_2, &format!("overdue after three: {} {} {}", crate::overdue(&__handle_8, &started, &budget), crate::overdue(&__handle_8, &started, &budget), crate::overdue(&__handle_8, &started, &budget)));
-    crate::std_core_console::println(&__handle_2, &crate::verdict(&crate::std_time::Tick { nanos: 0i64 }, &crate::std_time::Tick { nanos: 1000000000i64 }, &budget));
-    crate::std_core_console::println(&__handle_2, &crate::verdict(&crate::std_time::Tick { nanos: 0i64 }, &crate::std_time::Tick { nanos: 2000000000i64 }, &budget));
+    crate::std_core_console::println__Str(&__handle_2, &format!("overdue after one more read: {}", crate::overdue(&__handle_8, &started, &budget)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("overdue after three: {} {} {}", crate::overdue(&__handle_8, &started, &budget), crate::overdue(&__handle_8, &started, &budget), crate::overdue(&__handle_8, &started, &budget)));
+    crate::std_core_console::println__Str(&__handle_2, &crate::verdict(&crate::std_time::Tick { nanos: 0i64 }, &crate::std_time::Tick { nanos: 1000000000i64 }, &budget));
+    crate::std_core_console::println__Str(&__handle_2, &crate::verdict(&crate::std_time::Tick { nanos: 0i64 }, &crate::std_time::Tick { nanos: 2000000000i64 }, &budget));
     let mut p: usize = crate::std_core_actor::pool(1i32);
     let mut __destructured_9: (usize, usize) = ({ let __h = crate::std_time::ManualTime::new(); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(p, __cap as usize, std::boxed::Box::new(crate::std_time::__Actor_ManualTime::new(__h)), crate::std_time::__DECODE_ManualTime); (__a, __a) });
     let mut timer: usize = __destructured_9.0;
@@ -449,7 +449,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(ctl, crate::std_time::__Msg_TimerCtl::Advance(crate::std_time::millis(2500i64)), crate::std_time::__PROTO_TimerCtl);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    crate::std_core_console::println(&__handle_2, &format!("session: {}", outcome));
+    crate::std_core_console::println__Str(&__handle_2, &format!("session: {}", outcome));
     let mut sleeper: usize = ({ let __h = crate::Napping::new(crate::std_time::Timer::shared(crate::std_time::__Stub_Timer::new(timer)), crate::std_time::Ticker::shared(crate::TestTicker::new(timer))); let __cap = __h.__mailbox_capacity; let __a = crate::scheduler::salvo_spawn(crate::scheduler::salvo_thread(), __cap as usize, std::boxed::Box::new(crate::__Actor_Napping::new(__h)), crate::__DECODE_Napping); __a });
     let mut napped: String = {
         let (mut answer, __wid) = crate::scheduler::salvo_waiter();
@@ -464,7 +464,7 @@ pub fn main() {
         crate::scheduler::salvo_send_wire(ctl, crate::std_time::__Msg_TimerCtl::Advance(crate::std_time::seconds(2i64)), crate::std_time::__PROTO_TimerCtl);
         *crate::scheduler::salvo_wait(__wid).downcast::<String>().expect("the awaited answer")
     };
-    crate::std_core_console::println(&__handle_2, &napped);
+    crate::std_core_console::println__Str(&__handle_2, &napped);
 }
 
 pub struct SessionOpen {

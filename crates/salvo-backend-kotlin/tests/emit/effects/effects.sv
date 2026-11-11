@@ -111,7 +111,7 @@ fn main() [use] -> None {
 // The generated effect parameter picks a fresh name.
 //~ emits: fun shadowed(console__1: salvo.std.core.console.Console, console: String)
 export fn shadowed(console: Str) [Console] -> None => !console {
-    //~ emits: println(console__1, "param: ${console}")
+    //~ emits: println__Str(console__1, "param: ${console}")
     println("param: ${console}")
 }
 

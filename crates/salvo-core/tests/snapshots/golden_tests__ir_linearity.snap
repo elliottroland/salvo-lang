@@ -10,12 +10,12 @@ linear struct Ticket wire {
 }
 
 fn issue@main(lent console: Console; lent id: Int, moved seat: Str) -> Ticket@main {
-  call println@std.core.console(read console, concat("1. issued #", call to_str(Int)@std.core.basic(read id), " for ", read seat))
+  call println(Str)@std.core.console(read console, concat("1. issued #", call to_str(Int)@std.core.basic(read id), " for ", read seat))
   return construct Ticket@main { id: read id, seat: !read seat }
 }
 
 fn redeem@main(lent console: Console; moved ticket: Ticket@main) -> None {
-  call println@std.core.console(read console, concat("1. redeemed #", call to_str(Int)@std.core.basic(read ticket.id)))
+  call println(Str)@std.core.console(read console, concat("1. redeemed #", call to_str(Int)@std.core.basic(read ticket.id)))
 }
 
 fn one_use@main(lent console: Console) -> None {
@@ -23,11 +23,11 @@ fn one_use@main(lent console: Console) -> None {
   obligation gain [ticket]
   obligation release [ticket]
   call redeem@main(read console, !read ticket)
-  call println@std.core.console(read console, "2. gone after one use")
+  call println(Str)@std.core.console(read console, "2. gone after one use")
 }
 
 fn describe@main(lent console: Console; lent ticket: Ticket@main) -> None {
-  call println@std.core.console(read console, concat("3. still holding #", call to_str(Int)@std.core.basic(read ticket.id), " (", read ticket.seat, ")"))
+  call println(Str)@std.core.console(read console, concat("3. still holding #", call to_str(Int)@std.core.basic(read ticket.id), " (", read ticket.seat, ")"))
 }
 
 fn borrow_then_use@main(lent console: Console) -> None {
@@ -43,7 +43,7 @@ fn read_a_field@main(lent console: Console) -> None {
   bind#1 let ticket: Ticket@main = call issue@main(read console, 3, "1A")
   obligation gain [ticket]
   bind#2 let seat: Str = read ticket.seat
-  call println@std.core.console(read console, concat("4. read ", read seat, ", and #", call to_str(Int)@std.core.basic(read ticket.id), " is still owed"))
+  call println(Str)@std.core.console(read console, concat("4. read ", read seat, ", and #", call to_str(Int)@std.core.basic(read ticket.id), " is still owed"))
   obligation release [ticket]
   call redeem@main(read console, !read ticket)
 }
@@ -71,7 +71,7 @@ fn a_queue_of_tickets@main(lent console: Console) -> None {
   obligation gain [queue]
   call add_last@std.core.deque<Ticket@main>(read queue, call issue@main(read console, 5, "2B"))
   call add_last@std.core.deque<Ticket@main>(read queue, call issue@main(read console, 6, "2C"))
-  call println@std.core.console(read console, concat("6. queued ", call to_str(Int)@std.core.basic(call size@std.core.deque<Ticket@main>(drop_mut(read queue)))))
+  call println(Str)@std.core.console(read console, concat("6. queued ", call to_str(Int)@std.core.basic(call size@std.core.deque<Ticket@main>(drop_mut(read queue)))))
   bind#2 let first: Ticket@main? = call remove_first@std.core.deque<Ticket@main>(read queue)
   obligation gain [first.arms{0}]
   switch#3 read first {
@@ -104,7 +104,7 @@ fn a_queue_of_tickets@main(lent console: Console) -> None {
   call drain@std.core.deque<Ticket@main, ()>(tuple(), drop_mut(!read queue), lambda(lent __fx0: (), moved __a0: Ticket@main) -> None {
     value call scrap@main(!read __a0)
   })
-  call println@std.core.console(read console, "6. queue drained")
+  call println(Str)@std.core.console(read console, "6. queue drained")
 }
 
 fn main@main() -> None {

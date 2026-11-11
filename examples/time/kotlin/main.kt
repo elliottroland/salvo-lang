@@ -233,24 +233,24 @@ fun main() {
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
     val budget: salvo.std.time.Duration = salvo.std.time.millis(1500L)
-    salvo.std.core.console.println(__handle_2, "budget ${salvo.std.time.toStr(budget)}, doubled ${salvo.std.time.toStr(salvo.std.time.times(budget, 2L))}, in millis ${salvo.std.time.toMillis(budget)}")
+    salvo.std.core.console.println__Str(__handle_2, "budget ${salvo.std.time.toStr(budget)}, doubled ${salvo.std.time.toStr(salvo.std.time.times(budget, 2L))}, in millis ${salvo.std.time.toMillis(budget)}")
     val stamp: salvo.std.time.Instant = salvo.std.time.epochMilli(1700000000000L)
-    salvo.std.core.console.println(__handle_2, "stamp ${salvo.std.time.toEpochSecond(stamp)}s, a minute later ${salvo.std.time.toEpochSecond(salvo.std.time.plus__Instant_Duration(stamp, salvo.std.time.minutes(1L)))}s")
+    salvo.std.core.console.println__Str(__handle_2, "stamp ${salvo.std.time.toEpochSecond(stamp)}s, a minute later ${salvo.std.time.toEpochSecond(salvo.std.time.plus__Instant_Duration(stamp, salvo.std.time.minutes(1L)))}s")
     val __use_3: salvo.std.time.DefaultClock = salvo.std.time.DefaultClock()
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
     val __handle_4: salvo.std.time.Clock = salvo.std.time.__Mon_Clock(__use_3, __lock___use_3)
     val __use_5: salvo.std.time.DefaultTicker = salvo.std.time.DefaultTicker()
     val __lock___use_5 = java.util.concurrent.locks.ReentrantLock()
     val __handle_6: salvo.std.time.Ticker = salvo.std.time.__Mon_Ticker(__use_5, __lock___use_5)
-    salvo.std.core.console.println(__handle_2, "wall clock is set: ${(salvo.std.time.toEpochSecond(__handle_4.now()) > 1600000000L)}")
+    salvo.std.core.console.println__Str(__handle_2, "wall clock is set: ${(salvo.std.time.toEpochSecond(__handle_4.now()) > 1600000000L)}")
     val __use_7: SteppingTicker = SteppingTicker(step = salvo.std.time.millis(500L))
     val __lock___use_7 = java.util.concurrent.locks.ReentrantLock()
     val __handle_8: salvo.std.time.Ticker = salvo.std.time.__Mon_Ticker(__use_7, __lock___use_7)
     val started: salvo.std.time.Tick = __handle_8.tick()
-    salvo.std.core.console.println(__handle_2, "overdue after one more read: ${salvo.main.overdue(__handle_8, started, budget)}")
-    salvo.std.core.console.println(__handle_2, "overdue after three: ${salvo.main.overdue(__handle_8, started, budget)} ${salvo.main.overdue(__handle_8, started, budget)} ${salvo.main.overdue(__handle_8, started, budget)}")
-    salvo.std.core.console.println(__handle_2, salvo.main.verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 1000000000L), budget))
-    salvo.std.core.console.println(__handle_2, salvo.main.verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 2000000000L), budget))
+    salvo.std.core.console.println__Str(__handle_2, "overdue after one more read: ${salvo.main.overdue(__handle_8, started, budget)}")
+    salvo.std.core.console.println__Str(__handle_2, "overdue after three: ${salvo.main.overdue(__handle_8, started, budget)} ${salvo.main.overdue(__handle_8, started, budget)} ${salvo.main.overdue(__handle_8, started, budget)}")
+    salvo.std.core.console.println__Str(__handle_2, salvo.main.verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 1000000000L), budget))
+    salvo.std.core.console.println__Str(__handle_2, salvo.main.verdict(salvo.std.time.Tick(nanos = 0L), salvo.std.time.Tick(nanos = 2000000000L), budget))
     val p: Int = salvo.std.core.actor.pool(1)
     val __destructured_9: kotlin.Pair<Int, Int> = kotlin.run { val __h = salvo.std.time.ManualTime(); val __a = salvo.SalvoSched.spawn(p, __h.__mailboxCapacity, salvo.std.time.__Actor_ManualTime(__h), salvo.std.time.__Actor_ManualTime.__DECODE); kotlin.Pair(__a, __a) }
     val timer: Int = __destructured_9.first
@@ -269,7 +269,7 @@ fun main() {
         salvo.SalvoSched.sendWire(ctl, salvo.std.time.__Msg_TimerCtl.Advance(salvo.std.time.millis(2500L)), salvo.std.time.__PROTO_TimerCtl, salvo.std.time.__Codec___Msg_TimerCtl)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    salvo.std.core.console.println(__handle_2, "session: ${outcome}")
+    salvo.std.core.console.println__Str(__handle_2, "session: ${outcome}")
     val sleeper: Int = kotlin.run { val __h = Napping(salvo.std.time.__Stub_Timer(timer), salvo.std.time.__Mon_Ticker(TestTicker(timer = timer))); val __a = salvo.SalvoSched.spawn(salvo.SalvoSched.thread(), __h.__mailboxCapacity, __Actor_Napping(__h), __Actor_Napping.__DECODE); __a }
     val napped: String = kotlin.run {
         val (answer, __wid) = salvo.SalvoSched.waiter()
@@ -284,7 +284,7 @@ fun main() {
         salvo.SalvoSched.sendWire(ctl, salvo.std.time.__Msg_TimerCtl.Advance(salvo.std.time.seconds(2L)), salvo.std.time.__PROTO_TimerCtl, salvo.std.time.__Codec___Msg_TimerCtl)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    salvo.std.core.console.println(__handle_2, napped)
+    salvo.std.core.console.println__Str(__handle_2, napped)
 }
 
 

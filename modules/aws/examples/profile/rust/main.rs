@@ -33,7 +33,7 @@ pub mod platform_std_core_list;
 pub mod platform_std_core_string;
 
 use crate::aws::ProfileCredentials;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::aws::to_str;
 
 
@@ -41,8 +41,8 @@ pub fn main() {
     let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     let mut creds: crate::aws::ProfileCredentials = crate::aws::ProfileCredentials { profile: String::from("default"), path: String::from("~/.aws/credentials") };
-    crate::std_core_console::println(&__handle_2, &format!("profile: {}", creds.profile));
-    crate::std_core_console::println(&__handle_2, &format!("path:    {}", creds.path));
+    crate::std_core_console::println__Str(&__handle_2, &format!("profile: {}", creds.profile));
+    crate::std_core_console::println__Str(&__handle_2, &format!("path:    {}", creds.path));
     let mut staging: crate::aws::ProfileCredentials = crate::aws::ProfileCredentials { profile: String::from("staging"), path: String::from("/etc/aws/credentials") };
-    crate::std_core_console::println(&__handle_2, &format!("{}", crate::aws::to_str(&staging)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("{}", crate::aws::to_str(&staging)));
 }

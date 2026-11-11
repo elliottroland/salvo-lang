@@ -149,9 +149,13 @@ open class __Platform_Console(private val impl: ConsolePlatform) : Console {
 
 class __Platform_StdConsole() : __Platform_Console(salvo.platform.std.core.console.StdConsole())
 
-fun println(console: Console, message: String) {
+fun println__Str(console: Console, message: String) {
     console.print(message)
     console.print("\n")
+}
+
+fun<T> println__T(console: Console, value: T, toStr: (T) -> String) {
+    salvo.std.core.console.println__Str(console, toStr(value))
 }
 
 
@@ -1119,7 +1123,7 @@ fun fullName(person: Person): String {
 
 @Suppress("UNCHECKED_CAST", "USELESS_CAST", "UNNECESSARY_SAFE_CALL")
 fun greet(console: salvo.std.core.console.Console, person: Person) {
-    salvo.std.core.console.println(console, "Hello, ${salvo.main.fullName(person)}!")
+    salvo.std.core.console.println__Str(console, "Hello, ${salvo.main.fullName(person)}!")
     val __pass_1: UptoIter = salvo.main.iter(salvo.main.upto(1, 4))
     while (true) {
         val __step_2: Union2<Int, salvo.std.core.iterator.Finished> = salvo.main.next(__pass_1)
@@ -1127,7 +1131,7 @@ fun greet(console: salvo.std.core.console.Console, person: Person) {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
                 val i: Int = __emitted_3
-                salvo.std.core.console.println(console, "  ${i}: ${(person.age + i)}")
+                salvo.std.core.console.println__Str(console, "  ${i}: ${(person.age + i)}")
             }
             else -> {
                 break
@@ -1182,10 +1186,10 @@ fun main() {
     }
     salvo.main.greet(__handle_2, anon)
     val names: List<String> = salvo.std.core.list.List__T_TArray("a", arrayOf<String>("b"))
-    salvo.std.core.console.println(__handle_2, "first: ${salvo.std.core.list.first(names)}")
+    salvo.std.core.console.println__Str(__handle_2, "first: ${salvo.std.core.list.first(names)}")
     val mutNames: salvo.platform.std.core.list.MutList<String> = salvo.std.core.list.Mut_List("x", arrayOf<String>())
     salvo.std.core.list.addPlatform(mutNames, "y")
-    salvo.std.core.console.println(__handle_2, "size: ${salvo.std.core.list.sizePlatform(mutNames)}")
+    salvo.std.core.console.println__Str(__handle_2, "size: ${salvo.std.core.list.sizePlatform(mutNames)}")
 }
 
 

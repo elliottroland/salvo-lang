@@ -149,9 +149,13 @@ open class __Platform_Console(private val impl: ConsolePlatform) : Console {
 
 class __Platform_StdConsole() : __Platform_Console(salvo.platform.std.core.console.StdConsole())
 
-fun println(console: Console, message: String) {
+fun println__Str(console: Console, message: String) {
     console.print(message)
     console.print("\n")
+}
+
+fun<T> println__T(console: Console, value: T, toStr: (T) -> String) {
+    salvo.std.core.console.println__Str(console, toStr(value))
 }
 
 
@@ -1251,21 +1255,21 @@ fun main() {
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
     val good: Union2<Int, String> = salvo.main.parseAge(36)
-    salvo.std.core.console.println(__handle_2, salvo.main.describe(good))
+    salvo.std.core.console.println__Str(__handle_2, salvo.main.describe(good))
     val bad: Union2<Int, String> = salvo.main.parseAge((-1))
-    salvo.std.core.console.println(__handle_2, salvo.main.describe(bad))
+    salvo.std.core.console.println__Str(__handle_2, salvo.main.describe(bad))
     val precise: Union3<String, String, Boolean> = Union3.U1<String, String, Boolean>(salvo.std.core.result.ok("yes"))
     if ((precise is Union3.U2<*, *, *>)) {
         val precise_3: String = ((precise as Union3.U2<*, *, *>).value as String)
         val precise_4: String = precise_3
-        salvo.std.core.console.println(__handle_2, "err str: ${precise_4}")
+        salvo.std.core.console.println__Str(__handle_2, "err str: ${precise_4}")
     } else if ((precise is Union3.U1<*, *, *>)) {
         val precise_5: String = ((precise as Union3.U1<*, *, *>).value as String)
         val precise_6: String = precise_5
-        salvo.std.core.console.println(__handle_2, "ok: ${precise_6}")
+        salvo.std.core.console.println__Str(__handle_2, "ok: ${precise_6}")
     } else {
         val precise_7: Boolean = ((precise as Union3.U3<*, *, *>).value as Boolean)
-        salvo.std.core.console.println(__handle_2, "err bool: ${precise_7}")
+        salvo.std.core.console.println__Str(__handle_2, "err bool: ${precise_7}")
     }
     val value: Int = when {
         (good is Union2.U1<*, *>) -> {
@@ -1280,7 +1284,7 @@ fun main() {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:37:17"))
         }
     }
-    salvo.std.core.console.println(__handle_2, "value plus one is ${(value + 1)}")
+    salvo.std.core.console.println__Str(__handle_2, "value plus one is ${(value + 1)}")
 }
 
 

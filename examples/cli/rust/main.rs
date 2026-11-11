@@ -89,7 +89,7 @@ use crate::std_args::merge_group;
 use crate::std_args::message;
 use crate::std_args::parse_args;
 use crate::std_args::parse_named;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_args::read_all;
 use crate::std_args::read_optional;
 use crate::std_args::read_value;
@@ -291,7 +291,7 @@ pub fn describe(t: &crate::Tool) -> String {
 }
 
 pub fn show(console: &crate::std_core_console::Console, line: &Vec<String>) {
-    crate::std_core_console::println(console, &format!("$ tool {}", crate::std_core_string::join_platform(line, &String::from(" "))));
+    crate::std_core_console::println__Str(console, &format!("$ tool {}", crate::std_core_string::join_platform(line, &String::from(" "))));
     let mut r: crate::unions::Union2<crate::Tool, Vec<crate::unions::Union11<crate::std_args::UnknownOption, crate::std_args::MissingValue, crate::std_args::Missing, crate::std_args::Invalid, crate::std_args::Unexpected, crate::std_args::Repeated, crate::std_args::Requires, crate::std_args::Conflict, crate::std_args::MissingOne, crate::std_args::UnknownCommand, crate::std_args::HelpRequested>>> = crate::std_args::parse_args::<crate::Tool>(line, &mut || crate::arg_spec__SpecTool(), &mut |__a0: &crate::std_args::Found| crate::from_found__Found_OkToolOrErrsNonEmptyListArgError(__a0));
     if matches!(r, crate::unions::Union2::U1(_)) {
         let mut r_1 = match &r { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
@@ -300,7 +300,7 @@ pub fn show(console: &crate::std_core_console::Console, line: &Vec<String>) {
         } else {
             String::from("")
         };
-        crate::std_core_console::println(console, &format!("  {}{}", crate::describe(r_1), loud));
+        crate::std_core_console::println__Str(console, &format!("  {}{}", crate::describe(r_1), loud));
     } else if matches!(r, crate::unions::Union2::U2(_)) {
         let mut r_2 = match &r { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         for mut e in r_2.iter() {
@@ -310,7 +310,7 @@ pub fn show(console: &crate::std_core_console::Console, line: &Vec<String>) {
                 console.print(&one_3.text);
             } else {
                 let mut one_4 = (match one.clone() { crate::unions::Union11::U1(__v) => crate::unions::Union10::U1(__v), crate::unions::Union11::U2(__v) => crate::unions::Union10::U2(__v), crate::unions::Union11::U3(__v) => crate::unions::Union10::U3(__v), crate::unions::Union11::U4(__v) => crate::unions::Union10::U4(__v), crate::unions::Union11::U5(__v) => crate::unions::Union10::U5(__v), crate::unions::Union11::U6(__v) => crate::unions::Union10::U6(__v), crate::unions::Union11::U7(__v) => crate::unions::Union10::U7(__v), crate::unions::Union11::U8(__v) => crate::unions::Union10::U8(__v), crate::unions::Union11::U9(__v) => crate::unions::Union10::U9(__v), crate::unions::Union11::U10(__v) => crate::unions::Union10::U10(__v), crate::unions::Union11::U11(__v) => unreachable!("salvo: unreachable union arm"), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
-                crate::std_core_console::println(console, &format!("  error: {}", crate::std_args::message((&((match one_4.clone() { crate::unions::Union10::U1(__v) => crate::unions::Union11::U1(__v), crate::unions::Union10::U2(__v) => crate::unions::Union11::U2(__v), crate::unions::Union10::U3(__v) => crate::unions::Union11::U3(__v), crate::unions::Union10::U4(__v) => crate::unions::Union11::U4(__v), crate::unions::Union10::U5(__v) => crate::unions::Union11::U5(__v), crate::unions::Union10::U6(__v) => crate::unions::Union11::U6(__v), crate::unions::Union10::U7(__v) => crate::unions::Union11::U7(__v), crate::unions::Union10::U8(__v) => crate::unions::Union11::U8(__v), crate::unions::Union10::U9(__v) => crate::unions::Union11::U9(__v), crate::unions::Union10::U10(__v) => crate::unions::Union11::U10(__v), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") }))).as_ref())));
+                crate::std_core_console::println__Str(console, &format!("  error: {}", crate::std_args::message((&((match one_4.clone() { crate::unions::Union10::U1(__v) => crate::unions::Union11::U1(__v), crate::unions::Union10::U2(__v) => crate::unions::Union11::U2(__v), crate::unions::Union10::U3(__v) => crate::unions::Union11::U3(__v), crate::unions::Union10::U4(__v) => crate::unions::Union11::U4(__v), crate::unions::Union10::U5(__v) => crate::unions::Union11::U5(__v), crate::unions::Union10::U6(__v) => crate::unions::Union11::U6(__v), crate::unions::Union10::U7(__v) => crate::unions::Union11::U7(__v), crate::unions::Union10::U8(__v) => crate::unions::Union11::U8(__v), crate::unions::Union10::U9(__v) => crate::unions::Union11::U9(__v), crate::unions::Union10::U10(__v) => crate::unions::Union11::U10(__v), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") }))).as_ref())));
             };
         }
     } else {
@@ -335,7 +335,7 @@ pub fn main() {
     crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("--help"), vec![]));
     crate::show(&__handle_2, &crate::std_core_list::List__T_TArray::<String>(String::from("serve"), vec![String::from("--help")]));
     let mut tool: crate::Tool = crate::std_args::args_or_exit::<crate::Tool>(&__handle_2, &__handle_6, &__handle_4.args(), &mut || crate::arg_spec__SpecTool(), &mut |__a0: &crate::std_args::Found| crate::from_found__Found_OkToolOrErrsNonEmptyListArgError(__a0));
-    crate::std_core_console::println(&__handle_2, &format!("argv: {}", crate::describe(&tool)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("argv: {}", crate::describe(&tool)));
 }
 
 pub fn arg_spec__SpecTool() -> crate::std_args::Spec {

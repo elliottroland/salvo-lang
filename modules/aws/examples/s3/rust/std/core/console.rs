@@ -92,7 +92,11 @@ impl __Platform_StdConsole {
     }
 }
 
-pub fn println(console: &crate::std_core_console::Console, message: &String) {
+pub fn println__Str(console: &crate::std_core_console::Console, message: &String) {
     console.print(message);
     console.print(&String::from("\n"));
+}
+
+pub fn println__T<T: Clone>(console: &crate::std_core_console::Console, value: &T, to_str: &mut dyn FnMut(&T) -> String) {
+    crate::std_core_console::println__Str(console, &to_str(value));
 }

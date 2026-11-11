@@ -48,10 +48,10 @@ fn describe(person: Person) [Console] {
     // `is` predicate checks call them.
     //~ emits: if (salvo.main.Surname_qualifies(person))
     if person is Surname {
-        //~ emits: println(console, salvo.main.fullName__SurnamePerson(person))
+        //~ emits: println__Str(console, salvo.main.fullName__SurnamePerson(person))
         println(full_name(person))
     } else {
-        //~ emits: println(console, salvo.main.fullName__Person(person))
+        //~ emits: println__Str(console, salvo.main.fullName__Person(person))
         println(full_name(person))
     }
 }

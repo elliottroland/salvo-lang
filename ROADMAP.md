@@ -564,6 +564,39 @@ Found building [qual-depend-field] (COMPLETED.md).
   the struct-field form is refused (`qual-depend-field:not-a-sibling`), the
   signature form should be too.
 
+### 0bi — What the `println<T>` overload left (2026-11-11)
+
+Found landing the user's `println<T>(value: T, ?to_str: (T) -> Str)`
+[std-console] (COMPLETED.md).
+
+- **DECISION: `println(u)` of a union whose arms each have a text form.**
+  `"${u}"` renders an `Int | Str` arm by arm [interp-to-str], but
+  `println(u)` is `implicit-fit:no-fill`: an implicit `?to_str: (Int | Str)
+  -> Str` is filled by a function of that name and type, and an anonymous
+  union (`T?` included) cannot have one outside std [op-unique-shape]; a
+  named union prints through the `to_str` it declares. The options: leave it
+  (documented in `docs/language/Data-and-Types.md` and the doc comment), or
+  have an implicit `to_str` position over a union take the arm-by-arm
+  rendering interpolation uses, which would make `println(u)` say what
+  `println("${u}")` does for every type.
+- **Open defect: an override naming an implicit does not drop the overloads
+  that lack it.** `println("hi", to_str = shout)` is
+  `implicit-override:no-implicit` ("`println` has no implicit parameter
+  named `to_str`"): `println(message: Str)` wins the ranking on the
+  argument and is then refused for the override, though
+  `println<T>(value: T, ?to_str: …)` takes it. With an `Int` argument
+  (`println(42, to_str = hex)`) the call checks. [implicit-fit] drops a
+  candidate whose implicits nothing fills; a named implicit argument its
+  signature does not have is a reason of the same kind. Repro: any `Str`
+  argument with `to_str = f`.
+- **`modules/aws`'s host project is stale** (`modules/aws/check.sh host`):
+  the generated ABI mirrors of std's `string`, `runtime`, `actor` and the
+  scheduler under `modules/aws/salvo/platform/` differ from what `salvo
+  platform generate` writes now. Not from the `println` overload (std's
+  console has no platform surface it changed); from earlier std changes.
+  Regenerate with `salvo platform generate --backend '*'` in
+  `modules/aws`, and run `check.sh host` with the SDKs available.
+
 ### 0bh — What `type?` and `type!(x: T)` left (2026-11-11)
 
 Found building [type-query] and [type-assert] (COMPLETED.md).

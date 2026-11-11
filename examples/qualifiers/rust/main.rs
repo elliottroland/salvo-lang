@@ -33,7 +33,7 @@ pub mod platform_std_core_string;
 use crate::std_core_list::List__T_TArray;
 use crate::std_core_list::add_platform;
 use crate::std_core_list::get_platform;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_list::size_platform;
 
 
@@ -122,23 +122,23 @@ pub fn main() {
     let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     let mut xs: Vec<i32> = vec![];
     crate::std_core_list::add_platform::<i32>(&mut xs, 3i32);
-    crate::std_core_console::println(&__handle_2, &format!("1. head after add: {}", crate::head(&xs)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("1. head after add: {}", crate::head(&xs)));
     let mut maybe_empty: Vec<i32> = crate::std_core_list::List__T_TArray::<i32>(7i32, vec![8i32]);
     if crate::NonEmpty__List_qualifies::<i32>(&maybe_empty) {
-        crate::std_core_console::println(&__handle_2, &format!("2. checked at run time, head is {}", crate::head(&maybe_empty)));
+        crate::std_core_console::println__Str(&__handle_2, &format!("2. checked at run time, head is {}", crate::head(&maybe_empty)));
     };
     let mut plain: i32 = 21i32;
     let mut warm: i32 = crate::celsius(21i32);
-    crate::std_core_console::println(&__handle_2, &format!("2. {} vs {}", crate::describe__Int(plain), crate::describe__CelsiusInt(warm)));
-    crate::std_core_console::println(&__handle_2, &format!("2. dropped: {}", crate::describe__Int(warm)));
-    crate::std_core_console::println(&__handle_2, &format!("3. sum {}, head still {}", crate::sum(&xs), crate::head(&xs)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("2. {} vs {}", crate::describe__Int(plain), crate::describe__CelsiusInt(warm)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("2. dropped: {}", crate::describe__Int(warm)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("3. sum {}, head still {}", crate::sum(&xs), crate::head(&xs)));
     crate::compact(&mut xs);
     crate::std_core_list::add_platform::<i32>(&mut xs, 9i32);
-    crate::std_core_console::println(&__handle_2, &format!("3. after compact and add, head is {}", crate::head(&xs)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("3. after compact and add, head is {}", crate::head(&xs)));
     let mut session: crate::Request = crate::authenticate(crate::Request { path: String::from("/orders"), touches: 0i32 });
     let mut fresh: crate::Request = crate::freshen(crate::Request { path: String::from("/health"), touches: 0i32 });
-    crate::std_core_console::println(&__handle_2, &format!("4. before: {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__FreshRequest(&fresh)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("4. before: {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__FreshRequest(&fresh)));
     crate::touch(&mut session);
     crate::touch(&mut fresh);
-    crate::std_core_console::println(&__handle_2, &format!("4. after:  {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__Request(&fresh)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("4. after:  {} / {}", crate::handle__AuthenticatedRequest(&session), crate::handle__Request(&fresh)));
 }

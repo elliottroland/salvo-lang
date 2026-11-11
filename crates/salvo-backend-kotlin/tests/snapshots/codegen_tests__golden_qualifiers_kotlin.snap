@@ -149,9 +149,13 @@ open class __Platform_Console(private val impl: ConsolePlatform) : Console {
 
 class __Platform_StdConsole() : __Platform_Console(salvo.platform.std.core.console.StdConsole())
 
-fun println(console: Console, message: String) {
+fun println__Str(console: Console, message: String) {
     console.print(message)
     console.print("\n")
+}
+
+fun<T> println__T(console: Console, value: T, toStr: (T) -> String) {
+    salvo.std.core.console.println__Str(console, toStr(value))
 }
 
 
@@ -1255,17 +1259,17 @@ fun fullName__SurnamePerson(person: Person): String {
 
 fun describe(console: salvo.std.core.console.Console, person: Person) {
     if (salvo.main.Surname_qualifies(person)) {
-        salvo.std.core.console.println(console, salvo.main.fullName__SurnamePerson(person))
+        salvo.std.core.console.println__Str(console, salvo.main.fullName__SurnamePerson(person))
     } else {
-        salvo.std.core.console.println(console, salvo.main.fullName__Person(person))
+        salvo.std.core.console.println__Str(console, salvo.main.fullName__Person(person))
     }
 }
 
 fun check(console: salvo.std.core.console.Console, n: Int) {
     if (salvo.main.Positive_qualifies(n)) {
-        salvo.std.core.console.println(console, "${n} is positive")
+        salvo.std.core.console.println__Str(console, "${n} is positive")
     } else {
-        salvo.std.core.console.println(console, "${n} is not positive")
+        salvo.std.core.console.println__Str(console, "${n} is not positive")
     }
 }
 
@@ -1283,7 +1287,7 @@ fun main() {
             break
         }
         val c: Int = current!!
-        salvo.std.core.console.println(__handle_2, "tick ${c}")
+        salvo.std.core.console.println__Str(__handle_2, "tick ${c}")
         current = (if ((c > 1)) {
             (c - 1)
         } else {
@@ -1297,7 +1301,7 @@ fun main() {
         val back: Union2<String, Int> = nested_3
         if ((back is Union2.U1<*, *>)) {
             val back_4: String = ((back as Union2.U1<*, *>).value as String)
-            salvo.std.core.console.println(__handle_2, "inner ok: ${back_4}")
+            salvo.std.core.console.println__Str(__handle_2, "inner ok: ${back_4}")
         }
     }
 }

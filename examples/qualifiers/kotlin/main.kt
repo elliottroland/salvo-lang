@@ -84,24 +84,24 @@ fun main() {
     val __handle_2: salvo.std.core.console.Console = __use_1
     val xs: salvo.platform.std.core.list.MutList<Int> = mutableListOf<Int>()
     salvo.std.core.list.addPlatform(xs, 3)
-    salvo.std.core.console.println(__handle_2, "1. head after add: ${salvo.main.head(xs)}")
+    salvo.std.core.console.println__Str(__handle_2, "1. head after add: ${salvo.main.head(xs)}")
     val maybeEmpty: List<Int> = salvo.std.core.list.List__T_TArray(7, arrayOf<Int>(8))
     if (salvo.main.NonEmpty_qualifies(maybeEmpty)) {
-        salvo.std.core.console.println(__handle_2, "2. checked at run time, head is ${salvo.main.head(maybeEmpty)}")
+        salvo.std.core.console.println__Str(__handle_2, "2. checked at run time, head is ${salvo.main.head(maybeEmpty)}")
     }
     val plain: Int = 21
     val warm: Int = salvo.main.celsius(21)
-    salvo.std.core.console.println(__handle_2, "2. ${salvo.main.describe__Int(plain)} vs ${salvo.main.describe__CelsiusInt(warm)}")
-    salvo.std.core.console.println(__handle_2, "2. dropped: ${salvo.main.describe__Int(warm)}")
-    salvo.std.core.console.println(__handle_2, "3. sum ${salvo.main.sum(xs)}, head still ${salvo.main.head(xs)}")
+    salvo.std.core.console.println__Str(__handle_2, "2. ${salvo.main.describe__Int(plain)} vs ${salvo.main.describe__CelsiusInt(warm)}")
+    salvo.std.core.console.println__Str(__handle_2, "2. dropped: ${salvo.main.describe__Int(warm)}")
+    salvo.std.core.console.println__Str(__handle_2, "3. sum ${salvo.main.sum(xs)}, head still ${salvo.main.head(xs)}")
     salvo.main.compact(xs)
     salvo.std.core.list.addPlatform(xs, 9)
-    salvo.std.core.console.println(__handle_2, "3. after compact and add, head is ${salvo.main.head(xs)}")
+    salvo.std.core.console.println__Str(__handle_2, "3. after compact and add, head is ${salvo.main.head(xs)}")
     val session: Request = salvo.main.authenticate(Request(path = "/orders", touches = 0))
     val fresh: Request = salvo.main.freshen(Request(path = "/health", touches = 0))
-    salvo.std.core.console.println(__handle_2, "4. before: ${salvo.main.handle__AuthenticatedRequest(session)} / ${salvo.main.handle__FreshRequest(fresh)}")
+    salvo.std.core.console.println__Str(__handle_2, "4. before: ${salvo.main.handle__AuthenticatedRequest(session)} / ${salvo.main.handle__FreshRequest(fresh)}")
     salvo.main.touch(session)
     salvo.main.touch(fresh)
-    salvo.std.core.console.println(__handle_2, "4. after:  ${salvo.main.handle__AuthenticatedRequest(session)} / ${salvo.main.handle__Request(fresh)}")
+    salvo.std.core.console.println__Str(__handle_2, "4. after:  ${salvo.main.handle__AuthenticatedRequest(session)} / ${salvo.main.handle__Request(fresh)}")
 }
 

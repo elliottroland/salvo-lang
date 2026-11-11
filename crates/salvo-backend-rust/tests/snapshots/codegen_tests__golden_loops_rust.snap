@@ -190,9 +190,13 @@ impl __Platform_StdConsole {
     }
 }
 
-pub fn println(console: &crate::std_core_console::Console, message: &String) {
+pub fn println__Str(console: &crate::std_core_console::Console, message: &String) {
     console.print(message);
     console.print(&String::from("\n"));
+}
+
+pub fn println__T<T: Clone>(console: &crate::std_core_console::Console, value: &T, to_str: &mut dyn FnMut(&T) -> String) {
+    crate::std_core_console::println__Str(console, &to_str(value));
 }
 
 // ===== std/core/index.rs =====
@@ -1331,7 +1335,7 @@ use crate::std_core_iterator::emitted;
 use crate::std_core_result::err;
 use crate::std_core_iterator::finished;
 use crate::std_core_result::ok;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1400,7 +1404,7 @@ pub fn main() {
         let mut __loop_value_6 = __loop_3.unwrap();
         __loop_value_6
     };
-    crate::std_core_console::println(&__handle_2, &format!("last: {}", last));
+    crate::std_core_console::println__Str(&__handle_2, &format!("last: {}", last));
     let mut j: i32 = 9i32;
     let mut never: i32 = {
         let mut __loop_7: Option<i32> = None;
@@ -1418,7 +1422,7 @@ pub fn main() {
         let mut __loop_value_9 = __loop_7.unwrap();
         __loop_value_9
     };
-    crate::std_core_console::println(&__handle_2, &format!("never: {}", never));
+    crate::std_core_console::println__Str(&__handle_2, &format!("never: {}", never));
     let mut found: Option<i32> = {
         let mut __loop_10: Option<i32> = None;
         for mut x in crate::std_core_list::List__T_TArray::<i32>(0i32, vec![1i32, 2i32, 3i32, 4i32, 5i32]).iter().copied() {
@@ -1433,7 +1437,7 @@ pub fn main() {
     };
     if found.is_some() {
         let mut f = found.unwrap();
-        crate::std_core_console::println(&__handle_2, &format!("found: {}", f));
+        crate::std_core_console::println__Str(&__handle_2, &format!("found: {}", f));
     };
     let mut __ran_12: bool = false;
     let mut __tmp1 = crate::upto(0i32, 0i32);
@@ -1444,13 +1448,13 @@ pub fn main() {
             let mut __emitted_15 = match &__step_14 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut x: i32 = __emitted_15;
             __ran_12 = true;
-            crate::std_core_console::println(&__handle_2, &String::from("unreachable"));
+            crate::std_core_console::println__Str(&__handle_2, &String::from("unreachable"));
         } else {
             break;
         };
     }
     if !(__ran_12) {
-        crate::std_core_console::println(&__handle_2, &String::from("empty range"));
+        crate::std_core_console::println__Str(&__handle_2, &String::from("empty range"));
     };
     let mut k: i32 = 0i32;
     let mut capped: Option<i32> = {
@@ -1472,7 +1476,7 @@ pub fn main() {
         let mut __loop_value_18 = __loop_16;
         __loop_value_18
     };
-    crate::std_core_console::println(&__handle_2, &format!("capped: {}", if capped.is_some() {
+    crate::std_core_console::println__Str(&__handle_2, &format!("capped: {}", if capped.is_some() {
         let mut capped_19 = capped.unwrap();
         capped_19
     } else {
@@ -1506,10 +1510,10 @@ pub fn main() {
     } { crate::unions::Union2::U1(__v) => crate::unions::Union2::U2(__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U1(__v), #[allow(unreachable_patterns)] _ => unreachable!("salvo: unreachable union arm") });
     if matches!(verdict, crate::unions::Union2::U1(_)) {
         let mut verdict_24 = match &verdict { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
-        crate::std_core_console::println(&__handle_2, &format!("ok: {}", verdict_24));
+        crate::std_core_console::println__Str(&__handle_2, &format!("ok: {}", verdict_24));
     } else if matches!(verdict, crate::unions::Union2::U2(_)) {
         let mut verdict_25 = match &verdict { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(&__handle_2, &format!("err: {}", verdict_25));
+        crate::std_core_console::println__Str(&__handle_2, &format!("err: {}", verdict_25));
     } else {
         panic!("salvo: unhandled union arm at main:81:5");
     };

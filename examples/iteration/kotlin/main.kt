@@ -7,18 +7,18 @@ fun describeContainer(console: salvo.std.core.console.Console, xs: List<Int>) {
     for (n in salvo.platform.std.core.list.each(xs)) {
         sum = (sum + n)
     }
-    salvo.std.core.console.println(console, "1. list of ${salvo.std.core.list.sizePlatform(xs)} sums to ${sum}")
+    salvo.std.core.console.println__Str(console, "1. list of ${salvo.std.core.list.sizePlatform(xs)} sums to ${sum}")
     val letters: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>())
     for (c in salvo.platform.std.core.string.each("salvo")) {
         salvo.std.core.string.appendPlatform(letters, "${c}.")
     }
-    salvo.std.core.console.println(console, "1. string: ${letters.toString()}")
+    salvo.std.core.console.println__Str(console, "1. string: ${letters.toString()}")
     val arr: Array<Int> = arrayOf<Int>(10, 20, 30)
     var fromArray: Int = 0
     for (n in arr) {
         fromArray = (fromArray + n)
     }
-    salvo.std.core.console.println(console, "1. array sums to ${fromArray}")
+    salvo.std.core.console.println__Str(console, "1. array sums to ${fromArray}")
 }
 
 data class Countdown(
@@ -63,7 +63,7 @@ fun take(console: salvo.std.core.console.Console, p: Countdown, count: Int) {
             (__step_2 is Union2.U1<*, *>) -> {
                 val __emitted_3: Int = ((__step_2 as Union2.U1<*, *>).value as Int)
                 val n: Int = __emitted_3
-                salvo.std.core.console.println(console, "2. got ${n}")
+                salvo.std.core.console.println__Str(console, "2. got ${n}")
                 seen = (seen + 1)
                 if ((seen == count)) {
                     break
@@ -159,7 +159,7 @@ fun fibs(count: Int): Fibs {
 
 fun next__Fibs(console: salvo.std.core.console.Console, __p: Fibs): Union2<Int, salvo.std.core.iterator.Finished> {
     if ((__p.made >= __p.count)) {
-        salvo.std.core.console.println(console, "3. finished")
+        salvo.std.core.console.println__Str(console, "3. finished")
         return Union2.U2<Int, salvo.std.core.iterator.Finished>(salvo.std.core.iterator.finished())
     }
     val now: Int = __p.a
@@ -258,7 +258,7 @@ fun main() {
     salvo.main.describeContainer(__handle_2, xs)
     val p: Countdown = salvo.main.countdown(5)
     salvo.main.take(__handle_2, p, 2)
-    salvo.std.core.console.println(__handle_2, "2. rest sums to ${salvo.main.sumOf(p, ::next__Countdown)}")
+    salvo.std.core.console.println__Str(__handle_2, "2. rest sums to ${salvo.main.sumOf(p, ::next__Countdown)}")
     val q: Countdown = salvo.main.countdown(6)
     while (true) {
         val __step_4: Union2<Int, salvo.std.core.iterator.Finished> = salvo.main.skip(q)
@@ -266,7 +266,7 @@ fun main() {
             (__step_4 is Union2.U1<*, *>) -> {
                 val __emitted_5: Int = ((__step_4 as Union2.U1<*, *>).value as Int)
                 val n: Int = __emitted_5
-                salvo.std.core.console.println(__handle_2, "2. skip ${n}")
+                salvo.std.core.console.println__Str(__handle_2, "2. skip ${n}")
             }
             else -> {
                 break
@@ -280,7 +280,7 @@ fun main() {
             (__step_7 is Union2.U1<*, *>) -> {
                 val __emitted_8: Int = ((__step_7 as Union2.U1<*, *>).value as Int)
                 val n: Int = __emitted_8
-                salvo.std.core.console.println(__handle_2, "2b. halving ${n}")
+                salvo.std.core.console.println__Str(__handle_2, "2b. halving ${n}")
             }
             else -> {
                 break
@@ -288,8 +288,8 @@ fun main() {
         }
     }
     val hp: Halving = salvo.main.halving(20)
-    salvo.std.core.console.println(__handle_2, "2b. summed from a held iterator: ${salvo.main.sumOf(hp, ::next__Halving)}")
-    salvo.std.core.console.println(__handle_2, "2b. first from a fn returning one: ${salvo.main.first(salvo.main.halvingFromTen(), ::next__Halving)}")
+    salvo.std.core.console.println__Str(__handle_2, "2b. summed from a held iterator: ${salvo.main.sumOf(hp, ::next__Halving)}")
+    salvo.std.core.console.println__Str(__handle_2, "2b. first from a fn returning one: ${salvo.main.first(salvo.main.halvingFromTen(), ::next__Halving)}")
     val bag: Bag = Bag(items = salvo.std.core.list.List__T_TArray(7, arrayOf<Int>(8)))
     val __pass_9: BagIter = salvo.main.iter(bag)
     while (true) {
@@ -298,14 +298,14 @@ fun main() {
             (__step_10 is Union2.U1<*, *>) -> {
                 val __emitted_11: Int = ((__step_10 as Union2.U1<*, *>).value as Int)
                 val n: Int = __emitted_11
-                salvo.std.core.console.println(__handle_2, "2c. bag ${n}")
+                salvo.std.core.console.println__Str(__handle_2, "2c. bag ${n}")
             }
             else -> {
                 break
             }
         }
     }
-    salvo.std.core.console.println(__handle_2, "2c. total of a bag ${salvo.main.total(bag, ::iter, ::next__BagIter)}, of a list ${salvo.main.total(xs, { __a0 -> salvo.std.core.list.iter(__a0) }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })}")
+    salvo.std.core.console.println__Str(__handle_2, "2c. total of a bag ${salvo.main.total(bag, ::iter, ::next__BagIter)}, of a list ${salvo.main.total(xs, { __a0 -> salvo.std.core.list.iter(__a0) }, { __a0 -> salvo.std.core.list.next__ListIter(__a0) })}")
     val __pass_12: Fibs = salvo.main.fibs(6)
     while (true) {
         val __step_13: Union2<Int, salvo.std.core.iterator.Finished> = salvo.main.next__Fibs(__handle_2, __pass_12)
@@ -313,7 +313,7 @@ fun main() {
             (__step_13 is Union2.U1<*, *>) -> {
                 val __emitted_14: Int = ((__step_13 as Union2.U1<*, *>).value as Int)
                 val n: Int = __emitted_14
-                salvo.std.core.console.println(__handle_2, "3. fib ${n}")
+                salvo.std.core.console.println__Str(__handle_2, "3. fib ${n}")
             }
             else -> {
                 break
@@ -330,7 +330,7 @@ fun main() {
                 if ((n > 12)) {
                     break
                 }
-                salvo.std.core.console.println(__handle_2, "3. natural ${n}")
+                salvo.std.core.console.println__Str(__handle_2, "3. natural ${n}")
             }
             else -> {
                 break
@@ -346,14 +346,14 @@ fun main() {
     val total: Int = salvo.std.core.seq.reduce__List_A_Fn(Unit, xs, 0, fun(__leff0: Unit, acc: Int, n: Int): Int {
         return (acc + n)
     })
-    salvo.std.core.console.println(__handle_2, "5. list: ${salvo.std.core.list.sizePlatform(doubled)} doubled, ${salvo.std.core.list.sizePlatform(odd)} odd, total ${total}")
+    salvo.std.core.console.println__Str(__handle_2, "5. list: ${salvo.std.core.list.sizePlatform(doubled)} doubled, ${salvo.std.core.list.sizePlatform(odd)} odd, total ${total}")
     val words: List<String> = salvo.std.core.list.List__T_TArray("ann", arrayOf<String>("bo", "carol"))
     val lengths: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.map__It_Fn(Unit, salvo.std.core.list.iter(words), fun(__leff0: Unit, w: String): Int {
         return salvo.std.core.string.sizePlatform(w)
     }, fun(__fx0: Unit, __a0: salvo.std.core.list.ListIter<String>): Union2<String, salvo.std.core.iterator.Finished> {
         return salvo.std.core.list.next__ListIter(__a0)
     })
-    salvo.std.core.console.println(__handle_2, "5. lengths: ${salvo.std.core.seq.reduce__It_A_Fn(Unit, salvo.std.core.list.iter(lengths), 0, fun(__leff0: Unit, acc: Int, n: Int): Int {
+    salvo.std.core.console.println__Str(__handle_2, "5. lengths: ${salvo.std.core.seq.reduce__It_A_Fn(Unit, salvo.std.core.list.iter(lengths), 0, fun(__leff0: Unit, acc: Int, n: Int): Int {
         return (acc + n)
     }, fun(__fx0: Unit, __a0: salvo.std.core.list.ListIter<Int>): Union2<Int, salvo.std.core.iterator.Finished> {
         return salvo.std.core.list.next__ListIter(__a0)
@@ -364,8 +364,8 @@ fun main() {
     }, fun(__fx0: Unit, __a0: salvo.std.core.string.StrIter): Union2<Char, salvo.std.core.iterator.Finished> {
         return salvo.std.core.string.next(__a0)
     })
-    salvo.std.core.console.println(__handle_2, "5. vowels: ${salvo.std.core.list.sizePlatform(vowels)}")
-    salvo.std.core.console.println(__handle_2, "5. halving total ${salvo.std.core.seq.reduce__It_A_Fn(Unit, salvo.main.halving(20), 0, fun(__leff0: Unit, acc: Int, n: Int): Int {
+    salvo.std.core.console.println__Str(__handle_2, "5. vowels: ${salvo.std.core.list.sizePlatform(vowels)}")
+    salvo.std.core.console.println__Str(__handle_2, "5. halving total ${salvo.std.core.seq.reduce__It_A_Fn(Unit, salvo.main.halving(20), 0, fun(__leff0: Unit, acc: Int, n: Int): Int {
         return (acc + n)
     }, fun(__fx0: Unit, __a0: Halving): Union2<Int, salvo.std.core.iterator.Finished> {
         return salvo.main.next__Halving(__a0)
@@ -373,7 +373,7 @@ fun main() {
     val collected: salvo.platform.std.core.list.MutList<Int> = salvo.std.core.seq.mapTo(mutableListOf<Int>(), salvo.main.countdown(3), fun(n: Int): Int {
         return (n * 10)
     }, { __a0, __a1 -> salvo.std.core.list.addPlatform(__a0, __a1) }, ::next__Countdown)
-    salvo.std.core.console.println(__handle_2, "6. collected ${salvo.std.core.list.sizePlatform(collected)}")
+    salvo.std.core.console.println__Str(__handle_2, "6. collected ${salvo.std.core.list.sizePlatform(collected)}")
     val evens: salvo.platform.std.core.string.MutStr = salvo.std.core.string.Mut_Str(arrayOf<String>())
     val __pass_18: salvo.std.core.range.RangeIter = salvo.std.core.range.range__Int_Int_Int(0, 10, 2)
     while (true) {
@@ -389,6 +389,6 @@ fun main() {
             }
         }
     }
-    salvo.std.core.console.println(__handle_2, "7. evens ${evens.toString()}")
+    salvo.std.core.console.println__Str(__handle_2, "7. evens ${evens.toString()}")
 }
 

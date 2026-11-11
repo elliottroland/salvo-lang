@@ -12,7 +12,7 @@
 //~ !emits(main.rs): pub mod unused;
 // Generated imports: one per name used [rs-imports].
 //~ emits(main.rs): use crate::geometry::area;
-//~ emits(main.rs): use crate::std_core_console::println;
+//~ emits(main.rs): use crate::std_core_console::println__Str;
 //~ !emits(main.rs): use crate::geometry::*;
 import geometry.area
 

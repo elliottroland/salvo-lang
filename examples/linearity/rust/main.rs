@@ -38,7 +38,7 @@ use crate::std_core_console::Console;
 use crate::std_core_deque::add_last_platform;
 use crate::std_core_deque::drain;
 use crate::std_core_deque::mut_deque_of;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_deque::remove_first_platform;
 use crate::std_core_deque::size_platform;
 
@@ -63,22 +63,22 @@ impl crate::wire::__Wire for Ticket {
 }
 
 pub fn issue(console: &crate::std_core_console::Console, mut id: i32, mut seat: String) -> crate::Ticket {
-    crate::std_core_console::println(console, &format!("1. issued #{} for {}", id, seat));
+    crate::std_core_console::println__Str(console, &format!("1. issued #{} for {}", id, seat));
     return crate::Ticket { id: id, seat: seat };
 }
 
 pub fn redeem(console: &crate::std_core_console::Console, mut ticket: crate::Ticket) {
-    crate::std_core_console::println(console, &format!("1. redeemed #{}", ticket.id));
+    crate::std_core_console::println__Str(console, &format!("1. redeemed #{}", ticket.id));
 }
 
 pub fn one_use(console: &crate::std_core_console::Console) {
     let mut ticket: crate::Ticket = crate::issue(console, 1i32, String::from("12A"));
     crate::redeem(console, ticket);
-    crate::std_core_console::println(console, &String::from("2. gone after one use"));
+    crate::std_core_console::println__Str(console, &String::from("2. gone after one use"));
 }
 
 pub fn describe(console: &crate::std_core_console::Console, ticket: &crate::Ticket) {
-    crate::std_core_console::println(console, &format!("3. still holding #{} ({})", ticket.id, ticket.seat));
+    crate::std_core_console::println__Str(console, &format!("3. still holding #{} ({})", ticket.id, ticket.seat));
 }
 
 pub fn borrow_then_use(console: &crate::std_core_console::Console) {
@@ -91,7 +91,7 @@ pub fn borrow_then_use(console: &crate::std_core_console::Console) {
 pub fn read_a_field(console: &crate::std_core_console::Console) {
     let mut ticket: crate::Ticket = crate::issue(console, 3i32, String::from("1A"));
     let mut seat = &ticket.seat;
-    crate::std_core_console::println(console, &format!("4. read {}, and #{} is still owed", seat, ticket.id));
+    crate::std_core_console::println__Str(console, &format!("4. read {}, and #{} is still owed", seat, ticket.id));
     crate::redeem(console, ticket);
 }
 
@@ -113,7 +113,7 @@ pub fn a_queue_of_tickets(console: &crate::std_core_console::Console) {
     let mut queue: std::collections::VecDeque<crate::Ticket> = crate::std_core_deque::mut_deque_of::<crate::Ticket>();
     crate::std_core_deque::add_last_platform::<crate::Ticket>(&mut queue, crate::issue(console, 5i32, String::from("2B")));
     crate::std_core_deque::add_last_platform::<crate::Ticket>(&mut queue, crate::issue(console, 6i32, String::from("2C")));
-    crate::std_core_console::println(console, &format!("6. queued {}", crate::std_core_deque::size_platform::<crate::Ticket>(&queue)));
+    crate::std_core_console::println__Str(console, &format!("6. queued {}", crate::std_core_deque::size_platform::<crate::Ticket>(&queue)));
     let mut first: Option<crate::Ticket> = crate::std_core_deque::remove_first_platform::<crate::Ticket>(&mut queue);
     if first.is_some() {
         let mut first_1 = first.unwrap();
@@ -133,7 +133,7 @@ pub fn a_queue_of_tickets(console: &crate::std_core_console::Console) {
     crate::std_core_deque::drain::<crate::Ticket, ()>(&(), queue, &mut |mut __fx0, mut __a0| {
         crate::scrap(__a0)
     });
-    crate::std_core_console::println(console, &String::from("6. queue drained"));
+    crate::std_core_console::println__Str(console, &String::from("6. queue drained"));
 }
 
 pub fn main() {

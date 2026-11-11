@@ -56,7 +56,7 @@ use crate::std_core_seq::map__It_Fn;
 use crate::std_core_seq::map__List_Fn;
 use crate::std_core_seq::map_to;
 use crate::std_core_list::next__ListIter;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_range::range__Int_Int_Int;
 use crate::std_core_seq::reduce__It_A_Fn;
 use crate::std_core_seq::reduce__List_A_Fn;
@@ -67,18 +67,18 @@ pub fn describe_container(console: &crate::std_core_console::Console, xs: &Vec<i
     for mut n in xs.iter().copied() {
         sum = i32::wrapping_add(sum, n);
     }
-    crate::std_core_console::println(console, &format!("1. list of {} sums to {}", crate::std_core_list::size_platform::<i32>(xs), sum));
+    crate::std_core_console::println__Str(console, &format!("1. list of {} sums to {}", crate::std_core_list::size_platform::<i32>(xs), sum));
     let mut letters: String = crate::std_core_string::Mut_Str(vec![]);
     for mut c in String::from("salvo").chars() {
         crate::std_core_string::append_platform(&mut letters, &format!("{}.", c));
     }
-    crate::std_core_console::println(console, &format!("1. string: {}", letters));
+    crate::std_core_console::println__Str(console, &format!("1. string: {}", letters));
     let mut arr: Vec<i32> = vec![10i32, 20i32, 30i32];
     let mut from_array: i32 = 0i32;
     for mut n in arr.iter().copied() {
         from_array = i32::wrapping_add(from_array, n);
     }
-    crate::std_core_console::println(console, &format!("1. array sums to {}", from_array));
+    crate::std_core_console::println__Str(console, &format!("1. array sums to {}", from_array));
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -126,7 +126,7 @@ pub fn take(console: &crate::std_core_console::Console, p: &mut crate::Countdown
         if matches!(__step_2, crate::unions::Union2::U1(_)) {
             let mut __emitted_3 = match &__step_2 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut n: i32 = __emitted_3;
-            crate::std_core_console::println(console, &format!("2. got {}", n));
+            crate::std_core_console::println__Str(console, &format!("2. got {}", n));
             seen = i32::wrapping_add(seen, 1i32);
             if (seen == count) {
                 break;
@@ -240,7 +240,7 @@ pub fn fibs(mut count: i32) -> crate::Fibs {
 
 pub fn next__Fibs(console: &crate::std_core_console::Console, __p: &mut crate::Fibs) -> crate::unions::Union2<i32, crate::std_core_iterator::Finished> {
     if (__p.made >= __p.count) {
-        crate::std_core_console::println(console, &String::from("3. finished"));
+        crate::std_core_console::println__Str(console, &String::from("3. finished"));
         return crate::unions::Union2::U2(crate::std_core_iterator::finished());
     };
     let mut now: i32 = __p.a;
@@ -332,14 +332,14 @@ pub fn main() {
     crate::describe_container(&__handle_2, &xs);
     let mut p: crate::Countdown = crate::countdown(5i32);
     crate::take(&__handle_2, &mut p, 2i32);
-    { let __arg3 = { let __part2 = crate::sum_of::<crate::Countdown>(&mut p, &mut |__a0: &mut crate::Countdown| crate::next__Countdown(&mut *__a0)); format!("2. rest sums to {}", __part2) }; crate::std_core_console::println(&__handle_2, &__arg3) };
+    { let __arg3 = { let __part2 = crate::sum_of::<crate::Countdown>(&mut p, &mut |__a0: &mut crate::Countdown| crate::next__Countdown(&mut *__a0)); format!("2. rest sums to {}", __part2) }; crate::std_core_console::println__Str(&__handle_2, &__arg3) };
     let mut q: crate::Countdown = crate::countdown(6i32);
     loop {
         let mut __step_4: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::skip(&mut q);
         if matches!(__step_4, crate::unions::Union2::U1(_)) {
             let mut __emitted_5 = match &__step_4 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut n: i32 = __emitted_5;
-            crate::std_core_console::println(&__handle_2, &format!("2. skip {}", n));
+            crate::std_core_console::println__Str(&__handle_2, &format!("2. skip {}", n));
         } else {
             break;
         };
@@ -350,14 +350,14 @@ pub fn main() {
         if matches!(__step_7, crate::unions::Union2::U1(_)) {
             let mut __emitted_8 = match &__step_7 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut n: i32 = __emitted_8;
-            crate::std_core_console::println(&__handle_2, &format!("2b. halving {}", n));
+            crate::std_core_console::println__Str(&__handle_2, &format!("2b. halving {}", n));
         } else {
             break;
         };
     }
     let mut hp: crate::Halving = crate::halving(20i32);
-    { let __arg6 = { let __part5 = crate::sum_of::<crate::Halving>(&mut hp, &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("2b. summed from a held iterator: {}", __part5) }; crate::std_core_console::println(&__handle_2, &__arg6) };
-    crate::std_core_console::println(&__handle_2, &{ let __part7 = crate::first::<crate::Halving>(&mut crate::halving_from_ten(), &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("2b. first from a fn returning one: {}", __part7) });
+    { let __arg6 = { let __part5 = crate::sum_of::<crate::Halving>(&mut hp, &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("2b. summed from a held iterator: {}", __part5) }; crate::std_core_console::println__Str(&__handle_2, &__arg6) };
+    crate::std_core_console::println__Str(&__handle_2, &{ let __part7 = crate::first::<crate::Halving>(&mut crate::halving_from_ten(), &mut |__a0: &mut crate::Halving| crate::next__Halving(&mut *__a0)); format!("2b. first from a fn returning one: {}", __part7) });
     let mut bag: crate::Bag = crate::Bag { items: crate::std_core_list::List__T_TArray::<i32>(7i32, vec![8i32]) };
     let mut __pass_9: crate::BagIter<'_> = crate::iter(&bag);
     loop {
@@ -365,19 +365,19 @@ pub fn main() {
         if matches!(__step_10, crate::unions::Union2::U1(_)) {
             let mut __emitted_11 = match &__step_10 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut n: i32 = __emitted_11;
-            crate::std_core_console::println(&__handle_2, &format!("2c. bag {}", n));
+            crate::std_core_console::println__Str(&__handle_2, &format!("2c. bag {}", n));
         } else {
             break;
         };
     }
-    crate::std_core_console::println(&__handle_2, &format!("2c. total of a bag {}, of a list {}", crate::total::<crate::Bag, crate::BagIter<'_>>(&bag, &mut |__a0: &crate::Bag| crate::iter(__a0), &mut |__a0: &mut crate::BagIter<'_>| crate::next__BagIter(&mut *__a0)), crate::total::<Vec<i32>, crate::std_core_list::ListIter<'_, i32>>(&xs, &mut |__a0: &Vec<i32>| crate::std_core_list::iter(__a0), &mut |__a0: &mut crate::std_core_list::ListIter<'_, i32>| (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }))));
+    crate::std_core_console::println__Str(&__handle_2, &format!("2c. total of a bag {}, of a list {}", crate::total::<crate::Bag, crate::BagIter<'_>>(&bag, &mut |__a0: &crate::Bag| crate::iter(__a0), &mut |__a0: &mut crate::BagIter<'_>| crate::next__BagIter(&mut *__a0)), crate::total::<Vec<i32>, crate::std_core_list::ListIter<'_, i32>>(&xs, &mut |__a0: &Vec<i32>| crate::std_core_list::iter(__a0), &mut |__a0: &mut crate::std_core_list::ListIter<'_, i32>| (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) }))));
     let mut __pass_12: crate::Fibs = crate::fibs(6i32);
     loop {
         let mut __step_13: crate::unions::Union2<i32, crate::std_core_iterator::Finished> = crate::next__Fibs(&__handle_2, &mut __pass_12);
         if matches!(__step_13, crate::unions::Union2::U1(_)) {
             let mut __emitted_14 = match &__step_13 { crate::unions::Union2::U1(__v) => *__v, _ => unreachable!() };
             let mut n: i32 = __emitted_14;
-            crate::std_core_console::println(&__handle_2, &format!("3. fib {}", n));
+            crate::std_core_console::println__Str(&__handle_2, &format!("3. fib {}", n));
         } else {
             break;
         };
@@ -391,7 +391,7 @@ pub fn main() {
             if (n > 12i32) {
                 break;
             };
-            crate::std_core_console::println(&__handle_2, &format!("3. natural {}", n));
+            crate::std_core_console::println__Str(&__handle_2, &format!("3. natural {}", n));
         } else {
             break;
         };
@@ -405,7 +405,7 @@ pub fn main() {
     let mut total: i32 = crate::std_core_seq::reduce__List_A_Fn::<i32, i32, ()>(&(), &xs, 0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
     });
-    crate::std_core_console::println(&__handle_2, &format!("5. list: {} doubled, {} odd, total {}", crate::std_core_list::size_platform::<i32>(&doubled), crate::std_core_list::size_platform::<i32>(&odd), total));
+    crate::std_core_console::println__Str(&__handle_2, &format!("5. list: {} doubled, {} odd, total {}", crate::std_core_list::size_platform::<i32>(&doubled), crate::std_core_list::size_platform::<i32>(&odd), total));
     let mut words: Vec<String> = crate::std_core_list::List__T_TArray::<String>(String::from("ann"), vec![String::from("bo"), String::from("carol")]);
     let mut lengths: Vec<i32> = crate::std_core_seq::map__It_Fn::<crate::std_core_list::ListIter<'_, String>, &String, i32, ()>(&(), &mut crate::std_core_list::iter::<String>(&words), &mut |mut __leff0, mut w| -> i32 {
         let w = *w;
@@ -417,23 +417,23 @@ pub fn main() {
         i32::wrapping_add(*acc, *n)
     }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<i32, crate::std_core_iterator::Finished> {
         (match crate::std_core_list::next__ListIter(&mut *__a0) { crate::unions::Union2::U1(__v) => crate::unions::Union2::U1(*__v), crate::unions::Union2::U2(__v) => crate::unions::Union2::U2(__v) })
-    }); format!("5. lengths: {}", __part9) }; crate::std_core_console::println(&__handle_2, &__arg10) };
+    }); format!("5. lengths: {}", __part9) }; crate::std_core_console::println__Str(&__handle_2, &__arg10) };
     let mut word: String = String::from("iteration");
     let mut vowels: Vec<char> = crate::std_core_seq::filter::<crate::std_core_string::StrIter<'_>, char, ()>(&(), &mut crate::std_core_string::iter(&word), &mut |mut __leff0, mut c| -> bool {
         ((*c == 'i') || (*c == 'o'))
     }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<char, crate::std_core_iterator::Finished> {
         crate::std_core_string::next(&mut *__a0)
     });
-    crate::std_core_console::println(&__handle_2, &format!("5. vowels: {}", crate::std_core_list::size_platform::<char>(&vowels)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("5. vowels: {}", crate::std_core_list::size_platform::<char>(&vowels)));
     { let __arg13 = { let __part12 = crate::std_core_seq::reduce__It_A_Fn::<crate::Halving, i32, i32, ()>(&(), &mut crate::halving(20i32), &0i32, &mut |mut __leff0, mut acc, mut n| -> i32 {
         i32::wrapping_add(*acc, *n)
     }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<i32, crate::std_core_iterator::Finished> {
         crate::next__Halving(&mut *__a0)
-    }); format!("5. halving total {}", __part12) }; crate::std_core_console::println(&__handle_2, &__arg13) };
+    }); format!("5. halving total {}", __part12) }; crate::std_core_console::println__Str(&__handle_2, &__arg13) };
     let mut collected: Vec<i32> = crate::std_core_seq::map_to::<Vec<i32>, crate::Countdown, i32, i32>(vec![], &mut crate::countdown(3i32), &mut |mut n| -> i32 {
         i32::wrapping_mul(*n, 10i32)
     }, &mut |__a0: &mut Vec<i32>, __a1: i32| crate::std_core_list::add_platform(&mut *__a0, __a1), &mut |__a0: &mut crate::Countdown| crate::next__Countdown(&mut *__a0));
-    crate::std_core_console::println(&__handle_2, &format!("6. collected {}", crate::std_core_list::size_platform::<i32>(&collected)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("6. collected {}", crate::std_core_list::size_platform::<i32>(&collected)));
     let mut evens: String = crate::std_core_string::Mut_Str(vec![]);
     let mut __pass_18: crate::std_core_range::RangeIter = crate::std_core_range::range__Int_Int_Int(0i32, 10i32, 2i32);
     loop {
@@ -446,5 +446,5 @@ pub fn main() {
             break;
         };
     }
-    crate::std_core_console::println(&__handle_2, &format!("7. evens {}", evens));
+    crate::std_core_console::println__Str(&__handle_2, &format!("7. evens {}", evens));
 }

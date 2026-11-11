@@ -16,22 +16,22 @@ object __Codec_Ticket : salvo.WireCodec<Ticket> {
 }
 
 fun issue(console: salvo.std.core.console.Console, id: Int, seat: String): Ticket {
-    salvo.std.core.console.println(console, "1. issued #${id} for ${seat}")
+    salvo.std.core.console.println__Str(console, "1. issued #${id} for ${seat}")
     return Ticket(id = id, seat = seat)
 }
 
 fun redeem(console: salvo.std.core.console.Console, ticket: Ticket) {
-    salvo.std.core.console.println(console, "1. redeemed #${ticket.id}")
+    salvo.std.core.console.println__Str(console, "1. redeemed #${ticket.id}")
 }
 
 fun oneUse(console: salvo.std.core.console.Console) {
     val ticket: Ticket = salvo.main.issue(console, 1, "12A")
     salvo.main.redeem(console, ticket)
-    salvo.std.core.console.println(console, "2. gone after one use")
+    salvo.std.core.console.println__Str(console, "2. gone after one use")
 }
 
 fun describe(console: salvo.std.core.console.Console, ticket: Ticket) {
-    salvo.std.core.console.println(console, "3. still holding #${ticket.id} (${ticket.seat})")
+    salvo.std.core.console.println__Str(console, "3. still holding #${ticket.id} (${ticket.seat})")
 }
 
 fun borrowThenUse(console: salvo.std.core.console.Console) {
@@ -44,7 +44,7 @@ fun borrowThenUse(console: salvo.std.core.console.Console) {
 fun readAField(console: salvo.std.core.console.Console) {
     val ticket: Ticket = salvo.main.issue(console, 3, "1A")
     val seat: String = ticket.seat
-    salvo.std.core.console.println(console, "4. read ${seat}, and #${ticket.id} is still owed")
+    salvo.std.core.console.println__Str(console, "4. read ${seat}, and #${ticket.id} is still owed")
     salvo.main.redeem(console, ticket)
 }
 
@@ -66,7 +66,7 @@ fun aQueueOfTickets(console: salvo.std.core.console.Console) {
     val queue: salvo.platform.std.core.deque.MutDeque<Ticket> = salvo.std.core.deque.mutDequeOf()
     salvo.std.core.deque.addLastPlatform(queue, salvo.main.issue(console, 5, "2B"))
     salvo.std.core.deque.addLastPlatform(queue, salvo.main.issue(console, 6, "2C"))
-    salvo.std.core.console.println(console, "6. queued ${salvo.std.core.deque.sizePlatform(queue)}")
+    salvo.std.core.console.println__Str(console, "6. queued ${salvo.std.core.deque.sizePlatform(queue)}")
     val first: Ticket? = salvo.std.core.deque.removeFirstPlatform(queue)
     when {
         (first != null) -> {
@@ -90,7 +90,7 @@ fun aQueueOfTickets(console: salvo.std.core.console.Console) {
     salvo.std.core.deque.drain(Unit, queue, fun(__fx0: Unit, __a0: Ticket) {
         return salvo.main.scrap(__a0)
     })
-    salvo.std.core.console.println(console, "6. queue drained")
+    salvo.std.core.console.println__Str(console, "6. queue drained")
 }
 
 fun main() {

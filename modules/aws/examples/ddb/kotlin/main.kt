@@ -111,18 +111,18 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
     when {
         (made is Union2.U1<*, *>) -> {
             val made_1: salvo.aws.ddb.CreateTableOutput = ((made as Union2.U1<*, *>).value as salvo.aws.ddb.CreateTableOutput)
-            salvo.std.core.console.println(console, "created table ${table}")
+            salvo.std.core.console.println__Str(console, "created table ${table}")
         }
         (made is Union2.U2<*, *>) -> {
             val made_2: salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>> = ((made as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "create_table: ${salvo.main.describe(salvo.std.core.checked.detach(made_2))}")
+            salvo.std.core.console.println__Str(console, "create_table: ${salvo.main.describe(salvo.std.core.checked.detach(made_2))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:107:5"))
         }
     }
     val item: salvo.platform.std.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> = salvo.std.core.map.Map_platform(arrayOf<kotlin.Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(kotlin.Pair("id", salvo.main.s("user-42")), kotlin.Pair("name", salvo.main.s("Ada")), kotlin.Pair("age", salvo.main.n("37")), kotlin.Pair("active", salvo.main.boolean(true))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
-    salvo.std.core.console.println(console, "put ${salvo.main.showItem(item)}")
+    salvo.std.core.console.println__Str(console, "put ${salvo.main.showItem(item)}")
     val put: Union2<salvo.aws.ddb.PutItemOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { _: ByteArray -> kotlin.Pair(false, null) })
@@ -135,7 +135,7 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
         }
         (put is Union2.U2<*, *>) -> {
             val put_4: salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>> = ((put as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "put_item: ${salvo.main.describe(salvo.std.core.checked.detach(put_4))}")
+            salvo.std.core.console.println__Str(console, "put_item: ${salvo.main.describe(salvo.std.core.checked.detach(put_4))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:124:5"))
@@ -152,15 +152,15 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
             val got_5: salvo.aws.ddb.GetItemOutput = ((got as Union2.U1<*, *>).value as salvo.aws.ddb.GetItemOutput)
             val found: salvo.platform.std.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>? = got_5.item
             if ((found == null)) {
-                salvo.std.core.console.println(console, "got nothing")
+                salvo.std.core.console.println__Str(console, "got nothing")
             } else {
                 val found_6: salvo.platform.std.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> = found!!
-                salvo.std.core.console.println(console, "got ${salvo.main.showItem(found_6)}")
+                salvo.std.core.console.println__Str(console, "got ${salvo.main.showItem(found_6)}")
             }
         }
         (got is Union2.U2<*, *>) -> {
             val got_7: salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "get_item: ${salvo.main.describe(salvo.std.core.checked.detach(got_7))}")
+            salvo.std.core.console.println__Str(console, "get_item: ${salvo.main.describe(salvo.std.core.checked.detach(got_7))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:133:5"))
@@ -175,11 +175,11 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
     when {
         (gone is Union2.U1<*, *>) -> {
             val gone_8: salvo.aws.ddb.DeleteItemOutput = ((gone as Union2.U1<*, *>).value as salvo.aws.ddb.DeleteItemOutput)
-            salvo.std.core.console.println(console, "deleted user-42")
+            salvo.std.core.console.println__Str(console, "deleted user-42")
         }
         (gone is Union2.U2<*, *>) -> {
             val gone_9: salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>> = ((gone as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "delete_item: ${salvo.main.describe(salvo.std.core.checked.detach(gone_9))}")
+            salvo.std.core.console.println__Str(console, "delete_item: ${salvo.main.describe(salvo.std.core.checked.detach(gone_9))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:149:5"))
@@ -320,16 +320,16 @@ fun main() {
     salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Faults", salvo.std.core.actor.__PROTO_Faults), kotlin.Pair("Timer", salvo.std.time.__PROTO_Timer), kotlin.Pair("TimerCtl", salvo.std.time.__PROTO_TimerCtl), kotlin.Pair("Wheel", salvo.std.runtime.timers.__PROTO_Wheel)))
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
-    salvo.std.core.console.println(__handle_2, "-- FakeDdb --")
+    salvo.std.core.console.println__Str(__handle_2, "-- FakeDdb --")
     kotlin.run {
         val __use_3: salvo.aws.ddb.FakeDdb = salvo.aws.ddb.FakeDdb()
         val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
         val __handle_4: salvo.aws.ddb.Ddb = salvo.aws.ddb.__Mon_Ddb(__use_3, __lock___use_3)
         val __handle_5: salvo.aws.ddb.DdbCalls = salvo.aws.ddb.__Mon_DdbCalls(__use_3, __lock___use_3)
         salvo.main.roundTrip(__handle_4, __handle_2, "users")
-        salvo.std.core.console.println(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_5.calls(), { __a0 -> __a0 })}")
+        salvo.std.core.console.println__Str(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_5.calls(), { __a0 -> __a0 })}")
     }
-    salvo.std.core.console.println(__handle_2, "-- MemDdb --")
+    salvo.std.core.console.println__Str(__handle_2, "-- MemDdb --")
     kotlin.run {
         val __use_6: MemDdb = MemDdb()
         val __lock___use_6 = java.util.concurrent.locks.ReentrantLock()
@@ -344,11 +344,11 @@ fun main() {
         when {
             (missing is Union2.U1<*, *>) -> {
                 val missing_8: salvo.aws.ddb.GetItemOutput = ((missing as Union2.U1<*, *>).value as salvo.aws.ddb.GetItemOutput)
-                salvo.std.core.console.println(__handle_2, "unexpected ok")
+                salvo.std.core.console.println__Str(__handle_2, "unexpected ok")
             }
             (missing is Union2.U2<*, *>) -> {
                 val missing_9: salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>> = ((missing as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>)
-                salvo.std.core.console.println(__handle_2, "get_item: ${salvo.main.describe(salvo.std.core.checked.detach(missing_9))}")
+                salvo.std.core.console.println__Str(__handle_2, "get_item: ${salvo.main.describe(salvo.std.core.checked.detach(missing_9))}")
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:281:9"))

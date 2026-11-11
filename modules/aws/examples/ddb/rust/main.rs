@@ -123,7 +123,7 @@ use crate::std_core_map::get_platform;
 use crate::std_core_string::join_platform;
 use crate::std_core_map::keys_platform;
 use crate::std_core_result::ok;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_map::put_platform;
 use crate::std_core_list::sort;
 use crate::std_core_list::to_str;
@@ -223,15 +223,15 @@ pub fn round_trip(ddb: &crate::aws_ddb::Ddb, console: &crate::std_core_console::
     };
     if matches!(made, crate::unions::Union2::U1(_)) {
         let mut made_1 = match &made { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("created table {}", table));
+        crate::std_core_console::println__Str(console, &format!("created table {}", table));
     } else if matches!(made, crate::unions::Union2::U2(_)) {
         let mut made_2 = match made { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("create_table: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(made_2))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("create_table: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(made_2))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:107:5");
     };
     let mut item: crate::std_core_map::Map<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>> = crate::std_core_map::Map_platform::<String, crate::unions::Union10<crate::aws_ddb::AttributeValueS, crate::aws_ddb::AttributeValueN, crate::aws_ddb::AttributeValueB, crate::aws_ddb::AttributeValueSs, crate::aws_ddb::AttributeValueNs, crate::aws_ddb::AttributeValueBs, crate::aws_ddb::AttributeValueM, crate::aws_ddb::AttributeValueL, crate::aws_ddb::AttributeValueBool, crate::aws_ddb::AttributeValueNull>>(vec![(String::from("id"), crate::s(String::from("user-42"))), (String::from("name"), crate::s(String::from("Ada"))), (String::from("age"), crate::n(String::from("37"))), (String::from("active"), crate::boolean(true))], &mut |__a0: &String| { let mut __h = std::hash::DefaultHasher::new(); std::hash::Hash::hash(&__a0[..], &mut __h); (std::hash::Hasher::finish(&__h) as i64) }, &mut |__a0: &String, __a1: &String| (&__a0[..] == &__a1[..]));
-    crate::std_core_console::println(console, &format!("put {}", crate::show_item(&item)));
+    crate::std_core_console::println__Str(console, &format!("put {}", crate::show_item(&item)));
     let mut put: crate::unions::Union2<crate::aws_ddb::PutItemOutput, crate::std_core_checked::Checked<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>> = {
         let (mut r, __wid) = crate::scheduler::salvo_waiter();
         crate::scheduler::salvo_waiter_decoder(__wid, (|_| None));
@@ -242,7 +242,7 @@ pub fn round_trip(ddb: &crate::aws_ddb::Ddb, console: &crate::std_core_console::
         let mut put_3 = match &put { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
     } else if matches!(put, crate::unions::Union2::U2(_)) {
         let mut put_4 = match put { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("put_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(put_4))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("put_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(put_4))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:124:5");
     };
@@ -256,14 +256,14 @@ pub fn round_trip(ddb: &crate::aws_ddb::Ddb, console: &crate::std_core_console::
         let mut got_5 = match &got { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
         let mut found = &got_5.item;
         if found.is_none() {
-            crate::std_core_console::println(console, &String::from("got nothing"));
+            crate::std_core_console::println__Str(console, &String::from("got nothing"));
         } else {
             let mut found_6 = found.as_ref().unwrap();
-            crate::std_core_console::println(console, &format!("got {}", crate::show_item(found_6)));
+            crate::std_core_console::println__Str(console, &format!("got {}", crate::show_item(found_6)));
         };
     } else if matches!(got, crate::unions::Union2::U2(_)) {
         let mut got_7 = match got { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("get_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(got_7))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("get_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(got_7))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:133:5");
     };
@@ -275,10 +275,10 @@ pub fn round_trip(ddb: &crate::aws_ddb::Ddb, console: &crate::std_core_console::
     };
     if matches!(gone, crate::unions::Union2::U1(_)) {
         let mut gone_8 = match &gone { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &String::from("deleted user-42"));
+        crate::std_core_console::println__Str(console, &String::from("deleted user-42"));
     } else if matches!(gone, crate::unions::Union2::U2(_)) {
         let mut gone_9 = match gone { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-        crate::std_core_console::println(console, &format!("delete_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(gone_9))).as_ref())));
+        crate::std_core_console::println__Str(console, &format!("delete_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(gone_9))).as_ref())));
     } else {
         panic!("salvo: unhandled union arm at main:149:5");
     };
@@ -409,15 +409,15 @@ pub fn main() {
     crate::scheduler::salvo_set_protocols(vec![("Faults".to_string(), crate::std_core_actor::__PROTO_Faults.to_string()), ("Timer".to_string(), crate::std_time::__PROTO_Timer.to_string()), ("TimerCtl".to_string(), crate::std_time::__PROTO_TimerCtl.to_string()), ("Wheel".to_string(), crate::std_runtime_timers::__PROTO_Wheel.to_string())]);
     let mut __use_1: crate::std_core_console::__Platform_StdConsole = crate::std_core_console::__Platform_StdConsole::new();
     let __handle_2 = crate::std_core_console::Console::shared(__use_1);
-    crate::std_core_console::println(&__handle_2, &String::from("-- FakeDdb --"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("-- FakeDdb --"));
     {
         let __use_3 = std::sync::Arc::new(std::sync::Mutex::new(crate::aws_ddb::FakeDdb::new()));
         let __handle_4 = crate::aws_ddb::Ddb::share_locked(__use_3.clone());
         let __handle_5 = crate::aws_ddb::DdbCalls::share_locked(__use_3.clone());
         crate::round_trip(&__handle_4, &__handle_2, &String::from("users"));
-        crate::std_core_console::println(&__handle_2, &format!("calls: {}", crate::std_core_list::to_str(&__handle_5.calls(), &mut |__a0| format!("{}", __a0))));
+        crate::std_core_console::println__Str(&__handle_2, &format!("calls: {}", crate::std_core_list::to_str(&__handle_5.calls(), &mut |__a0| format!("{}", __a0))));
     };
-    crate::std_core_console::println(&__handle_2, &String::from("-- MemDdb --"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("-- MemDdb --"));
     {
         let mut __use_6: crate::MemDdb = crate::MemDdb::new();
         let __handle_7 = crate::aws_ddb::Ddb::locked(__use_6);
@@ -430,10 +430,10 @@ pub fn main() {
         };
         if matches!(missing, crate::unions::Union2::U1(_)) {
             let mut missing_8 = match &missing { crate::unions::Union2::U1(__v) => __v, _ => unreachable!() };
-            crate::std_core_console::println(&__handle_2, &String::from("unexpected ok"));
+            crate::std_core_console::println__Str(&__handle_2, &String::from("unexpected ok"));
         } else if matches!(missing, crate::unions::Union2::U2(_)) {
             let mut missing_9 = match missing { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
-            crate::std_core_console::println(&__handle_2, &format!("get_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(missing_9))).as_ref())));
+            crate::std_core_console::println__Str(&__handle_2, &format!("get_item: {}", crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_ddb::DdbError, crate::aws::AwsError>>(missing_9))).as_ref())));
         } else {
             panic!("salvo: unhandled union arm at main:281:9");
         };

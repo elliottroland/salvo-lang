@@ -295,9 +295,16 @@ The standard library renders a list this way (`"${List(1, 2, 3)}"` gives
 `[1, 2, 3]`), and a `Mut Str` needs nothing special, since it drops its `Mut`
 first.
 
+[`println`](../../lib/std/core/console.sv#fn-println) takes such a value
+directly: `println(point)` prints what `to_str(point)` answers, found the same
+way, so it says what `println("${point}")` does. A type with no text form is
+an error at the call.
+
 A union is the text of the arm it holds. It interpolates when every arm has a
 text form of its own (a scalar, `Str`, or a type with a `to_str`), and a
-`to_str` that takes the union itself takes precedence.
+`to_str` that takes the union itself takes precedence. `println(u)` needs that
+`to_str`, so it prints a named union that declares one; an anonymous union
+(`Int | Str`, or a `T?`) cannot have one, so write `println("${u}")`.
 
 **An interpolation may hold a string literal**, and that literal may
 interpolate in turn: `"${name ?: "unknown"}"` is an ordinary thing to write,

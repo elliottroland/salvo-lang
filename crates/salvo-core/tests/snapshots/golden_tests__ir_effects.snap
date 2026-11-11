@@ -22,7 +22,7 @@ fn stamp@main(lent clock: Clock@main, lent console: Console; lent label: Str) ->
 }
 
 fn banner@main(lent console: Console; lent text: Str) -> None {
-  call println@std.core.console(read console, concat("   ", read text))
+  call println(Str)@std.core.console(read console, concat("   ", read text))
 }
 
 interface Logger {
@@ -31,7 +31,7 @@ interface Logger {
 
 impl PlainLogger() for Logger@main deps [Console] {
   fn log(lent message: Str) -> None {
-    call println@std.core.console(read __dep0, concat("   ", read message))
+    call println(Str)@std.core.console(read __dep0, concat("   ", read message))
   }
 }
 
@@ -89,13 +89,13 @@ interface Metrics {
 
 impl ConsoleAudit() for Audit@main deps [Console] {
   fn record(lent what: Str) -> None {
-    call println@std.core.console(read __dep0, concat("   audit: ", read what))
+    call println(Str)@std.core.console(read __dep0, concat("   audit: ", read what))
   }
 }
 
 impl ConsoleMetrics() for Metrics@main deps [Console] {
   fn record(lent what: Str) -> None {
-    call println@std.core.console(read __dep0, concat("   metric: ", read what))
+    call println(Str)@std.core.console(read __dep0, concat("   metric: ", read what))
   }
 }
 
@@ -121,7 +121,7 @@ impl Fixed<T>(lent value: T) for Setting@main<T> {
 fn settings@main(lent setting: Setting@main<Int>, lent setting__1: Setting@main<Str>, lent console: Console) -> None {
   bind#1 let retries: Int = member setting@Setting(read setting, fn copy@std.core.basic)
   bind#2 let region: Str = member setting@Setting(read setting__1, fn copy@std.core.basic)
-  call println@std.core.console(read console, concat("   retries=", call to_str(Int)@std.core.basic(read retries), " region=", read region))
+  call println(Str)@std.core.console(read console, concat("   retries=", call to_str(Int)@std.core.basic(read retries), " region=", read region))
 }
 
 fn main@main() -> None {
@@ -129,25 +129,25 @@ fn main@main() -> None {
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let __use~3: TickingClock@main = construct TickingClock@main { }
   bind#4 let __handle~4: Clock@main = handle[Clock@main](read __use~3)
-  call println@std.core.console(read __handle~2, concat("1. the clock reads ", call to_str(Int)@std.core.basic(member now@Clock(read __handle~4)), ", then ", call to_str(Int)@std.core.basic(member now@Clock(read __handle~4))))
-  call println@std.core.console(read __handle~2, "2. two effects in one signature:")
+  call println(Str)@std.core.console(read __handle~2, concat("1. the clock reads ", call to_str(Int)@std.core.basic(member now@Clock(read __handle~4)), ", then ", call to_str(Int)@std.core.basic(member now@Clock(read __handle~4))))
+  call println(Str)@std.core.console(read __handle~2, "2. two effects in one signature:")
   call stamp@main(read __handle~4, read __handle~2, "2. a labelled moment")
-  call println@std.core.console(read __handle~2, "3. a logger whose handler needs the console:")
+  call println(Str)@std.core.console(read __handle~2, "3. a logger whose handler needs the console:")
   bind#5 let __use~5: PlainLogger@main = construct PlainLogger@main { __dep0: read __handle~2 }
   bind#6 let __handle~6: Logger@main = handle[Logger@main](read __use~5)
   call work@main(read __handle~6, "3. logged through the console")
-  call println@std.core.console(read __handle~2, "4. interception — each `use` wraps the one before it:")
+  call println(Str)@std.core.console(read __handle~2, "4. interception — each `use` wraps the one before it:")
   call interception@main(read __handle~6, read __handle~4)
-  call println@std.core.console(read __handle~2, "5. shadowing is not wrapping:")
+  call println(Str)@std.core.console(read __handle~2, "5. shadowing is not wrapping:")
   call scoping@main(read __handle~6)
-  call println@std.core.console(read __handle~2, "6. two effects, one member name:")
+  call println(Str)@std.core.console(read __handle~2, "6. two effects, one member name:")
   bind#7 let __use~7: ConsoleAudit@main = construct ConsoleAudit@main { __dep0: read __handle~2 }
   bind#8 let __handle~8: Audit@main = handle[Audit@main](read __use~7)
   call audit_only@main(read __handle~8, "6. audited only")
   bind#9 let __use~9: ConsoleMetrics@main = construct ConsoleMetrics@main { __dep0: read __handle~2 }
   bind#10 let __handle~10: Metrics@main = handle[Metrics@main](read __use~9)
   call audit_and_measure@main(read __handle~8, read __handle~10, "6. audited and measured")
-  call println@std.core.console(read __handle~2, "7. two instances of one generic effect:")
+  call println(Str)@std.core.console(read __handle~2, "7. two instances of one generic effect:")
   bind#11 let __use~11: Fixed@main<Int> = construct Fixed@main<Int> { value: 3 }
   bind#12 let __handle~12: Setting@main<Int> = handle[Setting@main<Int>](read __use~11)
   bind#13 let __use~13: Fixed@main<Str> = construct Fixed@main<Str> { value: "eu-west-1" }

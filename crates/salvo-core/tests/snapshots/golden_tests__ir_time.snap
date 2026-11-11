@@ -77,21 +77,21 @@ fn main@main() -> None {
   bind#1 let __use~1: StdConsole = construct StdConsole { }
   bind#2 let __handle~2: Console = read __use~1
   bind#3 let budget: Duration = call millis@std.time(1500L)
-  call println@std.core.console(read __handle~2, concat("budget ", call to_str@std.time(read budget), ", doubled ", call to_str@std.time(call times@std.time(read budget, 2L)), ", in millis ", call to_str(Long)@std.core.basic(call to_millis@std.time(read budget))))
+  call println(Str)@std.core.console(read __handle~2, concat("budget ", call to_str@std.time(read budget), ", doubled ", call to_str@std.time(call times@std.time(read budget, 2L)), ", in millis ", call to_str(Long)@std.core.basic(call to_millis@std.time(read budget))))
   bind#4 let stamp: Instant = call epoch_milli@std.time(1700000000000L)
-  call println@std.core.console(read __handle~2, concat("stamp ", call to_str(Long)@std.core.basic(call to_epoch_second@std.time(read stamp)), "s, a minute later ", call to_str(Long)@std.core.basic(call to_epoch_second@std.time(call plus(Instant, Duration)@std.time(read stamp, call minutes@std.time(1L)))), "s"))
+  call println(Str)@std.core.console(read __handle~2, concat("stamp ", call to_str(Long)@std.core.basic(call to_epoch_second@std.time(read stamp)), "s, a minute later ", call to_str(Long)@std.core.basic(call to_epoch_second@std.time(call plus(Instant, Duration)@std.time(read stamp, call minutes@std.time(1L)))), "s"))
   bind#5 let __use~3: DefaultClock = construct DefaultClock { }
   bind#6 let __handle~4: Clock = handle[Clock](read __use~3)
   bind#7 let __use~5: DefaultTicker = construct DefaultTicker { }
   bind#8 let __handle~6: Ticker = handle[Ticker](read __use~5)
-  call println@std.core.console(read __handle~2, concat("wall clock is set: ", call to_str(Bool)@std.core.basic((call to_epoch_second@std.time(member now@Clock(read __handle~4)) > 1600000000L))))
+  call println(Str)@std.core.console(read __handle~2, concat("wall clock is set: ", call to_str(Bool)@std.core.basic((call to_epoch_second@std.time(member now@Clock(read __handle~4)) > 1600000000L))))
   bind#9 let __use~7: SteppingTicker@main = construct SteppingTicker@main { step: call millis@std.time(500L) }
   bind#10 let __handle~8: Ticker = handle[Ticker](read __use~7)
   bind#11 let started: Tick = member tick@Ticker(read __handle~8)
-  call println@std.core.console(read __handle~2, concat("overdue after one more read: ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget))))
-  call println@std.core.console(read __handle~2, concat("overdue after three: ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget)), " ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget)), " ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget))))
-  call println@std.core.console(read __handle~2, call verdict@main(construct Tick { nanos: 0L }, construct Tick { nanos: 1000000000L }, read budget))
-  call println@std.core.console(read __handle~2, call verdict@main(construct Tick { nanos: 0L }, construct Tick { nanos: 2000000000L }, read budget))
+  call println(Str)@std.core.console(read __handle~2, concat("overdue after one more read: ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget))))
+  call println(Str)@std.core.console(read __handle~2, concat("overdue after three: ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget)), " ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget)), " ", call to_str(Bool)@std.core.basic(call overdue@main(read __handle~8, read started, read budget))))
+  call println(Str)@std.core.console(read __handle~2, call verdict@main(construct Tick { nanos: 0L }, construct Tick { nanos: 1000000000L }, read budget))
+  call println(Str)@std.core.console(read __handle~2, call verdict@main(construct Tick { nanos: 0L }, construct Tick { nanos: 2000000000L }, read budget))
   bind#12 let p: Pool = call pool(Int)@std.core.actor(1)
   bind#13 let __destructured~9: (eff[Timer], eff[TimerCtl]) = spawn[(eff[Timer], eff[TimerCtl])](construct ManualTime { }, on: read p) serves [Timer, TimerCtl]
   bind#14 let timer: eff[Timer] = !read __destructured~9.0
@@ -108,7 +108,7 @@ fn main@main() -> None {
     }
     send advance@TimerCtl(read ctl, call millis@std.time(2500L))
   }
-  call println@std.core.console(read __handle~2, concat("session: ", read outcome))
+  call println(Str)@std.core.console(read __handle~2, concat("session: ", read outcome))
   bind#18 let sleeper: eff[Sleeper@main] = spawn[eff[Sleeper@main]](construct Napping@main { __dep0: instance_at(read timer), __dep1: handle[Ticker](construct TestTicker@main { timer: !read timer }) }, on: call thread@std.core.actor()) serves [Sleeper@main]
   bind#19 let napped: Str = waitfor answer: Reply<Str> {
     obligation gain [answer]
@@ -121,7 +121,7 @@ fn main@main() -> None {
     }
     send advance@TimerCtl(read ctl, call seconds@std.time(2L))
   }
-  call println@std.core.console(read __handle~2, read napped)
+  call println(Str)@std.core.console(read __handle~2, read napped)
 }
 
 linear struct Session.Open wire {

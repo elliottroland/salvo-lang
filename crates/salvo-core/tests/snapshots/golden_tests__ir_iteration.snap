@@ -9,18 +9,18 @@ fn describe_container@main(lent console: Console; lent xs: List<Int>) -> None {
   foreach#2 n: Int in read xs {
     assign sum = (read sum + read n)
   }
-  call println@std.core.console(read console, concat("1. list of ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(read xs)), " sums to ", call to_str(Int)@std.core.basic(read sum)))
+  call println(Str)@std.core.console(read console, concat("1. list of ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(read xs)), " sums to ", call to_str(Int)@std.core.basic(read sum)))
   bind#3 let letters: Mut Str = call Mut_Str@std.core.string(array[Str[]]())
   foreach#4 c: Char in "salvo" {
     call append(Mut Str, Str)@std.core.string(read letters, concat(call to_str(Char)@std.core.basic(read c), "."))
   }
-  call println@std.core.console(read console, concat("1. string: ", drop_mut(read letters)))
+  call println(Str)@std.core.console(read console, concat("1. string: ", drop_mut(read letters)))
   bind#5 let arr: Int[] = call array_of@std.core.array<Int>(array[Int[]](10, 20, 30))
   bind#6 let from_array: Int = 0
   foreach#7 n: Int in read arr {
     assign from_array = (read from_array + read n)
   }
-  call println@std.core.console(read console, concat("1. array sums to ", call to_str(Int)@std.core.basic(read from_array)))
+  call println(Str)@std.core.console(read console, concat("1. array sums to ", call to_str(Int)@std.core.basic(read from_array)))
 }
 
 struct Countdown canbe Mut wire {
@@ -57,7 +57,7 @@ fn take@main(lent console: Console; lent_mut p: Mut Countdown@main, lent count: 
       arm#0 (arm 0) {
         narrow#5[switch#4.arm#0] __emitted~3: Int = __step~2
         bind#6 let n: Int = !read __emitted~3
-        call println@std.core.console(read console, concat("2. got ", call to_str(Int)@std.core.basic(read n)))
+        call println(Str)@std.core.console(read console, concat("2. got ", call to_str(Int)@std.core.basic(read n)))
         assign seen = (read seen + 1)
         branch#7 cond#0 (read seen == read count) {
           break
@@ -128,7 +128,7 @@ fn fibs@main(lent count: Int) -> Mut Fibs@main {
 
 fn next(Mut Fibs)@main(lent console: Console; lent_mut __p: Mut Fibs@main) -> Int | Finished {
   branch#1 cond#0 (read __p.made >= read __p.count) {
-    call println@std.core.console(read console, "3. finished")
+    call println(Str)@std.core.console(read console, "3. finished")
     return make_union[Int | Finished]#1(call finished@std.core.iterator())
   }
   bind#2 let now: Int = call copy@std.core.basic<Int>(read __p.a)
@@ -215,7 +215,7 @@ fn main@main() -> None {
   call describe_container@main(read __handle~2, read xs)
   bind#4 let p: Mut Countdown@main = call countdown@main(5)
   call take@main(read __handle~2, read p, 2)
-  call println@std.core.console(read __handle~2, concat("2. rest sums to ", call to_str(Int)@std.core.basic(call sum_of@main<Countdown@main>(read p, fn next(Mut Countdown)@main))))
+  call println(Str)@std.core.console(read __handle~2, concat("2. rest sums to ", call to_str(Int)@std.core.basic(call sum_of@main<Countdown@main>(read p, fn next(Mut Countdown)@main))))
   bind#5 let q: Mut Countdown@main = call countdown@main(6)
   loop#6 {
     bind#7 let __step~4: Int | Finished = call skip@main(read q)
@@ -223,7 +223,7 @@ fn main@main() -> None {
       arm#0 (arm 0) {
         narrow#9[switch#8.arm#0] __emitted~5: Int = __step~4
         bind#10 let n: Int = !read __emitted~5
-        call println@std.core.console(read __handle~2, concat("2. skip ", call to_str(Int)@std.core.basic(read n)))
+        call println(Str)@std.core.console(read __handle~2, concat("2. skip ", call to_str(Int)@std.core.basic(read n)))
       }
       arm#1 (else) {
         break
@@ -237,7 +237,7 @@ fn main@main() -> None {
       arm#0 (arm 0) {
         narrow#15[switch#14.arm#0] __emitted~8: Int = __step~7
         bind#16 let n: Int = !read __emitted~8
-        call println@std.core.console(read __handle~2, concat("2b. halving ", call to_str(Int)@std.core.basic(read n)))
+        call println(Str)@std.core.console(read __handle~2, concat("2b. halving ", call to_str(Int)@std.core.basic(read n)))
       }
       arm#1 (else) {
         break
@@ -245,8 +245,8 @@ fn main@main() -> None {
     }
   }
   bind#17 let hp: Mut Halving@main = call halving@main(20)
-  call println@std.core.console(read __handle~2, concat("2b. summed from a held iterator: ", call to_str(Int)@std.core.basic(call sum_of@main<Halving@main>(read hp, fn next(Mut Halving)@main))))
-  call println@std.core.console(read __handle~2, concat("2b. first from a fn returning one: ", call to_str(Int)@std.core.basic(call first@main<Halving@main>(call halving_from_ten@main(), fn next(Mut Halving)@main))))
+  call println(Str)@std.core.console(read __handle~2, concat("2b. summed from a held iterator: ", call to_str(Int)@std.core.basic(call sum_of@main<Halving@main>(read hp, fn next(Mut Halving)@main))))
+  call println(Str)@std.core.console(read __handle~2, concat("2b. first from a fn returning one: ", call to_str(Int)@std.core.basic(call first@main<Halving@main>(call halving_from_ten@main(), fn next(Mut Halving)@main))))
   bind#18 let bag: Bag@main = construct Bag@main { items: call List(T, T[])@std.core.list<Int>(7, array[Int[]](8)) }
   bind#20 let __pass~9: Mut BagIter@main = call iter@main(read bag)
   loop#19 {
@@ -255,14 +255,14 @@ fn main@main() -> None {
       arm#0 (arm 0) {
         narrow#23[switch#22.arm#0] __emitted~11: Int = __step~10
         bind#24 let n: Int = !read __emitted~11
-        call println@std.core.console(read __handle~2, concat("2c. bag ", call to_str(Int)@std.core.basic(read n)))
+        call println(Str)@std.core.console(read __handle~2, concat("2c. bag ", call to_str(Int)@std.core.basic(read n)))
       }
       arm#1 (else) {
         break
       }
     }
   }
-  call println@std.core.console(read __handle~2, concat("2c. total of a bag ", call to_str(Int)@std.core.basic(call total@main<Bag@main, BagIter@main>(read bag, fn iter@main, fn next(Mut BagIter)@main)), ", of a list ", call to_str(Int)@std.core.basic(call total@main<List<Int>, ListIter<Int>>(read xs, fn iter@std.core.list, fn next(Mut ListIter<T>)@std.core.list))))
+  call println(Str)@std.core.console(read __handle~2, concat("2c. total of a bag ", call to_str(Int)@std.core.basic(call total@main<Bag@main, BagIter@main>(read bag, fn iter@main, fn next(Mut BagIter)@main)), ", of a list ", call to_str(Int)@std.core.basic(call total@main<List<Int>, ListIter<Int>>(read xs, fn iter@std.core.list, fn next(Mut ListIter<T>)@std.core.list))))
   bind#26 let __pass~12: Mut Fibs@main = call fibs@main(6)
   loop#25 {
     bind#27 let __step~13: Int | Finished = call next(Mut Fibs)@main(read __handle~2, read __pass~12)
@@ -270,7 +270,7 @@ fn main@main() -> None {
       arm#0 (arm 0) {
         narrow#29[switch#28.arm#0] __emitted~14: Int = __step~13
         bind#30 let n: Int = !read __emitted~14
-        call println@std.core.console(read __handle~2, concat("3. fib ", call to_str(Int)@std.core.basic(read n)))
+        call println(Str)@std.core.console(read __handle~2, concat("3. fib ", call to_str(Int)@std.core.basic(read n)))
       }
       arm#1 (else) {
         break
@@ -287,7 +287,7 @@ fn main@main() -> None {
         branch#37 cond#0 (read n > 12) {
           break
         }
-        call println@std.core.console(read __handle~2, concat("3. natural ", call to_str(Int)@std.core.basic(read n)))
+        call println(Str)@std.core.console(read __handle~2, concat("3. natural ", call to_str(Int)@std.core.basic(read n)))
       }
       arm#1 (else) {
         break
@@ -303,14 +303,14 @@ fn main@main() -> None {
   bind#40 let total: Int = call reduce(List<T>, A, (A, T) [E] -> A)@std.core.seq<Int, Int, ()>(tuple(), read xs, 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
   })
-  call println@std.core.console(read __handle~2, concat("5. list: ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read doubled))), " doubled, ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read odd))), " odd, total ", call to_str(Int)@std.core.basic(read total)))
+  call println(Str)@std.core.console(read __handle~2, concat("5. list: ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read doubled))), " doubled, ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read odd))), " odd, total ", call to_str(Int)@std.core.basic(read total)))
   bind#41 let words: List<Str> = call List(T, T[])@std.core.list<Str>("ann", array[Str[]]("bo", "carol"))
   bind#42 let lengths: Mut List<Int> = call map(Mut It, (T) [E] -> U)@std.core.seq<ListIter<Str>, proj Str, Int, ()>(tuple(), call iter@std.core.list<Str>(read words), lambda(lent __leff0: (), lent w: proj Str) -> Int {
     value call size@std.core.string(borrow_as[proj Str -> Str](read w))
   }, lambda(lent __fx0: (), lent_mut __a0: Mut ListIter<Str>) -> proj Str | Finished {
     value call next(Mut ListIter<T>)@std.core.list(read __a0)
   })
-  call println@std.core.console(read __handle~2, concat("5. lengths: ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) [E] -> A)@std.core.seq<ListIter<Int>, Int, Int, ()>(tuple(), call iter@std.core.list<Int>(drop_mut(read lengths)), 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {
+  call println(Str)@std.core.console(read __handle~2, concat("5. lengths: ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) [E] -> A)@std.core.seq<ListIter<Int>, Int, Int, ()>(tuple(), call iter@std.core.list<Int>(drop_mut(read lengths)), 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
   }, lambda(lent __fx0: (), lent_mut __a0: Mut ListIter<Int>) -> Int | Finished {
     value call next(Mut ListIter<T>)@std.core.list(read __a0)
@@ -321,8 +321,8 @@ fn main@main() -> None {
   }, lambda(lent __fx0: (), lent_mut __a0: Mut StrIter) -> Char | Finished {
     value call next@std.core.string(read __a0)
   })
-  call println@std.core.console(read __handle~2, concat("5. vowels: ", call to_str(Int)@std.core.basic(call size@std.core.list<Char>(drop_mut(read vowels)))))
-  call println@std.core.console(read __handle~2, concat("5. halving total ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) [E] -> A)@std.core.seq<Halving@main, Int, Int, ()>(tuple(), call halving@main(20), 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {
+  call println(Str)@std.core.console(read __handle~2, concat("5. vowels: ", call to_str(Int)@std.core.basic(call size@std.core.list<Char>(drop_mut(read vowels)))))
+  call println(Str)@std.core.console(read __handle~2, concat("5. halving total ", call to_str(Int)@std.core.basic(call reduce(Mut It, A, (A, T) [E] -> A)@std.core.seq<Halving@main, Int, Int, ()>(tuple(), call halving@main(20), 0, lambda(lent __leff0: (), lent acc: Int, lent n: Int) -> Int {
     value (read acc + read n)
   }, lambda(lent __fx0: (), lent_mut __a0: Mut Halving@main) -> Int | Finished {
     value call next(Mut Halving)@main(read __a0)
@@ -330,7 +330,7 @@ fn main@main() -> None {
   bind#45 let collected: Mut List<Int> = call map_to@std.core.seq<List<Int>, Countdown@main, Int, Int>(call Mut_List()@std.core.list<Int>(), call countdown@main(3), lambda(lent n: Int) -> Int {
     value (read n * 10)
   }, fn add@std.core.list, fn next(Mut Countdown)@main)
-  call println@std.core.console(read __handle~2, concat("6. collected ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read collected)))))
+  call println(Str)@std.core.console(read __handle~2, concat("6. collected ", call to_str(Int)@std.core.basic(call size@std.core.list<Int>(drop_mut(read collected)))))
   bind#46 let evens: Mut Str = call Mut_Str@std.core.string(array[Str[]]())
   bind#48 let __pass~18: Mut RangeIter = call range(Int, Int, Int)@std.core.range(0, 10, 2)
   loop#47 {
@@ -346,5 +346,5 @@ fn main@main() -> None {
       }
     }
   }
-  call println@std.core.console(read __handle~2, concat("7. evens ", drop_mut(read evens)))
+  call println(Str)@std.core.console(read __handle~2, concat("7. evens ", drop_mut(read evens)))
 }

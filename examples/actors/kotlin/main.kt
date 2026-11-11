@@ -408,7 +408,7 @@ fun main() {
         salvo.SalvoSched.sendWire(counter, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    salvo.std.core.console.println(__handle_2, "1. counter total is ${sum}")
+    salvo.std.core.console.println__Str(__handle_2, "1. counter total is ${sum}")
     val ledger: Int = kotlin.run { val __h = Bookkeeping(__Stub_Counter(counter)); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Bookkeeping(__h), __Actor_Bookkeeping.__DECODE); __a }
     val line: String = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
@@ -416,7 +416,7 @@ fun main() {
         salvo.SalvoSched.sendWire(ledger, __Msg_Ledger.Report("counter", out), __PROTO_Ledger, __Codec___Msg_Ledger)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    salvo.std.core.console.println(__handle_2, "3. ledger says ${line}")
+    salvo.std.core.console.println__Str(__handle_2, "3. ledger says ${line}")
     val desk: Int = kotlin.run { val __h = Desking(room = 8); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Desking(__h), __Actor_Desking.__DECODE); __a }
     val first: String = kotlin.run {
         val (a, __wid) = salvo.SalvoSched.waiter()
@@ -430,10 +430,10 @@ fun main() {
             salvo.SalvoSched.sendWire(desk, __Msg_Desk.CloseUp("end of day"), __PROTO_Desk, __Codec___Msg_Desk)
             salvo.SalvoSched.awaitReply(__wid) as String
         }
-        salvo.std.core.console.println(__handle_2, "4. second waiter got: ${second}")
+        salvo.std.core.console.println__Str(__handle_2, "4. second waiter got: ${second}")
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    salvo.std.core.console.println(__handle_2, "4. first waiter got: ${first}")
+    salvo.std.core.console.println__Str(__handle_2, "4. first waiter got: ${first}")
     val fragile: Int = kotlin.run { val __h = Breaking(); val __a = salvo.SalvoSched.spawn(workers, __h.__mailboxCapacity, __Actor_Breaking(__h), __Actor_Breaking.__DECODE); __a }
     val exit: salvo.std.core.actor.Exit = kotlin.run {
         val (gone, __wid) = salvo.SalvoSched.waiter()
@@ -442,7 +442,7 @@ fun main() {
         salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
         salvo.SalvoSched.awaitReply(__wid) as salvo.std.core.actor.Exit
     }
-    salvo.std.core.console.println(__handle_2, "5. it died with a reason: ${(salvo.std.core.string.sizePlatform(exit.reason) > 0)}")
+    salvo.std.core.console.println__Str(__handle_2, "5. it died with a reason: ${(salvo.std.core.string.sizePlatform(exit.reason) > 0)}")
     salvo.SalvoSched.sendWire(fragile, __Msg_Fragile.Crash(), __PROTO_Fragile, __Codec___Msg_Fragile)
     val __use_3: Counting = Counting()
     val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
@@ -455,7 +455,7 @@ fun main() {
         __handle_4.total(out)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    salvo.std.core.console.println(__handle_2, "6. inline total is ${inline}")
+    salvo.std.core.console.println__Str(__handle_2, "6. inline total is ${inline}")
     val solo: Int = salvo.std.core.actor.pool(1)
     val mine: Int = kotlin.run { val __h = Counting(); val __a = salvo.SalvoSched.spawn(solo, __h.__mailboxCapacity, __Actor_Counting(__h), __Actor_Counting.__DECODE); __a }
     salvo.SalvoSched.sendWire(mine, __Msg_Counter.Bump(6), __PROTO_Counter, __Codec___Msg_Counter)
@@ -465,15 +465,15 @@ fun main() {
         salvo.SalvoSched.sendWire(mine, __Msg_Counter.Total(out), __PROTO_Counter, __Codec___Msg_Counter)
         salvo.SalvoSched.awaitReply(__wid) as Int
     }
-    salvo.std.core.console.println(__handle_2, "7. the solo pool's own actor totalled ${local}")
+    salvo.std.core.console.println__Str(__handle_2, "7. the solo pool's own actor totalled ${local}")
     val line8: String = kotlin.run {
         val (out, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.StrCodec) })
         salvo.main.reportLine(mine, "the counter", out)
         salvo.SalvoSched.awaitReply(__wid) as String
     }
-    salvo.std.core.console.println(__handle_2, "8. ${line8}")
-    salvo.std.core.console.println(__handle_2, "done")
+    salvo.std.core.console.println__Str(__handle_2, "8. ${line8}")
+    salvo.std.core.console.println__Str(__handle_2, "done")
 }
 
 

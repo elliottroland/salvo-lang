@@ -26,7 +26,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
     }
     if ((created is Union2.U2<*, *>)) {
         val created_1: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((created as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-        salvo.std.core.console.println(console, "create_queue: ${salvo.main.describe(salvo.std.core.checked.detach(created_1))}")
+        salvo.std.core.console.println__Str(console, "create_queue: ${salvo.main.describe(salvo.std.core.checked.detach(created_1))}")
         null
         return
     }
@@ -40,7 +40,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
             "?"
         }
     }
-    salvo.std.core.console.println(console, "created ${url}")
+    salvo.std.core.console.println__Str(console, "created ${url}")
     val sent: Union2<salvo.aws.sqs.SendMessageOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
         val (r, __wid) = salvo.SalvoSched.waiter()
         salvo.SalvoSched.waiterDecoder(__wid, { __b: ByteArray -> salvo.salvoDecodeChecked(salvo.SalvoBytes(__b), salvo.Union2Codec(salvo.aws.sqs.__Codec_SendMessageOutput, salvo.std.core.checked.__Codec_Checked(salvo.Union2Codec(salvo.aws.sqs.__Codec_SqsError, salvo.aws.__Codec_AwsError)))) })
@@ -50,7 +50,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
     when {
         (sent is Union2.U1<*, *>) -> {
             val sent_4: salvo.aws.sqs.SendMessageOutput = ((sent as Union2.U1<*, *>).value as salvo.aws.sqs.SendMessageOutput)
-            salvo.std.core.console.println(console, "sent ${when {
+            salvo.std.core.console.println__Str(console, "sent ${when {
                 (sent_4.messageId != null) -> {
                     val __narrowed_5: String = sent_4.messageId!!
                     __narrowed_5
@@ -62,7 +62,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
         }
         (sent is Union2.U2<*, *>) -> {
             val sent_6: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((sent as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "send_message: ${salvo.main.describe(salvo.std.core.checked.detach(sent_6))}")
+            salvo.std.core.console.println__Str(console, "send_message: ${salvo.main.describe(salvo.std.core.checked.detach(sent_6))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:47:5"))
@@ -86,9 +86,9 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
                     salvo.std.core.list.List()
                 }
             }
-            salvo.std.core.console.println(console, "received ${salvo.std.core.list.sizePlatform(messages)} message(s)")
+            salvo.std.core.console.println__Str(console, "received ${salvo.std.core.list.sizePlatform(messages)} message(s)")
             for (m in salvo.platform.std.core.list.each(messages)) {
-                salvo.std.core.console.println(console, "  ${when {
+                salvo.std.core.console.println__Str(console, "  ${when {
                     (m.body != null) -> {
                         val __narrowed_9: String = m.body!!
                         __narrowed_9
@@ -101,7 +101,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
         }
         (got is Union2.U2<*, *>) -> {
             val got_10: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((got as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "receive_message: ${salvo.main.describe(salvo.std.core.checked.detach(got_10))}")
+            salvo.std.core.console.println__Str(console, "receive_message: ${salvo.main.describe(salvo.std.core.checked.detach(got_10))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:55:5"))
@@ -116,11 +116,11 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
     when {
         (gone is Union2.U1<*, *>) -> {
             val gone_11: Unit = ((gone as Union2.U1<*, *>).value as Unit)
-            salvo.std.core.console.println(console, "deleted")
+            salvo.std.core.console.println__Str(console, "deleted")
         }
         (gone is Union2.U2<*, *>) -> {
             val gone_12: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((gone as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-            salvo.std.core.console.println(console, "delete_queue: ${salvo.main.describe(salvo.std.core.checked.detach(gone_12))}")
+            salvo.std.core.console.println__Str(console, "delete_queue: ${salvo.main.describe(salvo.std.core.checked.detach(gone_12))}")
         }
         else -> {
             throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:69:5"))
@@ -204,16 +204,16 @@ fun main() {
     salvo.SalvoSched.setProtocols(kotlin.collections.listOf(kotlin.Pair("Faults", salvo.std.core.actor.__PROTO_Faults)))
     val __use_1: salvo.std.core.console.__Platform_StdConsole = salvo.std.core.console.__Platform_StdConsole()
     val __handle_2: salvo.std.core.console.Console = __use_1
-    salvo.std.core.console.println(__handle_2, "-- FakeSqs --")
+    salvo.std.core.console.println__Str(__handle_2, "-- FakeSqs --")
     kotlin.run {
         val __use_3: salvo.aws.sqs.FakeSqs = salvo.aws.sqs.FakeSqs()
         val __lock___use_3 = java.util.concurrent.locks.ReentrantLock()
         val __handle_4: salvo.aws.sqs.Sqs = salvo.aws.sqs.__Mon_Sqs(__use_3, __lock___use_3)
         val __handle_5: salvo.aws.sqs.SqsCalls = salvo.aws.sqs.__Mon_SqsCalls(__use_3, __lock___use_3)
         salvo.main.roundTrip(__handle_4, __handle_2, "orders")
-        salvo.std.core.console.println(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_5.calls(), { __a0 -> __a0 })}")
+        salvo.std.core.console.println__Str(__handle_2, "calls: ${salvo.std.core.list.toStr(__handle_5.calls(), { __a0 -> __a0 })}")
     }
-    salvo.std.core.console.println(__handle_2, "-- MemSqs --")
+    salvo.std.core.console.println__Str(__handle_2, "-- MemSqs --")
     kotlin.run {
         val __use_6: MemSqs = MemSqs()
         val __lock___use_6 = java.util.concurrent.locks.ReentrantLock()
@@ -228,7 +228,7 @@ fun main() {
         when {
             (missing is Union2.U1<*, *>) -> {
                 val missing_8: salvo.aws.sqs.GetQueueUrlOutput = ((missing as Union2.U1<*, *>).value as salvo.aws.sqs.GetQueueUrlOutput)
-                salvo.std.core.console.println(__handle_2, "unexpected: ${when {
+                salvo.std.core.console.println__Str(__handle_2, "unexpected: ${when {
                     (missing_8.queueUrl != null) -> {
                         val __narrowed_9: String = missing_8.queueUrl!!
                         __narrowed_9
@@ -240,7 +240,7 @@ fun main() {
             }
             (missing is Union2.U2<*, *>) -> {
                 val missing_10: salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>> = ((missing as Union2.U2<*, *>).value as salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>)
-                salvo.std.core.console.println(__handle_2, "get_queue_url: ${salvo.main.describe(salvo.std.core.checked.detach(missing_10))}")
+                salvo.std.core.console.println__Str(__handle_2, "get_queue_url: ${salvo.main.describe(salvo.std.core.checked.detach(missing_10))}")
             }
             else -> {
                 throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:179:9"))

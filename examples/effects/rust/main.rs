@@ -31,7 +31,7 @@ pub mod platform_std_core_list;
 pub mod platform_std_core_string;
 
 use crate::std_core_console::Console;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 
 
 pub trait __Stateless_Clock: Send + Sync {
@@ -106,7 +106,7 @@ pub fn stamp(clock: &crate::Clock, console: &crate::std_core_console::Console, l
 }
 
 pub fn banner(console: &crate::std_core_console::Console, text: &String) {
-    crate::std_core_console::println(console, &format!("   {}", text));
+    crate::std_core_console::println__Str(console, &format!("   {}", text));
 }
 
 pub trait __Stateless_Logger: Send + Sync {
@@ -171,7 +171,7 @@ impl PlainLogger {
 
 impl crate::__Stateless_Logger for PlainLogger {
     fn log(&self, message: &String) {
-        crate::std_core_console::println(&self.__dep0, &format!("   {}", message));
+        crate::std_core_console::println__Str(&self.__dep0, &format!("   {}", message));
     }
 }
 
@@ -368,7 +368,7 @@ impl ConsoleAudit {
 
 impl crate::__Stateless_Audit for ConsoleAudit {
     fn record(&self, what: &String) {
-        crate::std_core_console::println(&self.__dep0, &format!("   audit: {}", what));
+        crate::std_core_console::println__Str(&self.__dep0, &format!("   audit: {}", what));
     }
 }
 
@@ -387,7 +387,7 @@ impl ConsoleMetrics {
 
 impl crate::__Stateless_Metrics for ConsoleMetrics {
     fn record(&self, what: &String) {
-        crate::std_core_console::println(&self.__dep0, &format!("   metric: {}", what));
+        crate::std_core_console::println__Str(&self.__dep0, &format!("   metric: {}", what));
     }
 }
 
@@ -469,7 +469,7 @@ impl<T: Clone + Send + Sync + 'static> crate::__Stateless_Setting<T> for Fixed<T
 pub fn settings(setting: &crate::Setting<i32>, setting__1: &crate::Setting<String>, console: &crate::std_core_console::Console) {
     let mut retries: i32 = setting.setting(&mut |__a0| *__a0);
     let mut region: String = setting__1.setting(&mut |__a0| (__a0).clone());
-    crate::std_core_console::println(console, &format!("   retries={} region={}", retries, region));
+    crate::std_core_console::println__Str(console, &format!("   retries={} region={}", retries, region));
 }
 
 pub fn main() {
@@ -477,25 +477,25 @@ pub fn main() {
     let __handle_2 = crate::std_core_console::Console::shared(__use_1);
     let mut __use_3: crate::TickingClock = crate::TickingClock::new();
     let __handle_4 = crate::Clock::locked(__use_3);
-    crate::std_core_console::println(&__handle_2, &format!("1. the clock reads {}, then {}", __handle_4.now(), __handle_4.now()));
-    crate::std_core_console::println(&__handle_2, &String::from("2. two effects in one signature:"));
+    crate::std_core_console::println__Str(&__handle_2, &format!("1. the clock reads {}, then {}", __handle_4.now(), __handle_4.now()));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("2. two effects in one signature:"));
     crate::stamp(&__handle_4, &__handle_2, &String::from("2. a labelled moment"));
-    crate::std_core_console::println(&__handle_2, &String::from("3. a logger whose handler needs the console:"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("3. a logger whose handler needs the console:"));
     let mut __use_5: crate::PlainLogger = crate::PlainLogger::new(__handle_2.clone());
     let __handle_6 = crate::Logger::shared(__use_5);
     crate::work(&__handle_6, &String::from("3. logged through the console"));
-    crate::std_core_console::println(&__handle_2, &String::from("4. interception — each `use` wraps the one before it:"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("4. interception — each `use` wraps the one before it:"));
     crate::interception(&__handle_6, &__handle_4);
-    crate::std_core_console::println(&__handle_2, &String::from("5. shadowing is not wrapping:"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("5. shadowing is not wrapping:"));
     crate::scoping(&__handle_6);
-    crate::std_core_console::println(&__handle_2, &String::from("6. two effects, one member name:"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("6. two effects, one member name:"));
     let mut __use_7: crate::ConsoleAudit = crate::ConsoleAudit::new(__handle_2.clone());
     let __handle_8 = crate::Audit::shared(__use_7);
     crate::audit_only(&__handle_8, &String::from("6. audited only"));
     let mut __use_9: crate::ConsoleMetrics = crate::ConsoleMetrics::new(__handle_2.clone());
     let __handle_10 = crate::Metrics::shared(__use_9);
     crate::audit_and_measure(&__handle_8, &__handle_10, &String::from("6. audited and measured"));
-    crate::std_core_console::println(&__handle_2, &String::from("7. two instances of one generic effect:"));
+    crate::std_core_console::println__Str(&__handle_2, &String::from("7. two instances of one generic effect:"));
     let mut __use_11: crate::Fixed<i32> = crate::Fixed::new(3i32);
     let __handle_12 = crate::Setting::shared(__use_11);
     let mut __use_13: crate::Fixed<String> = crate::Fixed::new(String::from("eu-west-1"));

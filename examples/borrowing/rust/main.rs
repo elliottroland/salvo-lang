@@ -51,7 +51,7 @@ use crate::std_core_list::get;
 use crate::std_core_list::get_platform;
 use crate::std_core_list::iter;
 use crate::std_core_list::next__ListIter;
-use crate::std_core_console::println;
+use crate::std_core_console::println__Str;
 use crate::std_core_list::size_platform;
 use crate::std_core_list::to_str;
 use crate::std_core_list::update;
@@ -210,13 +210,13 @@ pub fn main() {
             panic!("salvo: unreachable at main:191:39")
         }
     };
-    crate::std_core_console::println(&__handle_2, &format!("1. found {}, hp {}", ada.name, ada.hp));
+    crate::std_core_console::println__Str(&__handle_2, &format!("1. found {}, hp {}", ada.name, ada.hp));
     let mut names: Vec<String> = vec![];
     crate::std_core_list::add_platform::<String>(&mut names, (ada.name).clone());
-    crate::std_core_console::println(&__handle_2, &format!("1. copied out {}", crate::std_core_list::to_str::<String>(&names, &mut |__a0: &String| format!("{}", __a0))));
+    crate::std_core_console::println__Str(&__handle_2, &format!("1. copied out {}", crate::std_core_list::to_str::<String>(&names, &mut |__a0: &String| format!("{}", __a0))));
     let mut w: crate::Window<'_> = crate::window(&roster);
     w.at = 1i32;
-    crate::std_core_console::println(&__handle_2, &format!("1. window at {}: {}", w.at, {
+    crate::std_core_console::println__Str(&__handle_2, &format!("1. window at {}: {}", w.at, {
         let mut __proj_5: &crate::Fighter = {
             let mut __pick3: Option<&crate::Fighter> = crate::peek(&w);
             if __pick3.is_some() {
@@ -236,10 +236,10 @@ pub fn main() {
     }, &mut |mut __fx0, mut __a0| -> crate::unions::Union2<&crate::Fighter, crate::std_core_iterator::Finished> {
         crate::std_core_list::next__ListIter(&mut *__a0)
     });
-    crate::std_core_console::println(&__handle_2, &format!("1. {} of {} still standing", crate::std_core_list::size_platform(&standing), crate::std_core_list::size_platform::<crate::Fighter>(&roster)));
+    crate::std_core_console::println__Str(&__handle_2, &format!("1. {} of {} still standing", crate::std_core_list::size_platform(&standing), crate::std_core_list::size_platform::<crate::Fighter>(&roster)));
     let mut bench: Vec<crate::Fighter> = crate::std_core_list::Mut_List::<crate::Fighter>(crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, vec![]);
     crate::std_core_list::add_platform::<crate::Fighter>(&mut bench, crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 });
-    crate::std_core_console::println(&__handle_2, &format!("2. bench {}, front {} (a reading, not a handle)", crate::std_core_list::size_platform::<crate::Fighter>(&bench), {
+    crate::std_core_console::println__Str(&__handle_2, &format!("2. bench {}, front {} (a reading, not a handle)", crate::std_core_list::size_platform::<crate::Fighter>(&bench), {
         let mut __proj_7: &crate::Fighter = {
             let mut __pick4: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&bench, 0i32);
             if __pick4.is_some() {
@@ -256,7 +256,7 @@ pub fn main() {
     squad[__h3].hp = i32::wrapping_add(squad[__h3].hp, 1i32);
     let mut n: i32 = crate::std_core_list::size_platform::<crate::Fighter>(&squad);
     squad[__h3].hp = i32::wrapping_add(squad[__h3].hp, n);
-    crate::std_core_console::println(&__handle_2, &format!("2. {} at {} after a read in the middle", {
+    crate::std_core_console::println__Str(&__handle_2, &format!("2. {} at {} after a read in the middle", {
         let mut __proj_10: &crate::Fighter = {
             let mut __pick6: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
             if __pick6.is_some() {
@@ -289,7 +289,7 @@ pub fn main() {
         }
     });
     crate::rally_at::<i32>(&mut squad, &1i32, &mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::std_core_list::at_platform(__a0, *__a1));
-    crate::std_core_console::println(&__handle_2, &format!("2. after the searches: {} {}", {
+    crate::std_core_console::println__Str(&__handle_2, &format!("2. after the searches: {} {}", {
         let mut __proj_15: &crate::Fighter = {
             let mut __pick9: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
             if __pick9.is_some() {
@@ -328,7 +328,7 @@ pub fn main() {
             crate::std_core_list::update::<crate::Fighter, ()>(&(), &mut squad, i, &mut |mut __leff0, mut f| {
                 f.energy = i32::wrapping_add(f.energy, 1i32);
             });
-            crate::std_core_console::println(&__handle_2, &format!("3. {} {} (total reads: `Idx` survived)", {
+            crate::std_core_console::println__Str(&__handle_2, &format!("3. {} {} (total reads: `Idx` survived)", {
                 let mut __proj_20: &crate::Fighter = crate::std_core_list::get::<crate::Fighter>(&squad, i);
                 __proj_20.energy
             }, {
@@ -339,7 +339,7 @@ pub fn main() {
     };
     { let __q12 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:282:35"); let __c13 = __q12; let __q14 = crate::std_core_list::at_platform(&squad, j).expect("salvo: value is absent at main:282:67"); let __c15 = __q14; crate::strike(&mut squad, __c13, __c15) };
     { let __q16 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:285:35"); let __c17 = __q16; let __q18 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:285:67"); let __c19 = __q18; crate::strike(&mut squad, __c17, __c19) };
-    crate::std_core_console::println(&__handle_2, &format!("4. {} hp / {} energy after striking itself", {
+    crate::std_core_console::println__Str(&__handle_2, &format!("4. {} hp / {} energy after striking itself", {
         let mut __proj_27: &crate::Fighter = {
             let mut __pick17: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
             if __pick17.is_some() {
@@ -364,7 +364,7 @@ pub fn main() {
     }));
     let mut team: crate::Squad = crate::Squad { banner: String::from("Red"), members: crate::std_core_list::List__T_TArray::<crate::Fighter>(crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, vec![crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 }]) };
     { let __q20 = crate::std_core_list::at_platform(&team.members, i).expect("salvo: value is absent at main:293:49"); let __c21 = __q20; let __q22 = crate::std_core_list::at_platform(&team.members, j).expect("salvo: value is absent at main:293:88"); let __c23 = __q22; crate::rotate(&mut team.members, __c21, __c23) };
-    crate::std_core_console::println(&__handle_2, &format!("4. {}: {} {}", team.banner, {
+    crate::std_core_console::println__Str(&__handle_2, &format!("4. {}: {} {}", team.banner, {
         let mut __proj_33: &crate::Fighter = {
             let mut __pick21: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&team.members, 0i32);
             if __pick21.is_some() {
@@ -390,5 +390,5 @@ pub fn main() {
     let mut camp: crate::Camp = crate::Camp { supplies: 10i32, banners: crate::std_core_list::Mut_List::<String>(String::from("red"), vec![]) };
     crate::spend(&mut camp, 3i32);
     crate::hoist(&mut camp, String::from("blue"));
-    crate::std_core_console::println(&__handle_2, &format!("5. supplies {}, banners {}", camp.supplies, crate::std_core_list::to_str::<String>(&camp.banners, &mut |__a0: &String| format!("{}", __a0))));
+    crate::std_core_console::println__Str(&__handle_2, &format!("5. supplies {}, banners {}", camp.supplies, crate::std_core_list::to_str::<String>(&camp.banners, &mut |__a0: &String| format!("{}", __a0))));
 }

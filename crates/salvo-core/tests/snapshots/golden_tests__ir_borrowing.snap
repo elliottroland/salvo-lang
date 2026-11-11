@@ -116,13 +116,13 @@ fn main@main() -> None {
       }
     }
   }
-  call println@std.core.console(read __handle~2, concat("1. found ", read ada.name, ", hp ", call to_str(Int)@std.core.basic(read ada.hp)))
+  call println(Str)@std.core.console(read __handle~2, concat("1. found ", read ada.name, ", hp ", call to_str(Int)@std.core.basic(read ada.hp)))
   bind#9 let names: Mut List<Str> = call Mut_List()@std.core.list<Str>()
   call add@std.core.list<Str>(read names, call copy@std.core.basic<Str>(read ada.name))
-  call println@std.core.console(read __handle~2, concat("1. copied out ", call to_str@std.core.list<Str>(drop_mut(read names), fn to_str@std.core.string)))
+  call println(Str)@std.core.console(read __handle~2, concat("1. copied out ", call to_str@std.core.list<Str>(drop_mut(read names), fn to_str@std.core.string)))
   bind#10 let w: Mut Window@main = call window@main(read roster)
   assign w.at = 1
-  call println@std.core.console(read __handle~2, concat("1. window at ", call to_str(Int)@std.core.basic(read w.at), ": ", branch#16 cond#0 true {
+  call println(Str)@std.core.console(read __handle~2, concat("1. window at ", call to_str(Int)@std.core.basic(read w.at), ": ", branch#16 cond#0 true {
     bind#15 let __proj~5: proj Fighter@main = branch#14 cond#0 true {
       bind#12 let __pick3: proj Fighter@main? = call peek@main(drop_mut(read w))
       value switch#11 read __pick3 {
@@ -143,10 +143,10 @@ fn main@main() -> None {
   }, lambda(lent __fx0: (), lent_mut __a0: Mut ListIter<Fighter@main>) -> proj Fighter@main | Finished {
     value call next(Mut ListIter<T>)@std.core.list(read __a0)
   })
-  call println@std.core.console(read __handle~2, concat("1. ", call to_str(Int)@std.core.basic(call size@std.core.list<proj Fighter@main>(drop_mut(read standing))), " of ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(read roster)), " still standing"))
+  call println(Str)@std.core.console(read __handle~2, concat("1. ", call to_str(Int)@std.core.basic(call size@std.core.list<proj Fighter@main>(drop_mut(read standing))), " of ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(read roster)), " still standing"))
   bind#19 let bench: Mut List<Fighter@main> = call Mut_List(T, T[])@std.core.list<Fighter@main>(construct Fighter@main { name: "Cy", hp: 12, energy: 2 }, array[Fighter@main[]]())
   call add@std.core.list<Fighter@main>(read bench, construct Fighter@main { name: "Dee", hp: 6, energy: 7 })
-  call println@std.core.console(read __handle~2, concat("2. bench ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(drop_mut(read bench))), ", front ", branch#25 cond#0 true {
+  call println(Str)@std.core.console(read __handle~2, concat("2. bench ", call to_str(Int)@std.core.basic(call size@std.core.list<Fighter@main>(drop_mut(read bench))), ", front ", branch#25 cond#0 true {
     bind#24 let __proj~7: proj Fighter@main = branch#23 cond#0 true {
       bind#21 let __pick4: proj Fighter@main? = call get(List<T>, Int)@std.core.list<Fighter@main>(drop_mut(read bench), 0)
       value switch#20 read __pick4 {
@@ -177,7 +177,7 @@ fn main@main() -> None {
   assign boss.hp = (read boss.hp + 1)
   bind#32 let n: Int = call size@std.core.list<Mut Fighter@main>(read squad)
   assign boss.hp = (read boss.hp + read n)
-  call println@std.core.console(read __handle~2, concat("2. ", branch#38 cond#0 true {
+  call println(Str)@std.core.console(read __handle~2, concat("2. ", branch#38 cond#0 true {
     bind#37 let __proj~10: proj Mut Fighter@main = branch#36 cond#0 true {
       bind#34 let __pick6: proj Mut Fighter@main? = call get(List<T>, Int)@std.core.list<Mut Fighter@main>(read squad, 0)
       value switch#33 read __pick6 {
@@ -219,7 +219,7 @@ fn main@main() -> None {
     }
   }))
   call rally_at@main<Int>(read squad, 1, fn at(List<T>, Int)@std.core.list)
-  call println@std.core.console(read __handle~2, concat("2. after the searches: ", call to_str(Int)@std.core.basic(branch#54 cond#0 true {
+  call println(Str)@std.core.console(read __handle~2, concat("2. after the searches: ", call to_str(Int)@std.core.basic(branch#54 cond#0 true {
     bind#53 let __proj~15: proj Mut Fighter@main = branch#52 cond#0 true {
       bind#50 let __pick9: proj Mut Fighter@main? = call get(List<T>, Int)@std.core.list<Mut Fighter@main>(read squad, 0)
       value switch#49 read __pick9 {
@@ -286,7 +286,7 @@ fn main@main() -> None {
       call update@std.core.list<Fighter@main, ()>(tuple(), read squad, read i, lambda(lent __leff0: (), lent f: Mut Fighter@main) -> None {
         assign f.energy = (read f.energy + 1)
       })
-      call println@std.core.console(read __handle~2, concat("3. ", call to_str(Int)@std.core.basic(branch#77 cond#0 true {
+      call println(Str)@std.core.console(read __handle~2, concat("3. ", call to_str(Int)@std.core.basic(branch#77 cond#0 true {
         bind#76 let __proj~20: proj Mut Fighter@main = call get(List<T>, Idx(list) Int)@std.core.list<Mut Fighter@main>(read squad, read i)
         value !read __proj~20.energy
       }), " ", call to_str(Int)@std.core.basic(branch#79 cond#0 true {
@@ -341,7 +341,7 @@ fn main@main() -> None {
       }
     }
   })
-  call println@std.core.console(read __handle~2, concat("4. ", call to_str(Int)@std.core.basic(branch#101 cond#0 true {
+  call println(Str)@std.core.console(read __handle~2, concat("4. ", call to_str(Int)@std.core.basic(branch#101 cond#0 true {
     bind#100 let __proj~27: proj Mut Fighter@main = branch#99 cond#0 true {
       bind#97 let __pick17: proj Mut Fighter@main? = call get(List<T>, Int)@std.core.list<Mut Fighter@main>(read squad, 0)
       value switch#96 read __pick17 {
@@ -394,7 +394,7 @@ fn main@main() -> None {
       }
     }
   })
-  call println@std.core.console(read __handle~2, concat("4. ", read team.banner, ": ", call to_str(Int)@std.core.basic(branch#122 cond#0 true {
+  call println(Str)@std.core.console(read __handle~2, concat("4. ", read team.banner, ": ", call to_str(Int)@std.core.basic(branch#122 cond#0 true {
     bind#121 let __proj~33: proj Mut Fighter@main = branch#120 cond#0 true {
       bind#118 let __pick21: proj Mut Fighter@main? = call get(List<T>, Int)@std.core.list<Mut Fighter@main>(read team.members, 0)
       value switch#117 read __pick21 {
@@ -427,5 +427,5 @@ fn main@main() -> None {
   alias#130 banners: Mut List<Str> = camp.banners
   call spend@main(read camp, 3)
   call hoist@main(read camp, "blue")
-  call println@std.core.console(read __handle~2, concat("5. supplies ", call to_str(Int)@std.core.basic(read camp.supplies), ", banners ", call to_str@std.core.list<Str>(drop_mut(read banners), fn to_str@std.core.string)))
+  call println(Str)@std.core.console(read __handle~2, concat("5. supplies ", call to_str(Int)@std.core.basic(read camp.supplies), ", banners ", call to_str@std.core.list<Str>(drop_mut(read banners), fn to_str@std.core.string)))
 }
