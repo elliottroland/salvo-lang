@@ -152,6 +152,52 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — A body on a terminal head's line is its own error, naming the braces ([stmt-line])
+
+User decision 2026-11-12, confirming the agent's reading of [stmt-line]
+that a terminal `...` head ends its line's statement: a statement written
+on the head's line gets a message naming the braces form as the fix, under
+an id of its own, `stmt-line:after-terminal`.
+
+- **The message** (`messages::stmt_line_after_terminal`): "a terminal `...`
+  ends its line's statement, and the body it takes starts on the next line:
+  to keep the body on this line, write `for x in xs { println(x) }`". The
+  form is the construct's own text (agent's call, it was cheap):
+  `Parser::terminal_head` takes the statement's text up to the `...`
+  (`Parser::stmt_start`, set per statement by `parse_block_stmt` and
+  restored after it, so a nested block's statements do not move it) and
+  what the head wrote after its `...`, and once the body's first statement
+  has parsed, `braces_form` puts that statement in the braces: `if o is
+  None { println("then") } else { return }`, `return map(xs, (e) -> {
+  return e * 2 })`, `[if c] { return 1 }`. Only when that statement is the
+  whole body, the last of its block: where the body goes on below (braces
+  round its first statement would move the rest out of the loop or the
+  lambda, so the message would suggest a program that means something
+  else), another statement follows it on the line, it or the head spans
+  lines (`... when x {` with its arms below), or the form would pass 100
+  characters, it falls back to "write it in braces, `{ … }`, in place of
+  the `...`". (A first version took the rest of the line by tokens and
+  suggested `for x in xs { a() b() }` and an unclosed `when x {`; the
+  reviews caught it and the body going on below.)
+- **Where**: every terminal head reaches `parse_terminal_rest`, which now
+  takes the head's `...` (a `(x) -> ...` argument's is kept in
+  `pending_terminal_lambda`, now an `Option<Span>`); its first statement's
+  slip is a `Joined::Terminal`, every other slip a `Joined::Line`, and
+  `end_of_line` picks the message. What follows an `iter fn`'s `state { … }`
+  on its line stays `stmt-line:same-line`: that block is no `...` head.
+- **Tests**: `check/syntax/statement_lines.sv`'s terminal case asserts the
+  new id for the `if … ... else`, `for … ...` and `(e) -> ...` slips, and a
+  new one inside an `else { … }` on one line; `parser_tests.rs`'s
+  `a_line_slip_is_reported_at_the_second_statements_first_token` gained the
+  terminal slips' columns and asserts each one's fix, every fallback
+  included (message text, which an annotation cannot say). Docs: [stmt-line] and
+  `docs/language/Control-Flow.md`.
+- 765 tests under `cargo nextest run`, all green, over this and the entry
+  below: 2m51 wall (nextest's own 145s, `run_data` and the std test runs
+  past 60s), every binary relinked by the `salvo-syntax` change, load
+  averages 100–210. Two earlier runs over both, before the reviews' fixes
+  to `braces_form`, were also green (2m56 and 2m53 wall, nextest's 149s).
+
 ### 2026-11-12 — A type's parentheses only where the parser needs them; `+Q` first; handlers without `()` ([ast-print])
 
 User decisions 2026-11-12, for what stage H found (ROADMAP §0av): (A1) the

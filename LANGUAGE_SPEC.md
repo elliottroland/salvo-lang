@@ -2875,7 +2875,24 @@ Conventions:
     println(x)`, a statement after an `if c ... else { … }`'s inline `else`,
     one after a `(x) -> ...` argument's call, and one after an `iter fn`'s
     `state { … }` block on its line are refused alike (the list is seeded
-    with the first statement's token, `Parser::joined_here`).
+    with the first statement's token, `Parser::joined_here`). After a
+    terminal `...` head (a runtime or comptime `if` or `for`, `while`,
+    `try`, `waitfor`, a `(x) -> ...` argument) the error is its own,
+    `stmt-line:after-terminal` (user decision 2026-11-12), and names the
+    braces form that keeps the body on the line: the statement's text up to
+    the `...`, `{ … }` holding the body, and what the head wrote after its
+    `...` (an inline `else { … }`, a call's `)`), so `for x
+    in xs ... println(x)` reads "write `for x in xs { println(x) }`" and
+    `return map(xs, (e) -> ...) return e * 2` reads "write `return map(xs,
+    (e) -> { return e * 2 })`" (`Parser::terminal_head`, `braces_form`).
+    That is only when the body is the one statement written on the head's
+    line, the last of its block: where the body goes on below (braces round
+    the first statement alone would move the rest out of the construct),
+    another statement follows it on the line (a one-line block holds one),
+    it or the head spans lines (`... when x {` with its arms below), or the
+    form would pass 100 characters (`BRACES_FORM_WIDTH`), it says "write it in braces, `{ … }`, in place of the
+    `...`" instead. What follows a `state { … }` block
+    stays `stmt-line:same-line`: that block is no `...` head.
   * The statement lists are one loop (`Parser::parse_stmt_list`): a block,
     a terminal `...` body, an `iter fn`'s body.
 * [expr-pipe] **`value |> expr` is the pipe operator** (user decision

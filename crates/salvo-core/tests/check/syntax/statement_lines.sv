@@ -83,21 +83,28 @@ fn main() -> Int {
 
 //--- a_terminal_heads_line_is_its_own
 // A terminal `...` head ends its line's statement: the body it takes, the
-// rest of the block, starts on the next line. So does the inline `else`
-// after an `if … ...`, a `(x) -> ...` argument, and an `iter fn`'s `state`
-// block.
+// rest of the block, starts on the next line, and one begun on the head's
+// line is refused naming the braces form that keeps it there
+// (`for x in xs { println("${x}") }`). So does the inline `else` after an
+// `if … ...`, and a `(x) -> ...` argument; an `iter fn`'s `state` block is
+// a statement of its own line too, and what follows it an ordinary slip.
 struct Countdown { from: Int }
 
 fn run(o: Int?, xs: List<Int>) [Console] -> None {
-    //~ error[stmt-line:same-line]
+    //~ error[stmt-line:after-terminal]
     if o is None ... else { return } println("then")
-    //~ error[stmt-line:same-line]
+    //~ error[stmt-line:after-terminal]
     for x in xs ... println("${x}")
 }
 
 fn doubled(xs: List<Int>) -> Mut List<Int> => xs {
-    //~ error[stmt-line:same-line]
+    //~ error[stmt-line:after-terminal]
     return map(xs, (e) -> ...) return e * 2
+}
+
+fn nested(xs: List<Int>) [Console] {
+    //~ error[stmt-line:after-terminal]
+    if xs.is_empty() { return } else { for x in xs ... println("${x}") }
 }
 
 iter fn iter(c: Countdown) -> Emitted Int | Finished {

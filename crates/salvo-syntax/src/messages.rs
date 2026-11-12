@@ -1093,6 +1093,19 @@ messages! {
     stmt_line_semicolon = "stmt-line:semicolon" () =>
         "Salvo has no `;`: a statement ends at the end of its line, so put the next one on a new \
          line";
+    /// A terminal `...` body's first statement written on its head's line:
+    /// the head ends that line's statement. `fix` is the statement with its
+    /// body in braces, where it can be shown.
+    stmt_line_after_terminal = "stmt-line:after-terminal" (fix: Option<&str>) => match fix {
+        Some(fix) => format!(
+            "a terminal `...` ends its line's statement, and the body it takes starts on the next \
+             line: to keep the body on this line, write `{fix}`"
+        ),
+        None => "a terminal `...` ends its line's statement, and the body it takes starts on the \
+                 next line: to keep the body on this line, write it in braces, `{ … }`, in place \
+                 of the `...`"
+            .to_string(),
+    };
 
     // [struct-opaque]
     /// `opaque` before a declaration that is not a `struct`.

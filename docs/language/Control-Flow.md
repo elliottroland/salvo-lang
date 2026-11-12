@@ -55,8 +55,9 @@ holds after a block's closing `}`: `if c { a } b` is two statements and is
 refused, since nothing continues an `if` but `elif` and `else`. A terminal
 `...` head is a statement of its own line too, so the body it takes starts on
 the next line: `for x in xs ... println(x)` is refused, as is a statement after
-the inline `else { … }` of an `if c ...`. A `;` is an error too, one that names
-the fix.
+the inline `else { … }` of an `if c ...`, and the error names the braces form
+that keeps the body on the line, `for x in xs { println(x) }`. A `;` is an
+error too, one that names the fix.
 
 What the grammar itself continues stays on one line: a one-line block holding
 one statement (`fn one() -> Int { return 1 }`, `if c { return }`, an arm's

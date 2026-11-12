@@ -389,9 +389,14 @@ fn canbe_linear_parses_on_a_struct_type_parameter() {
 }
 
 // [stmt-line] Each slip is one error at the second statement's (or
-// declaration's) first token: the column, which the check data's line
-// annotations do not say. What is refused, and that every statement is kept,
-// is `salvo-core/tests/check/syntax/statement_lines.sv`.
+// declaration's, or a terminal `...` body's) first token: the column, which
+// the check data's line annotations do not say. What is refused, and that
+// every statement is kept, is `salvo-core/tests/check/syntax/statement_lines.sv`.
+// A slip after a terminal `...` head names the braces form that keeps the
+// body on the line, which no annotation says either: the statement's own
+// text where its body is that one statement on the head's line, else the
+// generic form (a body going on below, two statements on the line, a body
+// or a head over lines, a form past the width).
 #[test]
 fn a_line_slip_is_reported_at_the_second_statements_first_token() {
     let source = "\
@@ -405,7 +410,39 @@ fn f(c: Bool, v: Int | Str) -> Int {
     when v { is Int { return 1 } is Str { return 0 } }
     let g = (x: Int) -> Int { print(x) return x }
     let d = 1; let e = 2
+    for x in v ... print(x)
     return a
+}
+
+fn h(xs: List<Int>, o: Int?) {
+    if o is None ... else { return } print(o)
+}
+
+fn i(xs: List<Int>) -> List<Int> {
+    return map(xs, (e) -> ...) return e * 2
+}
+
+comptime fn j(u: U) [] -> Int => u {
+    [if true] ... return 1
+}
+
+fn k(xs: List<Int>) {
+    for x in xs ... print(x) print(x)
+}
+
+fn l(xs: List<Int>) {
+    for x in xs ... when x {
+        is Int { print(x) }
+    }
+}
+
+fn m(xs: List<Int>) {
+    for x in f(xs,
+        xs) ... print(x)
+}
+
+fn n(xs: List<Int>) {
+    for x in a_function_with_a_long_name_that_goes_on_and_on(xs, xs, xs, xs, xs, xs, xs, xs, xs) ... print(x)
 }
 ";
     let (_module, diagnostics) = salvo_syntax::parse_module(source);
@@ -427,6 +464,34 @@ fn f(c: Bool, v: Int | Str) -> Int {
             "5:23 stmt-line:same-line",
             "6:41 stmt-line:same-line",
             "9:40 stmt-line:same-line",
+            "11:20 stmt-line:after-terminal",
+            "16:38 stmt-line:after-terminal",
+            "20:32 stmt-line:after-terminal",
+            "24:19 stmt-line:after-terminal",
+            "28:21 stmt-line:after-terminal",
+            "28:30 stmt-line:same-line",
+            "32:21 stmt-line:after-terminal",
+            "39:17 stmt-line:after-terminal",
+            "43:102 stmt-line:after-terminal",
+        ]
+    );
+    let fixes: Vec<&str> = diagnostics
+        .iter()
+        .filter(|d| d.id == Some("stmt-line:after-terminal"))
+        .map(|d| d.message.split_once("write ").map_or("", |(_, fix)| fix))
+        .collect();
+    let generic = "it in braces, `{ … }`, in place of the `...`";
+    assert_eq!(
+        fixes,
+        [
+            generic,
+            "`if o is None { print(o) } else { return }`",
+            "`return map(xs, (e) -> { return e * 2 })`",
+            "`[if true] { return 1 }`",
+            generic,
+            generic,
+            generic,
+            generic,
         ]
     );
 }

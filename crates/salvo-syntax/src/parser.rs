@@ -22,6 +22,29 @@ use crate::messages;
 use crate::span::Span;
 use crate::token::{StrPart, Token, TokenKind};
 
+/// [stmt-line] A statement or declaration begun on the line of what was read
+/// before it, at its first token.
+enum Joined {
+    /// After another statement or declaration.
+    Line(Span),
+    /// The first statement of a terminal `...` body, on the head's line,
+    /// with the text around the head's `...` where it is on one line.
+    Terminal(Span, Option<Braces>),
+}
+
+/// [stmt-line] The longest braces form a `stmt-line:after-terminal` message
+/// shows; a longer one is the generic `{ … }`.
+const BRACES_FORM_WIDTH: usize = 100;
+
+/// [stmt-line] A terminal `...` head's statement around its `...`: the text
+/// before it, the text after it, and where its body's first statement
+/// begins.
+struct Braces {
+    head: String,
+    tail: String,
+    first: u32,
+}
+
 pub struct Parser<'s> {
     source: &'s str,
     tokens: Vec<Token>,
@@ -77,8 +100,12 @@ pub struct Parser<'s> {
     in_stmt_expr: bool,
     /// [expr-terminal-lambda] Set when a trailing `(params) -> ...` lambda has been
     /// parsed in the current statement; its body is filled with the rest of the
-    /// block once the statement closes. At most one per statement.
-    pending_terminal_lambda: bool,
+    /// block once the statement closes. At most one per statement. Holds the
+    /// lambda's `...`.
+    pending_terminal_lambda: Option<Span>,
+    /// [stmt-line] Where the statement being parsed by `parse_block_stmt`
+    /// begins: the start of a terminal `...` head's text.
+    stmt_start: u32,
     /// [elvis-wrap] Suppresses the forward `?:`'s line-wrap: set while parsing
     /// a nested right side (a `return`/escape value) so a next-line `?:` is
     /// left for the *enclosing* elvis chain to pick up, bracketing everything
@@ -278,7 +305,8 @@ impl<'s> Parser<'s> {
             in_comp_pattern: false,
             allow_terminal: false,
             in_stmt_expr: false,
-            pending_terminal_lambda: false,
+            pending_terminal_lambda: None,
+            stmt_start: 0,
             elvis_no_wrap: false,
         }
     }
@@ -512,7 +540,7 @@ impl<'s> Parser<'s> {
         let mut uses = Vec::new();
         // [stmt-line] The first token of a declaration written on the line
         // of the one before it.
-        let mut joined: Option<Span> = None;
+        let mut joined: Option<Joined> = None;
         while !self.at_eof() {
             let before = self.pos;
             let mark = self.diagnostics.len();
@@ -728,7 +756,7 @@ impl<'s> Parser<'s> {
         }
         let mut items = Vec::new();
         // [stmt-line] As in the module's own list.
-        let mut joined: Option<Span> = None;
+        let mut joined: Option<Joined> = None;
         loop {
             if terminal {
                 // Runs to the end of the enclosing item list: EOF at the top
@@ -4723,7 +4751,7 @@ impl<'s> Parser<'s> {
                 }
                 self.expect(&TokenKind::RBrace)?;
                 // [stmt-line] The `state` block is the body's first line.
-                joined = self.joined_here();
+                joined = self.joined_here().map(Joined::Line);
             }
         }
         let stmts = self.parse_stmt_list(Self::parse_stmt, joined);
@@ -4753,12 +4781,14 @@ impl<'s> Parser<'s> {
     /// `}` next and ends, so nothing may follow at the same level.
     /// [stmt-line] The head (`for x in xs ...`, `if c ... else { … }`, a
     /// `(x) -> ...` argument) is a statement of its own line, so the body's
-    /// first statement starts on the next one.
-    fn parse_terminal_rest(&mut self) -> Block {
+    /// first statement starts on the next one; one written on the head's
+    /// line is refused naming the braces form (`stmt-line:after-terminal`).
+    /// `ellipsis` is the head's `...`.
+    fn parse_terminal_rest(&mut self, ellipsis: Span) -> Block {
         let start = self.peek().span;
         let saved_depth = std::mem::replace(&mut self.group_depth, 0);
         let saved_no_struct = std::mem::replace(&mut self.no_struct, false);
-        let joined = self.joined_here();
+        let joined = self.joined_here().map(|first| Joined::Terminal(first, self.terminal_head(ellipsis, first)));
         let stmts = self.parse_stmt_list(Self::parse_block_stmt, joined);
         self.group_depth = saved_depth;
         self.no_struct = saved_no_struct;
@@ -4780,8 +4810,8 @@ impl<'s> Parser<'s> {
                 self.error(messages::expr_terminal_scope_nested_body(what), span);
                 return None;
             }
-            self.bump(); // `...`
-            return Some((self.parse_terminal_rest(), true));
+            let ellipsis = self.bump().span;
+            return Some((self.parse_terminal_rest(ellipsis), true));
         }
         Some((self.parse_block()?, false))
     }
@@ -4820,20 +4850,20 @@ impl<'s> Parser<'s> {
         // statement expression tree (`in_stmt_expr`).
         self.allow_terminal = true;
         self.in_stmt_expr = true;
-        let stmt = self.parse_stmt();
+        let start = self.peek().span.start;
+        let saved_start = std::mem::replace(&mut self.stmt_start, start);
+        let mut stmt = self.parse_stmt();
         self.allow_terminal = false;
         self.in_stmt_expr = false;
         // [expr-terminal-lambda] If a trailing `(…) -> ...` lambda was parsed, the
         // rest of the enclosing block is now its body.
-        if self.pending_terminal_lambda {
-            self.pending_terminal_lambda = false;
-            let rest = self.parse_terminal_rest();
-            if let Some(mut s) = stmt {
-                fill_terminal_lambda(&mut s, rest);
-                return Some(s);
+        if let Some(ellipsis) = self.pending_terminal_lambda.take() {
+            let rest = self.parse_terminal_rest(ellipsis);
+            if let Some(s) = &mut stmt {
+                fill_terminal_lambda(s, rest);
             }
-            return stmt;
         }
+        self.stmt_start = saved_start;
         stmt
     }
 
@@ -4847,7 +4877,7 @@ impl<'s> Parser<'s> {
     /// not also where it sits. `joined` is the first statement's own token
     /// when what precedes the list ended a line's statement already (a
     /// terminal `...` head, an `iter fn`'s `state { … }`), else `None`.
-    fn parse_stmt_list(&mut self, stmt: fn(&mut Self) -> Option<Stmt>, mut joined: Option<Span>) -> Vec<Stmt> {
+    fn parse_stmt_list(&mut self, stmt: fn(&mut Self) -> Option<Stmt>, mut joined: Option<Joined>) -> Vec<Stmt> {
         let mut stmts = Vec::new();
         while !self.at(&TokenKind::RBrace) && !self.at_eof() {
             let before = self.pos;
@@ -4874,12 +4904,55 @@ impl<'s> Parser<'s> {
     /// line of the one before (`joined`), and records whether the next one
     /// begins on this one's line. The `}` closing the list, or the end of
     /// the input, may follow on the line.
-    fn end_of_line(&mut self, joined: &mut Option<Span>, mark: usize, what: &str) {
-        if let Some(span) = joined.take() {
-            self.diagnostics
-                .insert(mark, Diagnostic::error(messages::stmt_line_same_line(what), span));
+    fn end_of_line(&mut self, joined: &mut Option<Joined>, mark: usize, what: &str) {
+        let refused = match joined.take() {
+            Some(Joined::Line(span)) => Some(Diagnostic::error(messages::stmt_line_same_line(what), span)),
+            Some(Joined::Terminal(span, braces)) => {
+                let fix = self.braces_form(braces);
+                Some(Diagnostic::error(messages::stmt_line_after_terminal(fix.as_deref()), span))
+            }
+            None => None,
+        };
+        if let Some(d) = refused {
+            self.diagnostics.insert(mark, d);
         }
-        *joined = self.joined_here();
+        *joined = self.joined_here().map(Joined::Line);
+    }
+
+    /// [stmt-line] The text of a terminal `...` head's statement around its
+    /// `...` (`ellipsis`), for a body begun on the head's line at `first`:
+    /// the statement up to the `...`, and what the head wrote after it (an
+    /// inline `else { … }`, a call's closing `)`). `None` when either spans
+    /// lines.
+    fn terminal_head(&self, ellipsis: Span, first: Span) -> Option<Braces> {
+        let text = |a: u32, b: u32| self.source.get(a as usize..b as usize);
+        let head = text(self.stmt_start, ellipsis.start)?.trim_end();
+        let tail = text(ellipsis.end, first.start)?.trim();
+        (!head.is_empty() && !head.contains('\n') && !tail.contains('\n'))
+            .then(|| Braces { head: head.to_string(), tail: tail.to_string(), first: first.start })
+    }
+
+    /// [stmt-line] The statement of `braces` with its body in braces, once
+    /// that body's first statement has parsed: `None` when that statement
+    /// ran past its line or is not the whole body (another follows it, on
+    /// the line or below), or the form would be longer than a message can
+    /// show.
+    fn braces_form(&self, braces: Option<Braces>) -> Option<String> {
+        let Braces { head, tail, first } = braces?;
+        let end = self.tokens[..self.pos].last()?.span.end;
+        let body = self.source.get(first as usize..end as usize)?;
+        // The braces hold the whole body, or the fix would move what follows
+        // out of the construct.
+        let whole = self.at(&TokenKind::RBrace) || self.at_eof();
+        if body.contains('\n') || !whole {
+            return None;
+        }
+        let form = match tail.as_str() {
+            "" => format!("{head} {{ {body} }}"),
+            t if t.starts_with("else") => format!("{head} {{ {body} }} {t}"),
+            t => format!("{head} {{ {body} }}{t}"),
+        };
+        (form.chars().count() <= BRACES_FORM_WIDTH).then_some(form)
     }
 
     /// [stmt-line] The current token's span when it begins a statement or
@@ -5068,7 +5141,7 @@ impl<'s> Parser<'s> {
                         self.error(messages::expr_terminal_scope_nested_comptime_if(), span);
                         return None;
                     }
-                    self.bump();
+                    let ellipsis = self.bump().span;
                     let mut else_ = None;
                     if self.at(&TokenKind::KwElse) {
                         self.bump();
@@ -5082,7 +5155,7 @@ impl<'s> Parser<'s> {
                         }
                         else_ = Some(self.parse_block()?);
                     }
-                    let then = self.parse_terminal_rest();
+                    let then = self.parse_terminal_rest(ellipsis);
                     // The rest follows the `else`, so it is what the statement ends with.
                     let span = start.to(then.span);
                     return Some(CompStmt::If { cond, then, else_, span });
@@ -6057,13 +6130,12 @@ impl<'s> Parser<'s> {
                 self.error(messages::expr_terminal_lambda_nested(), span);
                 return None;
             }
-            if self.pending_terminal_lambda {
+            if self.pending_terminal_lambda.is_some() {
                 let span = self.peek().span;
                 self.error(messages::expr_terminal_lambda_two_per_statement(), span);
                 return None;
             }
-            self.bump(); // `...`
-            self.pending_terminal_lambda = true;
+            self.pending_terminal_lambda = Some(self.bump().span); // `...`
             return Some(LambdaBody::Terminal);
         }
         let saved_in_stmt = std::mem::replace(&mut self.in_stmt_expr, false);
@@ -7898,7 +7970,7 @@ impl<'s> Parser<'s> {
                 self.error(messages::expr_terminal_scope_nested_if(), span);
                 return None;
             }
-            self.bump(); // `...`
+            let ellipsis = self.bump().span; // `...`
             let mut else_block = None;
             if self.at(&TokenKind::KwElif) {
                 let span = self.peek().span;
@@ -7915,7 +7987,7 @@ impl<'s> Parser<'s> {
                 else_block = Some(self.parse_block()?);
             }
             // Now the rest of the enclosing block is the then-body.
-            let then_block = self.parse_terminal_rest();
+            let then_block = self.parse_terminal_rest(ellipsis);
             let end = else_block
                 .as_ref()
                 .map(|b| b.span)
