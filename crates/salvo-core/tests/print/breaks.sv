@@ -10,15 +10,15 @@ struct Point {
 
 type Short = Int | Str
 
-type Broken = Int |
-    Str
+type Broken = Int
+    | Str
 
-type Long = FirstLongArmName |
-    SecondLongArmName |
-    ThirdLongArmName |
-    FourthLongArmName |
-    FifthLongArmName |
-    Sixth
+type Long = FirstLongArmName
+    | SecondLongArmName
+    | ThirdLongArmName
+    | FourthLongArmName
+    | FifthLongArmName
+    | Sixth
 
 fn short(a: Int, b: Int) -> Int {
     return a + b
@@ -151,25 +151,25 @@ fn chains(m: Int?, xs: List<Int>, ok: Bool, done: Bool) {
     if ok && done {
         return
     }
-    if ok &&
-        done {
+    if ok
+        && done {
         return
     }
-    if first_condition_of_the_test(ok) && second_condition_of_the_test(done) ||
-        third_condition_of_the_test(ok) {
+    if first_condition_of_the_test(ok) && second_condition_of_the_test(done)
+        || third_condition_of_the_test(ok) {
         return
     }
     let sum = 1 + 2 + 3
-    let sum = 1 +
-        2 +
-        3
-    let sum = first_summand_of_the_total(xs) +
-        second_summand_of_the_total(xs) +
-        third_summand_of_the_total(xs) +
-        4
+    let sum = 1
+        + 2
+        + 3
+    let sum = first_summand_of_the_total(xs)
+        + second_summand_of_the_total(xs)
+        + third_summand_of_the_total(xs)
+        + 4
     let in_brackets = check(m is Int | Str)
-    let in_brackets = check(m is Int |
-        Str)
+    let in_brackets = check(m is Int
+        | Str)
     total(1) replyto got(1)
     total(1)
         replyto got(1)

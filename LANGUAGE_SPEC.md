@@ -614,7 +614,9 @@ Conventions:
     **newline brackets everything before it on the left** (user decision
     2026-10-12): a `return`/escape right side stops at the newline, so the
     next-line pick applies to the whole chain so far, not to the escape's
-    value — `x ?: return e\n    ?: d` is `(x ?: return e) ?: d`. A lone `?` or
+    value — `x ?: return e\n    ?: d` is `(x ?: return e) ?: d` (a leading
+    binary operator is not flattening and binds at its own precedence, so
+    the escape's value takes it, [expr-wrap] below). A lone `?` or
     `:` that is not a `?:` is left unconsumed, so a stray leading `:` is not
     swallowed.
   * **[expr-wrap] A postfix `.member`/`.method(…)` on a continuation line
@@ -627,6 +629,58 @@ Conventions:
     stops at the newline (as above). A same-line trailer is unchanged; only a
     newline-leading one brackets left. (A wrapped method chain
     `x\n    .a()\n    .b()` reads `((x).a()).b()` by the same rule.)
+  * [expr-wrap] **A binary operator may begin a continuation line, or end
+    the line it continues** (user decision 2026-11-12): `a\n    && b` and
+    `a &&\n    b` are both `a && b`, two layouts of one grammar, and the
+    formatter prints the first [fmt-width]. The operators: `||`, `&&`, `==`,
+    `!=`, `<`, `>`, `<=`, `>=`, `is`, `!is`, `as!`, `as?`, `+`, `-`, `*`,
+    `/`, `%`, `**`, and the `|` of an `is A | B` test or a `when` arm's head
+    [is-union] [when-union-head] (a union type's `|` always continued, in a
+    type position). Unlike the flattening operators above, a leading binary
+    operator **binds at its own precedence** with the expression so far, as
+    on one line — the newline is layout, and indentation means nothing:
+    `a\n    + b * c` is `a + (b * c)`, `x ?: y\n    + 1` is `x ?: (y + 1)`
+    (`+` binds tighter than `?:`), and an escape's value takes it, so
+    `x ?: return e\n    + 1` is `x ?: return (e + 1)`.
+    * **Not after a `}`** (outside brackets): a line that begins with one of
+      these operators directly after a `}` — a block's, a `when`'s or an
+      `if`'s used as a value, a struct literal's — is an error,
+      `expr-wrap:after-brace`, `-` included, naming the fixes (the operator
+      at the end of the line above, or the expression in parentheses, whose
+      `)` is continued). The `}` may end a statement (`if c { … }`, `for …
+      { … }`), after which the line would read as a new statement (a `-x`
+      negation) to one reader and as a continuation to another; refusing it
+      after every `}` silently changes no program's meaning and leaves no
+      line that reads two ways (agent's call under the user's brief, to
+      confirm; ROADMAP §0av). A `}` inside brackets
+      is no line's end, so `(if c { 1 } else { 2 })\n    + 3` and
+      `apply((x) -> { x })\n    + 1` continue. A subject-less `when`'s arm
+      condition after the arm before it (`-x > 0 { … }`) is the next arm, as
+      no expression is open there. The error steps over the operator, so its
+      operand is checked as the statement; after `is`, `as!`, `as?` or `|`
+      the line is skipped.
+    * **Not after a trailing `(x) -> ...` argument** [expr-terminal-lambda]:
+      the body starts on the next line, so that line is the body's first
+      statement. **Nor after a value-less escape** (`return`, `break` or
+      `continue` last on its line [expr-escape]): its value ended at the
+      newline, so `return` / `-x` is a `return`, then an unreachable `-x`.
+    * **After a line-leading `.` or `replyto` link**, which brackets the
+      whole expression so far, a line-leading infix operator continues that
+      whole: `xs\n    .size()\n    - 1` is `(xs.size()) - 1` (`parse_expr`
+      runs the binary loop again after `newline_postfix`).
+    * **`--` and `++` are one token each** [op-inc-dec], so a line beginning
+      with one is a prefix step, a statement of its own (`a\n--b` is `a`,
+      then `--b`); `a\n- -b` is `a - (-b)`. `!` is prefix-only and begins a
+      statement; `!is` is the operator.
+    * **A negation cannot begin a line after an expression**: `f()\n
+      -x` is `f() - x`. As a statement a negation has no use, but as a
+      block's value it does, and there it must be parenthesized: in `if ok
+      {\n    n += 1\n    -1\n}` the branch is `n += 1 - 1`, of no value,
+      where `(-1)` is the value `-1` (`check/syntax/leading_operators.sv`;
+      ROADMAP §0av).
+    * **Not continued**: an assignment's `=` and a compound assignment
+      (`+=`, …) are statements' operators, not binary ones, and a newline
+      before them still ends the statement [op-compound].
   * **The subject is evaluated once**, and the form needs no position
     restriction (unlike a call subject in an `is` [loop-while-is]): a subject
     that is not a place is bound to a temporary internal to the lowering
@@ -2834,13 +2888,16 @@ Conventions:
   `Expr::Binary` over a `BinaryOp`.
   * **Statement termination is by newline** [expr-escape]: a token carries
     `newline_before`, and `same_line` is "no newline before, or inside a
-    bracket group". Most operators require their line — a newline before `+`,
-    `==`, `&&`, `is`, … ends the statement. Only the **flattening** operators
-    continue across a newline (`|>` and the elvis forms here, and the postfix
-    `.`/`replyto` in [expr-wrap]); a newline-leading one brackets the whole
-    expression so far on its left, which the loop's left fold produces for
-    free, since a flattening operator sits at a loose level and its left side
-    is already complete.
+    bracket group". A newline ends the statement unless the next line begins
+    with an infix operator [expr-wrap]. A **binary** operator there
+    (`continues_line`) binds at its own level with the expression so far,
+    exactly as on one line, and does not continue after a `}`, a value-less
+    escape or a trailing `(x) -> ...` argument. The **flattening** operators (`|>` and the elvis
+    forms here, and the postfix `.`/`replyto` in [expr-wrap]) continue after
+    a `}` too, and a newline-leading one brackets the whole expression so far
+    on its left, which the loop's left fold produces for free, since a
+    flattening operator sits at a loose level and its left side is already
+    complete.
   * **Explicit parentheses override precedence across lines too**: inside
     `(…)`/`[…]` newlines are ignored (`group_depth > 0`), so a chain wrapped
     inside parentheses is one expression regardless of which operators it
@@ -3091,7 +3148,8 @@ Conventions:
     b)`, `a ** b ** c` is `a ** (b ** c)`, `2 ** -1` is `2 ** (-1)`, `a * b
     ** c` is `a * (b ** c)` (the brief says nothing; chosen as most languages
     with the operator, Python's rule; §II.10 P18, for confirmation).
-    Same-line only, as `*`; one token `**`; no `**=`.
+    It may begin a continuation line, as `*` may [expr-wrap]; one token
+    `**`; its compound assignment is `**=` [op-compound].
   * **No widening**: an exponent is not the same kind of operand as a base,
     so `a ** b` is the call at the written types, and a mixed pair is the
     call's business, not [op-promote]'s.
@@ -13425,11 +13483,11 @@ replaced the working document TESTING.md).
     continuation lines one level in: a postfix chain of calls
     (`x\n    .f()\n    .g()`, breaking before each `.` that opens a call and
     before a `?.` call inside brackets), a `?:` chain, a `|>`/`?>` chain and
-    a trailing `replyto` chain with the operator leading each continuation
-    line; a run of one binary operator's level (`&&`, `||`, `==`/`!=`,
-    comparisons, `+`/`-`, `*`/`/`/`%`), a union type `A | B | C` and an `is
-    A | B` head with the operator ending each line, since it may not begin
-    one. A fn's deduction clause goes on a line of its own, indented with the
+    a trailing `replyto` chain, a run of one binary operator's level (`&&`,
+    `||`, `==`/`!=`, comparisons, `+`/`-`, `*`/`/`/`%`), a union type `A |
+    B | C` and an `is A | B` head with the operator leading each
+    continuation line (user decision 2026-11-12); a run inside a run (`a +
+    b * c` with both broken) sits one level further in. A fn's deduction clause goes on a line of its own, indented with the
     declaration [deduce-syntax], and its effect list and return type stay on
     the `)` line. A `when`'s arms are one per line already. Not broken
     (yet): a declaration's generic parameters, a `refn`'s parameters, an
@@ -13444,12 +13502,14 @@ replaced the working document TESTING.md).
     newline-leading `.` brackets all of it on its left) — elsewhere at depth
     0 a leading `.` would take a different left side, so a chain there does
     not break; inside brackets a newline is nothing, so a chain breaks there
-    anywhere, `?.` included. Every other binary operator ends its line
-    (`a &&\n    b` parses as `a && b`; `a\n    && b` ends the statement), and
-    an `is` head's `|` only inside brackets, where its tests may follow on
-    the next line. No break is ever made where the parser would end the
-    statement: every broken form parses back to the same tree
-    (`print_tests.rs`).
+    anywhere, `?.` included. A binary operator and an `is` head's or a union
+    type's `|` lead their line anywhere, except a binary operator directly
+    after a `}` outside brackets (or after a trailing `(x) -> ...`
+    argument), which the parser would not continue: there it ends its line
+    (`Point { x: 1 } ==\n    p`), the form that parses
+    (`Printer::binary_op`). An author's trailing operators print leading. No
+    break is ever made where the parser would end the statement: every
+    broken form parses back to the same tree (`print_tests.rs`).
   * **How a line too wide is broken**: each statement, declaration, member
     and field is a unit printed on its lines; when a line of it is too wide,
     the constructs on that line printed on one line are tried outermost

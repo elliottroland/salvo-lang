@@ -440,15 +440,61 @@ All of them are left-associative except `**`, which is right-associative and
 also binds tighter than a `-` on its left
 ([Power](Data-and-Types.md#power)).
 
-Statements end at a newline, so most operators must stay on their line: a line
-that *begins* with `+` or `==` is a new statement, not a continuation.
-Explicit parentheses group across lines, which is how a precedence other than
-the default is written.
+Statements end at a newline, except where the next line begins with an
+operator. A binary operator (`&&`, `||`, `==`, `!=`, `<`, `<=`, `>`, `>=`,
+`+`, `-`, `*`, `/`, `%`, `**`, the `is`/`!is` tests, `as!`/`as?`, and the
+`|` of an `is A | B` test or a union type) may begin a continuation line, or
+end the line it continues: both are layouts of one expression, which binds
+by the table above as it would on one line, so
 
-A handful of **flattening** operators are the exception: they may begin a
-continuation line, and when they do, the newline brackets everything before it
-on the left. These are the pick (`?:`), the postfix `.`/method chain, the
-`replyto` of a send, and the **pipe**:
+```salvo
+let total = base
+    + rate * hours        // base + (rate * hours)
+let ready = loaded &&
+    checked               // loaded && checked
+```
+
+and `x ?: y` with `+ 1` on the next line is `x ?: (y + 1)`, as on one line.
+The formatter writes the first layout, the operator leading. Indentation
+means nothing to the parser.
+
+Two places are not continued:
+
+* **After a `}`**: a line that begins with a binary operator directly after
+  a `}` (a block's, a `when`'s, a struct literal's) is an error, `-`
+  included. The `}` may end a statement (`if c { … }`), so the line would
+  read as a continuation to some readers and as a new statement to others;
+  write the operator at the end of the line above, or put the expression in
+  parentheses (`(Point { x: 1 })`), whose `)` is continued.
+* **A line that begins with `--` or `++`** is a prefix step, a statement of
+  its own: those are one token each. (`- -x` is a subtraction of `-x`.)
+
+So `-x` on a line of its own after an expression subtracts `x` from it. A
+negation that is a block's value, after another statement, is written in
+parentheses:
+
+```salvo
+let sign = if negative {
+    count += 1
+    (-1)                  // without the parentheses: `count += 1 - 1`
+} else {
+    1
+}
+```
+
+A line after a `return`, `break` or `continue` with no value is a statement
+of its own, and so is the line after a `(x) -> ...` argument, which begins
+the lambda's body. After a line that begins with `.` (which applies to
+everything before it), a line that begins with an operator continues the
+whole: `xs` / `.size()` / `- 1` is `xs.size() - 1`.
+
+Explicit parentheses group across lines, which is how a precedence other than
+the default is written: inside `(…)` and `[…]` a newline is nothing.
+
+A handful of **flattening** operators work differently: they may begin a
+continuation line, after a `}` too, and when they do, the newline brackets
+everything before it on the left. These are the pick (`?:`), the postfix
+`.`/method chain, the `replyto` of a send, and the **pipe**:
 
 ```salvo
 calculate_age(person) |> list.add(_)

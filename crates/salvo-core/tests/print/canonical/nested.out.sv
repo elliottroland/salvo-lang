@@ -9,18 +9,18 @@ fn f(ok: Bool, done: Bool) {
             the_second_argument,
             the_third_argument_xxxxxxxxxxxxxxxxxxxxxxxx
         )
-    } elif first_condition_of_the_test(ok) &&
-        second_condition_of_the_test(done) &&
-        third_condition_of_the_test(ok) &&
-        more(ok) {
+    } elif first_condition_of_the_test(ok)
+        && second_condition_of_the_test(done)
+        && third_condition_of_the_test(ok)
+        && more(ok) {
         return
     }
     if ok {
         println("a string longer than the width on a line of its own too is never broken, and the call around it is not broken either")
-    } elif first_condition_of_the_test(ok) &&
-        second_condition_of_the_test(done) &&
-        third_condition_of_the_test(ok) &&
-        more(ok) {
+    } elif first_condition_of_the_test(ok)
+        && second_condition_of_the_test(done)
+        && third_condition_of_the_test(ok)
+        && more(ok) {
         return
     }
     let r = xs.map((x) -> {

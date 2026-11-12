@@ -249,17 +249,17 @@ export threadsafe platform handler HostArgs for Args
 // A `validate` function (see [parse_valid]) throws one of these, usually
 // an [Invalid], for a rule between options.
 // @compilerrules [args-errors]
-export type ArgError = UnknownOption |
-    MissingValue |
-    Missing |
-    Invalid |
-    Unexpected |
-    Repeated |
-    Requires |
-    Conflict |
-    MissingOne |
-    UnknownCommand |
-    HelpRequested
+export type ArgError = UnknownOption
+    | MissingValue
+    | Missing
+    | Invalid
+    | Unexpected
+    | Repeated
+    | Requires
+    | Conflict
+    | MissingOne
+    | UnknownCommand
+    | HelpRequested
 
 // An option the command does not have: `--prot`, or `-x`. [message] reads
 // `unknown option '--prot'`.
@@ -2300,8 +2300,8 @@ export comptime fn from_found<T is Struct>(found: Found) [] -> Ok T | Errs NonEm
                     [if arm.type.kind is Struct] {
                         let s: Spec<[arm.type]> = arg_spec()
                         if is_command@args(found, s.name) {
-                            let r: Ok [arm.type] |
-                                Errs NonEmpty List<ArgError> = parse_named@args(found.rest, copy@basic(found.path))
+                            let r: Ok [arm.type]
+                                | Errs NonEmpty List<ArgError> = parse_named@args(found.rest, copy@basic(found.path))
                             group_errors@args(errors, r, 0)
                         }
                     }

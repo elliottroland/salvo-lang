@@ -333,7 +333,8 @@ struct Printer<'n> {
     wrap: bool,
     /// [fmt-width] How many brackets the parser would be inside here
     /// (`group_depth`): inside one a newline ends nothing, so any break is
-    /// free; outside, only the flattening operators may begin a line.
+    /// free; outside, an infix operator may begin a line, a binary one not
+    /// after a `}`, and a postfix `.` only in a statement slot (`root`).
     group: u32,
     /// [fmt-width] The expression a statement slot holds, which the parser
     /// reads with its continuation lines (`parse_expr`): a postfix chain or
@@ -356,8 +357,7 @@ struct Printer<'n> {
     /// [fmt-width] How many units are being printed.
     units: u32,
     /// [fmt-width] The links of the chains being printed broken: a newline
-    /// goes before (or, for an operator that may not begin a line, after)
-    /// each.
+    /// goes before (or, for a binary operator after a `}`, after) each.
     breaks: Vec<NodeAddr>,
     /// [fmt-width] The nodes of the chains being printed: one of them is
     /// a link of a chain already decided, not a chain of its own.
@@ -800,9 +800,9 @@ impl<'n> Printer<'n> {
     }
 
     /// [fmt-width] [fmt-author-breaks] Items joined by ` | ` (a union type's
-    /// arms, an `is` head's tests), broken after each `|`, which may not
-    /// begin a line [expr-wrap], when the author broke them at one of `gaps`
-    /// or the width does; when not `breakable` they stay on one line.
+    /// arms, an `is` head's tests), broken before each `|`, which then
+    /// begins its line [expr-wrap], when the author broke them at one of
+    /// `gaps` or the width does; when not `breakable` they stay on one line.
     fn bar_list<T>(&mut self, items: &[T], anchor: Span, gaps: &[(u32, u32)], breakable: bool, mut print: impl FnMut(&mut Self, usize, &T)) {
         let n = self.construct();
         let broken = breakable && (self.written_broken(anchor, gaps) || self.width_breaks(n));
@@ -810,11 +810,11 @@ impl<'n> Printer<'n> {
         self.indent += usize::from(broken);
         for (i, it) in items.iter().enumerate() {
             if i > 0 {
-                self.push(" |");
                 if broken {
                     self.newline();
+                    self.push("| ");
                 } else {
-                    self.push(" ");
+                    self.push(" | ");
                 }
             }
             print(self, i, it);
@@ -994,8 +994,29 @@ impl<'n> Printer<'n> {
         }
     }
 
-    /// An operator that may not begin a line [expr-wrap]: it ends the line
-    /// when the chain breaks at `x`.
+    /// A binary operator [expr-wrap]: it begins the next line when the chain
+    /// breaks at `x`, except where the parser would not read a line it
+    /// begins as a continuation (after a `}`, or after a trailing `(x) ->
+    /// ...` argument, outside brackets), where it ends its line instead.
+    fn binary_op<T: 'static>(&mut self, x: &T, op: &str) {
+        if self.group == 0 && (self.code_ends_in_brace() || self.pending_rest.is_some()) {
+            self.trailing_op(x, op);
+        } else {
+            self.leading_op(x, op);
+        }
+    }
+
+    /// Whether the code printed last, its line's comment left out, is a `}`.
+    fn code_ends_in_brace(&self) -> bool {
+        let end = match self.eol_comments.last() {
+            Some(&(at, end)) if self.eol && end as usize == self.out.len() => at as usize,
+            _ => self.out.len(),
+        };
+        self.out[..end].trim_end().ends_with('}')
+    }
+
+    /// An operator that ends the line when the chain breaks at `x`: a
+    /// binary operator after a `}` [expr-wrap].
     fn trailing_op<T: 'static>(&mut self, x: &T, op: &str) {
         self.push(" ");
         self.push(op);
@@ -2521,7 +2542,7 @@ impl<'n> Printer<'n> {
                     self.list(&effects, ", ", |p, e| p.ty(e));
                     self.push("]");
                 } else {
-                    // [fmt-width] A union breaks after each `|`.
+                    // [fmt-width] A union breaks before each `|`.
                     let gaps: Vec<(u32, u32)> = arms.windows(2).map(|w| (w[0].span().end, w[1].span().start)).collect();
                     self.bar_list(arms, t.span(), &gaps, true, |p, _, a| {
                         // A fn type takes the arms after it into its return
@@ -3263,7 +3284,7 @@ impl<'n> Printer<'n> {
                     self.expr(rhs, PREFIX);
                 } else {
                     self.expr(lhs, level);
-                    self.trailing_op(e, binary_symbol(*op));
+                    self.binary_op(e, binary_symbol(*op));
                     self.expr(rhs, level + 1);
                 }
             }
@@ -3576,10 +3597,9 @@ impl<'n> Printer<'n> {
             Sugar::Is { subject, checks, binding, not, span } => {
                 self.expr(subject, COMPARE);
                 self.push(if not.is_some() { " !is " } else { " is " });
-                // [fmt-width] The tests break after each `|`, inside brackets
-                // alone: outside, a test must start on the line of its `|`.
+                // [fmt-width] The tests break before each `|`.
                 let gaps: Vec<(u32, u32)> = checks.windows(2).filter_map(|w| Some((w[0].last()?.span.end, w[1].first()?.span.start))).collect();
-                let breakable = self.group > 0 && checks.len() > 1;
+                let breakable = checks.len() > 1;
                 self.bar_list(checks, *span, &gaps, breakable, |p, i, check| {
                     p.list(check, " ", |p, r| p.type_ref(r));
                     if let (0, Some(b)) = (i, binding) {

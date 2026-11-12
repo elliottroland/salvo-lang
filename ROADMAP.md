@@ -1025,22 +1025,49 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   * **DECISION: the agent's calls inside stage F, to confirm** (built
     2026-11-12, COMPLETED.md's stage-F entry): (1) only a source printing
     breaks lines; a dump, `expr_text`, `type_text` and `${…}` stay on one
-    line; (2) a binary operator, a union type's `|` and an `is` head's `|`
-    end the line rather than lead the next, because a newline before them
-    ends the statement (`?:`, `|>`, `?>`, `.` and `replyto` lead); (3) a
-    broken `if`/`while` condition's continuation lines sit one level in,
-    the body's indentation too (`if a &&` / `    b {` / `    body`), as
-    Go's do, where Kotlin's style indents a continuation two levels; (4) an
-    `is A | B` head breaks inside brackets only (`if x is A |` / `B {` does
-    not parse), and a `.` chain at depth 0 only where it is a statement
-    slot's whole expression, so `!x.f().g()` or `a + x.f().g()` breaks its
-    calls' arguments instead; (5) one `.f(…)` call on a value breaks its
-    arguments, not before its `.`; (6) the width breaks outermost first, so
-    `show(List("-v", …))` too wide prints `show(` / `List(` / one item per
-    line, never the "hugged" `show(List(` rustfmt and Kotlin write; (7) a
-    fn header too wide breaks its parameters before it moves its deduction
-    clause to its own line (both are tried outermost first, and the
-    parameters come first).
+    line; (2) a broken `if`/`while` condition's continuation lines sit one
+    level in, the body's indentation too (`if a` / `    && b {` /
+    `    body`), where Kotlin's style indents a continuation two levels (with
+    the operator leading since 2026-11-12, the continuation is told from the
+    body by its first token as well); (3) a `.` chain at depth 0 breaks only
+    where it is a statement slot's whole expression, so `!x.f().g()` or `a +
+    x.f().g()` breaks its calls' arguments instead; (4) one `.f(…)` call on
+    a value breaks its arguments, not before its `.`; (5) the width breaks
+    outermost first, so `show(List("-v", …))` too wide prints `show(` /
+    `List(` / one item per line, never the "hugged" `show(List(` rustfmt
+    and Kotlin write; (6) a fn header too wide breaks its parameters before
+    it moves its deduction clause to its own line (both are tried outermost
+    first, and the parameters come first).
+  * **DECISION: the agent's calls inside the leading-operator change, to
+    confirm** (built 2026-11-12, COMPLETED.md's entry of that day): (1) a
+    line that begins with a binary operator directly after a `}` (outside
+    brackets) is an error, `expr-wrap:after-brace`, `-` included, rather
+    than a continuation or (for `-`) a negation statement; the formatter
+    ends such a line with its operator (`Point { x: 1 } ==` / `    p`);
+    (2) the trailing `|` of an `is A |` / `B` head now parses too, as the
+    trailing form of every other binary operator does; (3) a run of a
+    tighter level inside a broken run sits one level further in (`if ok` /
+    `        && done` / `    || a > b {`); (4) `x ?: return e` / `+ 1` is
+    `x ?: return (e + 1)`: a leading binary operator binds at its own
+    precedence everywhere, an escape's value included, unlike a leading
+    `?:`; (5) an operator leading the line after a line-leading `.` link
+    continues the bracketed whole (`xs` / `.size()` / `- 1` is
+    `(xs.size()) - 1`, where it was `xs.size()` and a statement `-1`); (6)
+    nothing continues a value-less `return`, `break` or `continue`.
+  * **DECISION: a negation as a block's value** (found 2026-11-12 building
+    the change; the brief called a line-leading `-x` statement useless,
+    which holds for a statement but not for a block's last expression): in
+    `if ok {` / `n += 1` / `-1` / `}` the `-1` now continues `n += 1`, so
+    the branch has no value and the `if` is `Int?`, an error only where an
+    `Int` is needed. The repository had none (the detector of that day's
+    entry). Options: leave it (parentheses, `(-1)`, as documented); warn
+    where a line-leading `-` continues a statement that is not a block's
+    last and whose block's value is read; or refuse a line-leading `-`
+    after a statement of a block whose value is read.
+  * **Left by the leading-operator change** (2026-11-12): a `when` arm's `is A | B` head is not broken by the formatter (its
+    `|` may lead a line in the parser); comments inside a chain still move
+    to the statement's end (`a // c` / `+ b` prints `a` / `+ b // c`), as
+    they did for every chain before.
   * **Not broken yet** (stage F): a declaration's generic parameters
     (`fn f<A, B>`), a `refn`'s parameters, an effect list (`[A, B]`,
     `eff[…]`, a projection's `x[A]`) and a test kind's arguments print on

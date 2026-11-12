@@ -152,6 +152,112 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — A binary operator may lead its continuation line ([expr-wrap] [fmt-width])
+
+User decision 2026-11-12 (ROADMAP §0av, stage F's call (2) reversed): a
+binary operator may begin a continuation line, as `?:`, `|>` and `?>`
+already did, and the formatter prints that form. Until then a newline ended
+the statement before every binary operator (`let x = a` / `&& b` was
+"expected expression, found `&&`"), so the formatter ended lines with them.
+
+- **The operators** (the infix table, `infix_bp`, plus `parse_power` and
+  the two `is`-head loops): `||`, `&&`, `==`, `!=`, `<`, `>`, `<=`, `>=`,
+  `is`, `!is`, `as!`, `as?`, `+`, `-`, `*`, `/`, `%`, `**`, and the `|` of
+  an `is A | B` test and of a `when` arm's head. A union type's `|` was
+  already continued in either layout (`parse_type` reads `|` across a
+  newline). Not operators of this kind: `=` and the compound assignments,
+  which are statements' and still end at a newline; `!`, prefix-only.
+- **Both layouts are one grammar**: `a &&` / `b` still parses, and the
+  trailing `|` of an `is A |` / `B` head now does too
+  (`parse_is_check_after_bar`). A leading operator binds at its own
+  precedence with the expression so far, as on one line, so `a` / `+ b * c`
+  is `a + (b * c)`, `x ?: y` / `+ 1` is `x ?: (y + 1)`, and an escape's
+  value takes it (`x ?: return e` / `+ 1` is `x ?: return (e + 1)`): unlike
+  the flattening operators, nothing brackets left (`Parser::continues_line`
+  is the gate).
+- **After a `}`, not a continuation, and an error** (agent's call under the
+  brief, to confirm, ROADMAP §0av): a line that begins with one of these
+  operators directly after a `}` outside brackets is refused,
+  `expr-wrap:after-brace`, `-` included (`binary_after_brace`, at a
+  statement's start; for `-` the message adds the negation's spelling,
+  `(-x)`). The `}` may close a statement (`if`, `for`, a
+  `when`'s), and a struct literal, an `if` or a `when` used as a value
+  cannot be told from one by the token, so continuing would have changed
+  the meaning of `if c { … }` / `-x` (a negation statement until then),
+  and treating it as a new statement would leave `let v = when … { … }` /
+  `- 1` silently negating `1`. The error keeps the meaning of every program
+  with a `}` there; the fixes it names are the trailing operator or parentheses
+  (`(Point { x: 1 })` / `+ …`, a `)` being continued). Also not continued:
+  the line after a trailing `(x) -> ...` argument, which is the lambda
+  body's first statement. A subject-less `when`'s arm after an arm's `}`
+  (`-x > 0 { … }`) is the next arm, since no expression is open there.
+- **Also not continued**: a value-less `return`, `break` or `continue`
+  (`Parser::after_escape`; the review found `return` / `-x` had become
+  `return - x`). **Continued**, after the review: the line after a
+  line-leading `.` link (`xs` / `.size()` / `- 1` is `(xs.size()) - 1`;
+  `parse_expr` runs the binary loop again after `newline_postfix`), where
+  it would otherwise have been the one place a `-` still silently began a
+  negation statement after an expression. A search over every `.sv`,
+  Markdown and Rust file for a line-leading operator after a line-leading
+  `.` found none in Salvo.
+- **A negation as a block's value** (found by the review): `n += 1` / `-1`
+  as a block's last two lines is now `n += 1 - 1`, so the block has no
+  value; `(-1)` is the spelling. Documented and asserted
+  (`a_negation_as_a_block_s_value_needs_parentheses`), and left to the user
+  (ROADMAP §0av).
+- **`a` / `--b`** is two statements: the lexer reads `--` and `++` as one
+  token, a prefix step [op-inc-dec]; `a` / `- -b` is `a - (-b)`.
+- **What changed meaning** (a temporary detector parsed every `.sv` of the
+  repository, every `salvo`/untagged fence of the Markdown files and of
+  comments, and every Rust string holding a `fn`: 2,908 sources from 1,800
+  files, under the old rule and the new, and compared trees and
+  diagnostics): one Salvo source, `check/syntax/expressions.sv`'s
+  `comparison_does_not_wrap_across_lines`, which asserted the old error and
+  is gone (the new file covers it). The two other differences were Rust
+  host code inside Salvo test data (`*n += 1` in `run/platform/boundary.sv`
+  and `platform_tests.rs`), parsed as Salvo by the detector only. No source
+  had a `-` line after an expression or a `}`.
+- **The formatter** (`print.rs`): a broken binary run, a union type and an
+  `is` head print their operator leading each continuation line, one level
+  in, at any depth now (an `is` head broke inside brackets only); a run of a
+  tighter level inside a broken run sits one level further in. Directly
+  after a `}` outside brackets, or in a statement holding a trailing `(x)
+  -> ...`, a binary operator ends its line instead (`Printer::binary_op`,
+  `code_ends_in_brace`). Author breaks still decide all or nothing, so
+  trailing operators written by the author print leading.
+- **Reformatted** (stage H's scope, 92 files): `lib/std/args.sv` and
+  `lib/std/fs.sv`, their error unions (`ArgError`, `FsError`) and one
+  union-typed `let` in `args.sv`; no line was added or removed, so nothing
+  derived from std's line numbers moved. `breaks.sv`, `canonical/widths` and
+  `canonical/nested` print the leading form.
+- **Tests**: check data `syntax/leading_operators.sv` (every operator
+  leading, in `let`s, `if`/`while` conditions, a `return`, a type alias, a
+  `let`'s type and a `when` head; the trailing `is` `|`; the `}` inside
+  brackets continued; prefix steps; the subject-less `when`'s arms; the
+  error after a block's, a `when`'s, an `if` value's, a struct literal's
+  and a `for`'s `}`; the line after a `.` link continued; a value-less
+  `return` not continued; a block's value `-1` against `(-1)`, by type; a
+  trailing `(e) -> ...` argument's body); run data `operators/a_line_led_by_a_binary_operator.sv`
+  (the values: precedence across lines, `x ?: 10` / `+ 1`, `--n` as a
+  statement, `- -n`, a leading `is`); canonical fixture `leading_operators`
+  (each family written trailing, printed leading; nested runs; the `}`
+  fallback and the trailing `(x) -> ...` one; a `when` inside a broken run,
+  which sits one level in with it, as any block in a chain did). The repo walk's `bare` check passed over the leading form
+  unchanged.
+- **Docs**: [expr-wrap] (the binary rule beside the postfix one),
+  [elvis-wrap], [expr-infix]'s termination note, [op-pow] (also a stale
+  "no `**=`": `**=` exists since 2026-10-30, [op-compound]), [fmt-width];
+  `Control-Flow.md`'s precedence section, `Formatting.md`'s line breaks.
+- **Checked**: `modules/aws/check.sh` passes whole (examples, host, glue)
+  with nothing to regenerate; the host project `lib/platform`, the
+  examples' generated code and the std snapshots did not move. 765 tests
+  under `cargo nextest run`, all green: 2m48 wall (nextest's own 146s;
+  `run_data` 63s, the std test runs 31s and 63s), every binary relinked by
+  the `salvo-syntax` change, load averages 87–125. A first run before the
+  reviews' fixes took 2m51 and failed only `docs_tests`'s
+  `every_diagnostic_id_names_a_defined_rule` ([expr-wrap] was not yet a
+  `* [label]` rule).
+
 ### 2026-11-12 — A body on a terminal head's line is its own error, naming the braces ([stmt-line])
 
 User decision 2026-11-12, confirming the agent's reading of [stmt-line]
@@ -404,7 +510,7 @@ left as written).
   None)`, `Ok ((A, B))`; ROADMAP §0av: the formatter keeps them from now on,
   as written ones). Bodies one line long (`if c { return x }`, `(f) -> {
   return f.hp > 10 }`) print as blocks, and a list the author broke prints
-  one item per line, `|`s ending lines.
+  one item per line (`|`s ended lines then; since 2026-11-12 they lead).
 - **Regenerated** (each diff checked to be line and column numbers only):
   the host project `lib/platform` (10 files: `std.<module>:LINE:COL` in the
   `unreachable`/assertion messages of the host files' generated parts), every
@@ -537,7 +643,8 @@ where it would fit).
   continuation lines one level in: `?:`, `|>`, `?>`, a trailing `replyto`
   and a `.` call chain with the operator leading the line; a run of one
   binary level (`&&`, `||`, comparisons, `+`, `*`, …), a union type and
-  an `is A | B` head with the operator ending it. A fn's deduction clause
+  an `is A | B` head with the operator ending it (leading it since
+  2026-11-12, that day's entry above). A fn's deduction clause
   goes on a line of its own, indented with the declaration
   [deduce-syntax], its effect list and return type staying on the `)`
   line; the comments written above an own-line clause stay above it.
@@ -548,9 +655,9 @@ where it would fit).
   expression statement, a `return`'s value), since a newline-leading one
   brackets everything to its left; inside brackets anything, `?.`
   included. Every other binary operator, a union type's `|` and an `is`
-  head's `|` end their line instead (`a &&` / `b` parses as `a && b`; `a` /
-  `&& b` ends the statement; `if x is A |` / `B {` does not parse, so an
-  `is` head breaks inside brackets only).
+  head's `|` ended their line instead, since a newline before one ended the
+  statement (user decision 2026-11-12 changed that: they lead a line now,
+  the entry above).
 - **The author's breaks are read from the trivia**: for each construct,
   the gaps between where one item ends and the next begins (and from the
   opening bracket to the first, from the last to the closing one, found by
@@ -43524,6 +43631,15 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A parse-rule change is checked by parsing everything twice** (2026-11-12,
+  [expr-wrap]): the suite only notices a source whose new meaning fails an
+  assertion. A temporary switch back to the old rule, and a walk that parses
+  every `.sv`, every Markdown and comment fence and every Rust string holding
+  a `fn` both ways and compares trees and diagnostics, lists every source
+  whose meaning moved; it took a second and found the one test that relied
+  on the old rule. A block's value is the case such a walk cannot judge:
+  `n += 1` / `-1` changed meaning in no file, but would in a program.
 
 - **Moving a comment to a file's first line changes the tree** (2026-11-12,
   [fmt-imports] [doc-module]): a comment run directly above a file's first

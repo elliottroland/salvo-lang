@@ -172,15 +172,6 @@ fn f() -> None {
     += 2
 }
 
-//--- comparison_does_not_wrap_across_lines
-// [expr-infix] A newline before a comparison ends the statement: the
-// continuation line `> 3` cannot start a statement, so this is a parse error.
-fn f(a: Int) {
-    let _x = a
-    //~ error[syntax-expected:expression]
-    > 3
-}
-
 // ===== [expr-replyto-flat] =====
 
 //--- flattened_replyto_after_a_non_call_is_an_error

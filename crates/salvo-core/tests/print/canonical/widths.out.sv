@@ -3,12 +3,12 @@
 // (`widths.out.sv`). Parsed only (`print_tests.rs`), never checked.
 type Small = Int
 
-type Wide = FirstLongArmName |
-    SecondLongArmName |
-    ThirdLongArmName |
-    FourthLongArmName |
-    FifthLongArmName |
-    SixthLongArmName
+type Wide = FirstLongArmName
+    | SecondLongArmName
+    | ThirdLongArmName
+    | FourthLongArmName
+    | FifthLongArmName
+    | SixthLongArmName
 
 type After = Int
 
@@ -111,30 +111,30 @@ fn chains(m: Int?, xs: List<Int>, ok: Bool, done: Bool) {
         |> first_transformation_of_the_value(_)
         |> second_transformation_of_the_value(_)
         ?> third_transformation_of_it(_)
-    if first_condition_of_the_test(ok) &&
-        second_condition_of_the_test(done) &&
-        third_condition_of_the_test(ok) &&
-        fourth(ok) {
+    if first_condition_of_the_test(ok)
+        && second_condition_of_the_test(done)
+        && third_condition_of_the_test(ok)
+        && fourth(ok) {
         return
     }
-    let sum = first_summand_of_the_total(xs) +
-        second_summand_of_the_total(xs) +
-        third_summand_of_the_total(xs) +
-        4 +
-        5 +
-        6 +
-        7
+    let sum = first_summand_of_the_total(xs)
+        + second_summand_of_the_total(xs)
+        + third_summand_of_the_total(xs)
+        + 4
+        + 5
+        + 6
+        + 7
     let in_brackets = check(
         m is FirstLongArmName | SecondLongArmName | ThirdLongArmName | FourthLongArmName | FifthLongArmName
     )
     let in_brackets = check(
-        m is FirstLongArmName |
-            SecondLongArmName |
-            ThirdLongArmName |
-            FourthLongArmName |
-            FifthLongArmName |
-            SixthLongArmName |
-            Seventh
+        m is FirstLongArmName
+            | SecondLongArmName
+            | ThirdLongArmName
+            | FourthLongArmName
+            | FifthLongArmName
+            | SixthLongArmName
+            | Seventh
     )
     total(first_argument_of_the_total)
         replyto got(first_argument_of_the_total)

@@ -1082,6 +1082,16 @@ messages! {
         "only `Mut` may follow `canbe` on a field type, found `{name}`"
     );
 
+    // [expr-wrap]
+    /// A line that begins with a binary operator directly after a `}`, where
+    /// it does not continue the expression above.
+    expr_wrap_after_brace = "expr-wrap:after-brace" (op: &str) => format!(
+        "a line that begins with `{op}` continues the expression above it, but not past a `}}`: \
+         write `{op}` at the end of the line above, or put the expression it continues in \
+         parentheses{}",
+        if op == "-" { ", or write a negation in parentheses, `(-x)`" } else { "" }
+    );
+
     // [stmt-line]
     /// A statement, or a top-level declaration, that begins on the line of
     /// the one before it.
