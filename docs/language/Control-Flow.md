@@ -422,74 +422,91 @@ terminal scope, nothing may follow it at the same level.
 
 ### Precedence
 
-Every infix operator binds by one precedence table. From loosest to tightest:
+Every infix operator binds by one precedence table. From loosest to tightest,
+with where each may break a line:
 
-| Tier | Operators |
-|---|---|
-| pipe | `\|>`, `?>` |
-| or | `\|\|` |
-| and | `&&` |
-| equality | `==`, `!=` |
-| comparison | `<`, `>`, `<=`, `>=`, and the `is`/`!is` tests |
-| pick | `?:` |
-| additive | `+`, `-` |
-| multiplicative | `*`, `/`, `%` |
-| power | `**` |
+| Level | Operators | Line breaks |
+|---|---|---|
+| pipe | `\|>`, `?>` | may begin or end a line |
+| pick | `?:` | may begin or end a line |
+| or | `\|\|` | may begin or end a line |
+| and | `&&` | may begin or end a line |
+| equality | `==`, `!=` | none, outside brackets |
+| comparison | `<`, `>`, `<=`, `>=`, the `is`/`!is` tests, `as!`/`as?` | none, outside brackets |
+| additive | `+`, `-` | none, outside brackets |
+| multiplicative | `*`, `/`, `%` | none, outside brackets |
+| power | `**` | none, outside brackets |
 
 All of them are left-associative except `**`, which is right-associative and
 also binds tighter than a `-` on its left
-([Power](Data-and-Types.md#power)).
+([Power](Data-and-Types.md#power)). A union's `|` (`x is A | B`, a union
+type) binds tighter than `is`: `x is A | B` tests `x` against `A | B`.
+
+The pick sits just inside the pipe, looser than `||` and `&&` (where Kotlin's
+`?:` is tighter than comparison), so its right side is a whole condition or
+sum: `n ?: 0 > 5` is `n ?: (0 > 5)`, `ok && done ?: false` is
+`(ok && done) ?: false`, and `a ?: b + 1` is `a ?: (b + 1)`. To compare a
+pick, write `(n ?: 0) > 5`.
 
 Statements end at a newline, except where the next line begins with an
-operator. A binary operator (`&&`, `||`, `==`, `!=`, `<`, `<=`, `>`, `>=`,
-`+`, `-`, `*`, `/`, `%`, `**`, the `is`/`!is` tests, `as!`/`as?`, and the
-`|` of an `is A | B` test or a union type) may begin a continuation line, or
-end the line it continues: both are layouts of one expression, which binds
-by the table above as it would on one line, so
+operator that continues it. The operators come in three tiers by where a
+line may break:
 
-```salvo
-let total = base
-    + rate * hours        // base + (rate * hours)
-let ready = loaded &&
-    checked               // loaded && checked
-```
+* **The pipes and the pick** (`|>`, `?>`, `?:`) may begin a continuation
+  line, after a `}` too, or end the line they continue. A line that begins
+  with one applies it to everything before it (below), a pipe included:
+  `x |> f(_)` with `?: d` on the next line is `(x |> f(_)) ?: d`.
+* **`||` and `&&`** may begin a continuation line or end the line they
+  continue, and bind there by the table, as on one line:
 
-and `x ?: y` with `+ 1` on the next line is `x ?: (y + 1)`, as on one line.
-The formatter writes the first layout, the operator leading. Indentation
-means nothing to the parser.
+  ```salvo
+  let ready = loaded
+      && checked || forced  // (loaded && checked) || forced
+  let picked = cached ?: loaded
+      || fetched            // cached ?: (loaded || fetched)
+  ```
 
-Two places are not continued:
+* **Every tighter operator**, and a union type's `|`, neither begins nor
+  ends a line outside brackets. A line that begins with `+` or `==` after
+  an expression is an error, and so is one that ends with `+`; a `-` that
+  begins a line is a negation, so `a` then `-1` on the next line is two
+  statements. To break such an expression, put it in parentheses, inside
+  which a newline is nothing:
 
-* **After a `}`**: a line that begins with a binary operator directly after
-  a `}` (a block's, a `when`'s, a struct literal's) is an error, `-`
-  included. The `}` may end a statement (`if c { … }`), so the line would
-  read as a continuation to some readers and as a new statement to others;
-  write the operator at the end of the line above, or put the expression in
-  parentheses (`(Point { x: 1 })`), whose `)` is continued.
+  ```salvo
+  let total = (base
+      + rate * hours)       // base + (rate * hours)
+  type Json = (
+      Null
+      | Bool
+      | Number
+      | Text
+  )
+  ```
+
+  The formatter never breaks these for the width: a line too long with one
+  stays long, as a line holding a long string does.
+
+Some places are not continued:
+
+* **After a `}`**: a line that begins with `||` or `&&` directly after a
+  `}` (a block's, a `when`'s, a struct literal's) is an error. The `}` may
+  end a statement (`if c { … }`), so the line would read as a continuation
+  to some readers and as a new statement to others; write the operator at
+  the end of the line above, or put the expression in parentheses
+  (`(Point { x: 1 })`), whose `)` is continued.
 * **A line that begins with `--` or `++`** is a prefix step, a statement of
-  its own: those are one token each. (`- -x` is a subtraction of `-x`.)
-
-So `-x` on a line of its own after an expression subtracts `x` from it. A
-negation that is a block's value, after another statement, is written in
-parentheses:
-
-```salvo
-let sign = if negative {
-    count += 1
-    (-1)                  // without the parentheses: `count += 1 - 1`
-} else {
-    1
-}
-```
+  its own: those are one token each.
 
 A line after a `return`, `break` or `continue` with no value is a statement
 of its own, and so is the line after a `(x) -> ...` argument, which begins
 the lambda's body. After a line that begins with `.` (which applies to
-everything before it), a line that begins with an operator continues the
-whole: `xs` / `.size()` / `- 1` is `xs.size() - 1`.
+everything before it), a line that begins with `||` or `&&` continues the
+whole: `xs` / `.is_empty()` / `|| ok` is `xs.is_empty() || ok`.
 
 Explicit parentheses group across lines, which is how a precedence other than
-the default is written: inside `(…)` and `[…]` a newline is nothing.
+the default is written: inside `(…)`, `[…]` and a struct literal's `{…}` a
+newline is nothing.
 
 A handful of **flattening** operators work differently: they may begin a
 continuation line, after a `}` too, and when they do, the newline brackets

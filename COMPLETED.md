@@ -152,7 +152,147 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — The operators break lines by tier; the pick binds between the pipe and `||` ([expr-wrap] [expr-infix] [elvis-wrap] [type-union] [fmt-width])
+
+User decisions 2026-11-12, partly reversing the entry below (which let every
+binary operator lead a line): the infix operators, loosest first, in three
+tiers by where a line may break.
+
+| tier | level | operators | line breaks |
+|---|---|---|---|
+| 1 | pipe | `\|>` `?>` | may lead or trail a line; a leading one groups everything before it |
+| 1 | pick | `?:` | the same |
+| 2 | or | `\|\|` | may lead or trail; binds at its own precedence |
+| 2 | and | `&&` | the same |
+| 3 | equality, comparison (`is`, `!is`, `as!`, `as?` with it), additive, multiplicative, `**`, the union `\|` | `==` `!=` `<` `>` `<=` `>=` `is` `!is` `as!` `as?` `+` `-` `*` `/` `%` `**` `\|` | none outside brackets |
+
+- **The pick moved** from between comparison and additive to between the
+  pipe and `||`: `x ?: 0 > 5` is now `x ?: (0 > 5)` (accepted by the user),
+  `a && b ?: c` is `(a && b) ?: c`, `a ?: b` / `|| c` is `a ?: (b || c)`,
+  `a || b` / `?: c` is `(a || b) ?: c`; `a ?: b + 1` is unchanged. The
+  parser's levels are pipe 2, pick 4, `||` 6, `&&` 8, equality 10,
+  comparison 12, additive 14, multiplicative 16 (`infix_bp`); the pick's
+  right side is read at 5 (`parse_elvis_tail`), the printer's levels
+  follow (`ELVIS`, `COMPARE`, `binary_level`).
+- **Tier 3 continues no line**: a line that begins with `+`, `==`, … after
+  an expression ends the statement, as before the entry below, so `a` /
+  `-1` is two statements again (`-` is no leader); a statement that begins
+  with a tier-3 operator other than `-` is `expr-wrap:tier3-leading` (an
+  agent's call: it was "expected expression"). A tier-3 operator at a
+  line's end, outside brackets, is `expr-wrap:tier3-trailing`, its operand
+  read from the next line so the slip is reported once
+  (`Parser::refuse_trailing`, called after each tier-3 operator, `is`,
+  `as!`/`as?`, `**` and an `is` head's `|`). Messages: "`+` cannot end a
+  line: outside parentheses only `|>`, `?>`, `?:`, `||` and `&&` continue
+  an expression onto the next line; keep the expression on one line, or
+  put it in parentheses, inside which it may break anywhere", and "a line
+  cannot begin with `+`: outside parentheses only `|>`, `?>`, `?:`, `||`
+  and `&&` continue the line above; …". Tier 2 after a `}` keeps
+  `expr-wrap:after-brace` (its message no longer has the `-` clause).
+- **A union type is on one line outside brackets**: `parse_type` read `|`
+  across a newline; now a `|` that begins or ends a line outside brackets is
+  `expr-wrap:union-type-line` ("a union type's `|` cannot begin a line
+  outside parentheses: keep the union on one line, or put it in
+  parentheses, `(` before its first arm and `)` after its last, inside
+  which it may break before each `|`"; "end" for a trailing one), read on.
+  The parenthesized form works in every type position (check data
+  `a_union_type_breaks_inside_parentheses`: an alias with and without a body
+  and with an obligation clause, a field, a parameter, a return type, a
+  type argument, a `let`'s type, an effect member's signature).
+- **An `is` head may be parenthesized**, `x is (A` / `| B)` and a `when`
+  arm's `is (A` / `| B) {` (`Parser::parse_is_head`, now the one reader of
+  both heads): `is (` was a parse error before, so nothing changed meaning.
+  The tree keeps no record of the parentheses (an agent's call).
+- **The formatter** (`print.rs`): tier 1 breaks leading as before; tier 2
+  breaks leading at its own level, one level in per nested run; tier 3, a
+  union and an `is` head are never broken for the width, nor is anything
+  in their operands (`Printer::frozen`, reset in each unit, so a block
+  inside one still breaks), and no parentheses are added to make room: a
+  line too long with one prints long. Inside brackets the author's breaks
+  are kept with the operator leading (agent's call). A union the author
+  broke inside its parentheses prints `(` / one arm per line, `|` leading
+  / `)` on its own line (`Printer::ty`); an `is` head the author broke
+  outside brackets prints in parentheses of its own (`Printer::is_tests`).
+  Parentheses the new precedence needs are added as for any level
+  (`(x ?: 0) > 5`). The repository walk's width check exempts a line
+  held long by a tier-3 operator token (`<`/`>` aside, which generics
+  share; a `-` or an `is` only after an operand) or a `|`: one outside
+  every bracket opened on the line, or inside one whose item holding it
+  would not fit on a line of its own (`too_wide`), as it exempted a line
+  held long by a string.
+- **Found by the review**: a line-leading `?:` inside a pipe's right side
+  took the right side alone (`x |> f(_)` / `?: d` read `x |> (f(_) ?:
+  d)`, before this change too), against "a leading one takes everything
+  before it"; the binary loop now leaves a line-leading tier-1 operator to
+  the loop that began the expression (`min_bp > 0`), and the printer breaks
+  no pick in a pipe's right side outside brackets (`Printer::pipe_rhs`)
+  and writes a pipe subject of a broken pick without a pair. A leading `|`
+  in an `is` head or a `when` arm's head outside brackets is
+  `expr-wrap:tier3-leading` and read on (it was "expected `{`"). The
+  parser reads a struct literal's fields as a bracket's contents (it always
+  had), so the printer now counts them too, keeping an author's tier-3
+  break there, and type arguments, a fn type's parameters and a qualified
+  group's parentheses likewise.
+- **What changed meaning** (a sweep kept out of the commit, in `tmp/`: HEAD's `salvo-syntax`
+  copied into `tmp/` as a second crate, both parsers over every `.sv` file,
+  every `salvo`/untagged/`no-check` fence of the Markdown files and of
+  comments, and every Rust string holding Salvo-like text, each as a module
+  and again wrapped in a `fn`: 7,379 parses from 777 files, trees and
+  diagnostics compared). Salvo sources whose tree or diagnostics differed,
+  and their fixes: `run/implicits/implicit_parameters.sv`'s `if n ?: 0 > 3`
+  (now `(n ?: 0) > 3`, the old meaning kept); `parser_tests.rs`'s
+  `elvis_precedence_matches_kotlin` (asserted the old precedence; rewritten
+  as `elvis_binds_looser_than_the_logical_operators`); `lib/std/args.sv`
+  (`ArgError` and a union-typed `let` in `from_found`) and `lib/std/fs.sv`
+  (`FsError`), unions across lines, parenthesized or put on one line;
+  `modules/aws/salvo/aws/{ddb,s3,sqs}.sv`, generated, whose enum and
+  error-code unions and `AttributeValue` the generator now writes in
+  parentheses (`Generator.unionType`), regenerated; `SERDE.md`'s `Attr`
+  fence, parenthesized; and the test data and fixtures that asserted the
+  old rules, rewritten (below). The other differences were text that is
+  not Salvo (Rust host code in `run/platform/boundary.sv` and
+  `platform_tests.rs`, runtime-test strings, dump expectations in
+  `golden_tests.rs`, HTML in `site.rs`, shell fences), whose parse errors
+  only changed wording. `demo/demo.sv` (the user's, read only) parses to the
+  same tree and diagnostics under both rules.
+- **The aws generator was stale**: it wrote `platform handler … of …`
+  where the checked-in `host.sv` files (and the language) say `for`;
+  fixed so a regeneration writes what is checked in.
+- **Reformatted** (stage H's scope): `lib/std/args.sv` (the `from_found`
+  `let`'s call now breaks its arguments) and nothing else; the examples,
+  `bench/` and `modules/aws`'s hand-written sources print as they were.
+  std's lines moved (+2 in each of `args.sv` and `fs.sv`), so the
+  examples' generated `std/args` and `std/fs` (both backends, `cli` and
+  `files`) and `modules/aws/examples/s3`'s `std/fs` were regenerated:
+  line numbers only. The host project `lib/platform` did not move.
+- **Tests**: check data `syntax/leading_operators.sv` rewritten (each
+  tier's leading and trailing forms, the pick's precedence by type, the
+  tier-3 errors both ways, `a` / `-1`, the parenthesized forms, unions in
+  each type position and refused outside parentheses, the `}` rules, the
+  `.` link, escapes, the trailing lambda, a subject-less `when`); run data
+  `operators/a_line_led_by_a_binary_operator.sv` (values on both backends:
+  the pick against `>` and `||`, `a` / `-1`, parenthesized tier 3);
+  canonical fixture `leading_operators` renamed `operator_tiers` (each
+  tier, a long tier-3 line left long, a broken parenthesized union, the
+  `}` and trailing-lambda forms); `breaks.sv` (a broken union in
+  parentheses, a long union and a long sum left long); `widths.out.sv`.
+- **Docs**: [expr-infix] (the table with tiers), [expr-wrap] (rewritten by
+  tier), [elvis-wrap] and the pick's precedence, [op-pow], [type-union],
+  [is-union], [when-union-head], [fmt-width], [fmt-author-breaks];
+  `Control-Flow.md`'s precedence section, `Data-and-Types.md`'s pick,
+  `Formatting.md`'s line breaks.
+- **Checked**: 765 tests under `cargo nextest run --no-fail-fast`, all
+  green, twice (before and after the reviews' fixes): 3m46 and 3m16 wall
+  (nextest's own 202s and 171s; the `salvo-syntax` change relinks every
+  binary and misses every CLI stamp, and std's edit reruns its test runs;
+  load averages 19–182). `modules/aws/check.sh` passes whole; `salvo fmt
+  --check` over stage H's scope reports nothing; std analyzes clean.
+
 ### 2026-11-12 — A binary operator may lead its continuation line ([expr-wrap] [fmt-width])
+
+(Partly reversed the same day by the operator tiers, the entry above: only
+`||` and `&&` still lead a line, the tighter operators continue none, and
+a negation begins a statement again.)
 
 User decision 2026-11-12 (ROADMAP §0av, stage F's call (2) reversed): a
 binary operator may begin a continuation line, as `?:`, `|>` and `?>`

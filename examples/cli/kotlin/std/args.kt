@@ -205,7 +205,7 @@ fun message(e: Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected
             return "help was requested"
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:397:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:399:5"))
         }
     }
 }
@@ -311,7 +311,7 @@ object __Codec_CmdSpec : salvo.WireCodec<CmdSpec> {
 
 fun mergeGroup(opts: salvo.platform.std.core.list.MutList<OptSpec>, groups: salvo.platform.std.core.list.MutList<GroupSpec>, child: Spec, key: String, kind: String, heading: String?) {
     if (!(salvo.std.core.list.isEmpty(child.args))) {
-        throw AssertionError(("salvo: " + ("`${key}` is a group of options, and `${child.name}` takes positionals") + " at std.args:567:9"))
+        throw AssertionError(("salvo: " + ("`${key}` is a group of options, and `${child.name}` takes positionals") + " at std.args:569:9"))
     }
     salvo.std.core.list.addPlatform(groups, GroupSpec(key = key, kind = kind, required = false, heading = when {
         (heading != null) -> {
@@ -444,7 +444,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.args:719:40")
+                    throw AssertionError("salvo: unreachable at std.args:721:40")
                 }
             }
         }
@@ -470,7 +470,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                                         __pick2_4
                                     }
                                     else -> {
-                                        throw AssertionError("salvo: unreachable at std.args:730:60")
+                                        throw AssertionError("salvo: unreachable at std.args:732:60")
                                     }
                                 }
                             })
@@ -542,7 +542,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                                 __pick3_11
                             }
                             else -> {
-                                throw AssertionError("salvo: unreachable at std.args:783:52")
+                                throw AssertionError("salvo: unreachable at std.args:785:52")
                             }
                         }
                     }
@@ -569,7 +569,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                                                 __pick4_15
                                             }
                                             else -> {
-                                                throw AssertionError("salvo: unreachable at std.args:801:99")
+                                                throw AssertionError("salvo: unreachable at std.args:803:99")
                                             }
                                         }
                                     }))
@@ -591,7 +591,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                 }
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:721:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:723:9"))
             }
         }
     }
@@ -664,7 +664,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                             __pick5_22
                         }
                         else -> {
-                            throw AssertionError("salvo: unreachable at std.args:889:84")
+                            throw AssertionError("salvo: unreachable at std.args:891:84")
                         }
                     }
                 }))
@@ -680,7 +680,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                             __pick6_23
                         }
                         else -> {
-                            throw AssertionError("salvo: unreachable at std.args:895:88")
+                            throw AssertionError("salvo: unreachable at std.args:897:88")
                         }
                     }
                 }))
@@ -703,7 +703,7 @@ fun scan(spec: Spec, args: List<String>): Found {
                     __pick7_24
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.args:906:63")
+                    throw AssertionError("salvo: unreachable at std.args:908:63")
                 }
             }
         })))
@@ -1073,7 +1073,7 @@ fun helpRows(out: salvo.platform.std.core.string.MutStr, lefts: List<String>, ri
                     __pick8_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.args:1344:34")
+                    throw AssertionError("salvo: unreachable at std.args:1346:34")
                 }
             }
         }
@@ -1085,7 +1085,7 @@ fun helpRows(out: salvo.platform.std.core.string.MutStr, lefts: List<String>, ri
                     __pick9_2
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.args:1345:35")
+                    throw AssertionError("salvo: unreachable at std.args:1347:35")
                 }
             }
         }
@@ -1171,7 +1171,7 @@ fun<T> argsOrExit(console: salvo.std.core.console.Console, process: salvo.std.pr
             salvo.std.args.exitWith(console, process, parsed_2, argSpec, fromFound)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1718:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1720:5"))
         }
     }
 }
@@ -1216,12 +1216,12 @@ fun<T, V> parseValid(args: List<String>, validate: (T) -> V, argSpec: () -> Spec
                     return Union2.U2<V, List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>>(salvo.std.core.result.errs(e))
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1798:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1800:13"))
                 }
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1790:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1792:5"))
         }
     }
 }
@@ -1239,7 +1239,7 @@ fun<T, V> validArgsOrExit(console: salvo.std.core.console.Console, process: salv
             salvo.std.args.exitWith(console, process, parsed_2, argSpec, fromFound)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1855:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:1857:5"))
         }
     }
 }
@@ -1267,21 +1267,21 @@ fun checkSpec(spec: Spec) {
     val fields: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     for (o in salvo.platform.std.core.list.each(spec.opts)) {
         if (salvo.std.core.list.contains(fields, o.field, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${salvo.std.args.longName(o.field)}`") + " at std.args:1897:13"))
+            throw AssertionError(("salvo: " + ("two options of `${spec.name}` are spelled `${salvo.std.args.longName(o.field)}`") + " at std.args:1899:13"))
         }
         salvo.std.core.list.addPlatform(fields, o.field)
         if (((o.field) == ("help"))) {
-            throw AssertionError(("salvo: " + ("`--help` is the parser's own: name the field of `${spec.name}` something else") + " at std.args:1901:13"))
+            throw AssertionError(("salvo: " + ("`--help` is the parser's own: name the field of `${spec.name}` something else") + " at std.args:1903:13"))
         }
         val s: Char? = o.short
         if (!((s == null))) {
             val s_1: Char = s!!
             if ((s_1 == 'h')) {
-                throw AssertionError(("salvo: " + ("`Short('h')` on `${o.field}` takes help's short name") + " at std.args:1906:17"))
+                throw AssertionError(("salvo: " + ("`Short('h')` on `${o.field}` takes help's short name") + " at std.args:1908:17"))
             }
             val s_2: Char = s!!
             if (salvo.std.core.list.contains(shorts, s_2, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-                throw AssertionError(("salvo: " + ("two options of `${spec.name}` have the short name `-${s_2}`") + " at std.args:1909:17"))
+                throw AssertionError(("salvo: " + ("two options of `${spec.name}` have the short name `-${s_2}`") + " at std.args:1911:17"))
             }
             val s_3: Char = s!!
             salvo.std.core.list.addPlatform(shorts, s_3)
@@ -1298,20 +1298,20 @@ fun checkSpec(spec: Spec) {
                 }
             }
             if ((((count > 0) && !(required)) && !(((count == 1) && !(salvo.std.args.optTakesValue(spec, g.key)))))) {
-                throw AssertionError(("salvo: " + ("every option of `${g.key}` is optional, so nothing chooses that arm: make one required") + " at std.args:1927:17"))
+                throw AssertionError(("salvo: " + ("every option of `${g.key}` is optional, so nothing chooses that arm: make one required") + " at std.args:1929:17"))
             }
         }
     }
     if ((!(salvo.std.core.list.isEmpty(spec.commands)) && !(salvo.std.core.list.isEmpty(spec.args)))) {
-        throw AssertionError(("salvo: " + ("`${spec.name}` takes a sub-command and positionals: whether a word is one or the other would depend on its spelling") + " at std.args:1933:9"))
+        throw AssertionError(("salvo: " + ("`${spec.name}` takes a sub-command and positionals: whether a word is one or the other would depend on its spelling") + " at std.args:1935:9"))
     }
     if ((spec.commandFields > 1)) {
-        throw AssertionError(("salvo: " + ("`${spec.name}` has more than one `Subcommand` field") + " at std.args:1936:9"))
+        throw AssertionError(("salvo: " + ("`${spec.name}` has more than one `Subcommand` field") + " at std.args:1938:9"))
     }
     val names: salvo.platform.std.core.list.MutList<String> = mutableListOf<String>()
     for (c in salvo.platform.std.core.list.each(spec.commands)) {
         if (salvo.std.core.list.contains(names, c.name, { __a0, __a1 -> ((__a0) == (__a1)) })) {
-            throw AssertionError(("salvo: " + ("two sub-commands of `${spec.name}` are named `${c.name}`") + " at std.args:1941:13"))
+            throw AssertionError(("salvo: " + ("two sub-commands of `${spec.name}` are named `${c.name}`") + " at std.args:1943:13"))
         }
         salvo.std.core.list.addPlatform(names, c.name)
     }
@@ -1319,10 +1319,10 @@ fun checkSpec(spec: Spec) {
     var many: Boolean = false
     for (a in salvo.platform.std.core.list.each(spec.args)) {
         if (many) {
-            throw AssertionError(("salvo: " + ("positional `${a.field}` follows one that takes every remaining word") + " at std.args:1949:13"))
+            throw AssertionError(("salvo: " + ("positional `${a.field}` follows one that takes every remaining word") + " at std.args:1951:13"))
         }
         if ((a.required && optional)) {
-            throw AssertionError(("salvo: " + ("required positional `${a.field}` follows an optional one") + " at std.args:1952:13"))
+            throw AssertionError(("salvo: " + ("required positional `${a.field}` follows an optional one") + " at std.args:1954:13"))
         }
         optional = (optional || !(a.required))
         many = a.many
@@ -1356,13 +1356,13 @@ fun<B, Q> readValue(found: Found, field: String, default: Q?, refine: (B) -> Q?,
                 return q_3
             }
         }
-        throw AssertionError(("salvo: " + ("`${field}`'s value was checked") + " at std.args:1993:9"))
+        throw AssertionError(("salvo: " + ("`${field}`'s value was checked") + " at std.args:1995:9"))
     }
     if (!((default == null))) {
         val default_4: Q = default!!
         return default_4
     }
-    return throw AssertionError(("salvo: " + ("`${field}` was checked as required") + " at std.args:1998:5"))
+    return throw AssertionError(("salvo: " + ("`${field}` was checked as required") + " at std.args:2000:5"))
 }
 
 fun<E> readOptional(found: Found, field: String, fromStr: (String) -> E?): E? {
@@ -1436,10 +1436,10 @@ fun<C> built(r: Union2<C, List<Union11<UnknownOption, MissingValue, Missing, Inv
         }
         (r is Union2.U2<*, *>) -> {
             val r_2: List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>> = ((r as Union2.U2<*, *>).value as List<Union11<UnknownOption, MissingValue, Missing, Invalid, Unexpected, Repeated, Requires, Conflict, MissingOne, UnknownCommand, HelpRequested>>)
-            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at std.args:2092:13"))
+            throw AssertionError(("salvo: " + ("a group failed after its checks passed") + " at std.args:2094:13"))
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:2087:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.args:2089:5"))
         }
     }
 }

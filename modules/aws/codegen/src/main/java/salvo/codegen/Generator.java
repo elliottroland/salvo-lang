@@ -713,7 +713,8 @@ final class Generator {
                     export struct Null { value: Bool }
                 }
 
-                export type AttributeValue = AttributeValue.S
+                export type AttributeValue = (
+                    AttributeValue.S
                     | AttributeValue.N
                     | AttributeValue.B
                     | AttributeValue.Ss
@@ -723,6 +724,7 @@ final class Generator {
                     | AttributeValue.L
                     | AttributeValue.Bool
                     | AttributeValue.Null
+                )
                 """;
     }
 
@@ -746,7 +748,7 @@ final class Generator {
             grouped.addAll(codes);
             out.append(comment("The " + errorStruct() + " codes starting `" + g.getValue() + "`, as one group: `if "
                     + "e.code is " + g.getKey() + "` asks whether a failure was one of them.", ""));
-            out.append("export type ").append(g.getKey()).append(" = ").append(String.join("\n    | ", codes))
+            out.append("export type ").append(g.getKey()).append(" = ").append(unionType(codes))
                     .append("\n\n");
             arms.add(g.getKey());
         }
@@ -758,7 +760,7 @@ final class Generator {
                 + "these operations, and `Other` for anything else the service sends — throttling, an "
                 + "authorization failure, a code newer than this model. A legacy wire code is normalized to the "
                 + "model's name, so a code reads the same on every backend.", ""));
-        out.append("export type ").append(errorCodes()).append(" = ").append(String.join("\n    | ", arms))
+        out.append("export type ").append(errorCodes()).append(" = ").append(unionType(arms))
                 .append("\n\n");
         out.append(comment("The service answered with an error: what it said, and the HTTP status it said it "
                 + "with.", ""));
@@ -784,6 +786,13 @@ final class Generator {
         return out.toString();
     }
 
+    // A union of more than one arm, one arm per line: in parentheses, since a
+    // union breaks across lines only inside brackets [expr-wrap].
+    private static String unionType(List<String> arms) {
+        if (arms.size() < 2) return String.join("", arms);
+        return "(\n    " + String.join("\n    | ", arms) + "\n)";
+    }
+
     private String salvoEnum(EnumShape e) {
         String name = enums.get(e.getId());
         StringBuilder out = new StringBuilder();
@@ -794,7 +803,7 @@ final class Generator {
         List<String> arms = new ArrayList<>();
         for (String v : e.getEnumValues().values()) arms.add("\"" + v.replace("\"", "\\\"") + "\"");
         arms.add("Other Str");
-        out.append("export type ").append(name).append(" = ").append(String.join("\n    | ", arms)).append('\n');
+        out.append("export type ").append(name).append(" = ").append(unionType(arms)).append('\n');
         return out.toString();
     }
 
@@ -877,7 +886,7 @@ final class Generator {
                 + "Rust) and completes its reply from there, so no Salvo worker waits. `threadsafe`: the SDK "
                 + "client is safe to share, so the instance is used from every pool with no lock.", ""));
         out.append("export threadsafe platform handler Host").append(settings.effect())
-                .append("(config: AwsConfig) of ").append(settings.effect()).append('\n');
+                .append("(config: AwsConfig) for ").append(settings.effect()).append('\n');
         return out.toString();
     }
 

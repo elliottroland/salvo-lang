@@ -310,16 +310,39 @@ fn comment_texts(source: &str) -> std::collections::BTreeMap<String, usize> {
 /// could make them fit: a line that would not fit even with each string
 /// literal on it written `""` and its comment left out (neither is ever
 /// broken, and a break around a string is made only where it lets the line
-/// fit), or that is one token, is not one.
+/// fit), that is one token, or that is held long by a tier-3 operator
+/// (`==`, `!=`, `<=`, `>=`, `+`, `-`, `*`, `/`, `%`, `**`, `is`, `as!`/`as?`,
+/// each after an operand) or a union's `|` is not one. The width breaks
+/// none of those, nor anything in their operands [expr-wrap], so such a line
+/// may stay long: one is held long when the operator is outside every
+/// bracket opened on the line, or when the item of the innermost such
+/// bracket that holds it would not fit on a line of its own, one level in.
+/// (`<` and `>` are left out: generics write them too, and no comparison in
+/// the repository makes a line too wide.)
 fn too_wide(printed: &str) -> Vec<String> {
+    use salvo_syntax::token::TokenKind;
     let lexed = salvo_syntax::lexer::lex(printed);
-    let strings: Vec<(usize, usize)> = lexed
-        .tokens
-        .iter()
-        .filter(|t| matches!(t.kind, salvo_syntax::token::TokenKind::Str(_)))
-        .map(|t| (t.span.start as usize, t.span.end as usize))
-        .collect();
+    let tokens = &lexed.tokens;
+    let strings: Vec<(usize, usize)> = tokens.iter().filter(|t| matches!(t.kind, TokenKind::Str(_))).map(|t| (t.span.start as usize, t.span.end as usize)).collect();
     let comments: Vec<usize> = lexed.comments.iter().map(|c| c.span.start as usize).collect();
+    let opens = |k: &TokenKind| matches!(k, TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace);
+    let closes = |k: &TokenKind| matches!(k, TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace);
+    // A token an operand ends with, so a `-` or an `is` after it is binary.
+    let ends_operand = |k: &TokenKind| {
+        matches!(
+            k,
+            TokenKind::Ident(_)
+                | TokenKind::Int { .. }
+                | TokenKind::Float { .. }
+                | TokenKind::Str(_)
+                | TokenKind::Char(_)
+                | TokenKind::RParen
+                | TokenKind::RBracket
+                | TokenKind::RBrace
+                | TokenKind::KwTrue
+                | TokenKind::KwFalse
+        )
+    };
     let mut out = Vec::new();
     let mut start = 0;
     for line in printed.split_inclusive('\n') {
@@ -331,7 +354,72 @@ fn too_wide(printed: &str) -> Vec<String> {
             width -= printed[s.max(ls)..e.min(cut)].chars().count().saturating_sub(2);
         }
         let one_token = !printed[ls..le].trim().contains(' ');
-        if printed[ls..le].chars().count() > salvo_syntax::print::WIDTH && width > salvo_syntax::print::WIDTH && !one_token {
+        if printed[ls..le].chars().count() <= salvo_syntax::print::WIDTH || width <= salvo_syntax::print::WIDTH || one_token {
+            continue;
+        }
+        let indent = printed[ls..le].len() - printed[ls..le].trim_start().len();
+        let on_line: Vec<&salvo_syntax::token::Token> = tokens.iter().filter(|t| ls <= t.span.start as usize && (t.span.start as usize) < cut).collect();
+        let mut open: Vec<usize> = Vec::new();
+        let mut held = false;
+        for (i, t) in on_line.iter().enumerate() {
+            if opens(&t.kind) {
+                open.push(i);
+            } else if closes(&t.kind) {
+                open.pop();
+            }
+            let after_operand = i > 0 && ends_operand(&on_line[i - 1].kind);
+            let tier3 = match t.kind {
+                TokenKind::KwAs => on_line.get(i + 1).is_some_and(|n| matches!(n.kind, TokenKind::Bang | TokenKind::Question)),
+                TokenKind::Minus | TokenKind::KwIs => after_operand,
+                TokenKind::EqEq
+                | TokenKind::BangEq
+                | TokenKind::LtEq
+                | TokenKind::GtEq
+                | TokenKind::Plus
+                | TokenKind::Star
+                | TokenKind::Slash
+                | TokenKind::Percent
+                | TokenKind::StarStar
+                | TokenKind::Pipe => true,
+                _ => false,
+            };
+            if !tier3 {
+                continue;
+            }
+            let Some(&o) = open.last() else {
+                held = true;
+                break;
+            };
+            // The item of the bracket that holds the operator: from the comma
+            // before it (or the bracket) to the comma after it (or the close,
+            // or the line's end), at the bracket's own depth.
+            let (mut from, mut to) = (on_line[o].span.end as usize, cut);
+            let mut depth = 0i32;
+            for (j, u) in on_line.iter().enumerate().skip(o + 1) {
+                if opens(&u.kind) {
+                    depth += 1;
+                } else if closes(&u.kind) {
+                    if depth == 0 {
+                        to = u.span.start as usize;
+                        break;
+                    }
+                    depth -= 1;
+                } else if depth == 0 && matches!(u.kind, TokenKind::Comma) {
+                    if j < i {
+                        from = u.span.end as usize;
+                    } else {
+                        to = u.span.start as usize;
+                        break;
+                    }
+                }
+            }
+            let item = printed[from..to].trim().chars().count();
+            if indent + 4 + item + 1 > salvo_syntax::print::WIDTH {
+                held = true;
+                break;
+            }
+        }
+        if !held {
             out.push(printed[ls..le].to_string());
         }
     }

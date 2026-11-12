@@ -102,15 +102,24 @@ The standard library is formatted like any project: run `salvo fmt` in
   the end of the file, and lines of at most 120 characters.
 - **Line breaks**: a list (a call's arguments, a parameter list, type
   arguments, a tuple, a struct literal or pattern) or a chain (`?:`, `|>`,
-  `?>`, `replyto`, a `.` call chain, a run of one binary operator) that the
+  `?>`, `replyto`, a `.` call chain, a run of `||` or of `&&`) that the
   author broke anywhere prints broken, one item per line; one written on
   one line stays on one line while it fits, and breaks when it does not. A
   broken list puts its closing bracket on its own line and gets no trailing
   comma. A chain's continuation lines start with its operator (`?:`, `|>`,
-  `?>`, `.`, `replyto`, `&&`, `+`, a union's `|`, …), also where the author
-  wrote it at the end of the line before; a binary operator after a `}` ends
-  its line instead, since a line it began there would not continue the
-  expression.
+  `?>`, `.`, `replyto`, `||`, `&&`), also where the author wrote it at the
+  end of the line before; `||` or `&&` after a `}` ends its line instead,
+  since a line it began there would not continue the expression.
+- **What is never broken for the width**: an expression of the tighter
+  operators (`==`, `<`, `+`, `*`, `**`, `is`, `as?`, …) and a union type,
+  nor anything inside one. A line too long with one stays long, as a line
+  holding a long string does, and no parentheses are added to make room.
+  Inside parentheses the author may break them (a newline is nothing
+  there), and those breaks are kept, the operator leading each
+  continuation line. A union the author broke inside its parentheses
+  prints one arm per line, `|` leading, with `(` ending the line before
+  and `)` on a line of its own; an `is A | B` head the author broke that
+  way prints in parentheses of its own, `is (` … `)`.
 - **Comments**: every comment is kept, as written, where it was written: a
   run above a declaration or a statement, a comment at the end of a line,
   one before a closing `}`. A comment inside a bracketed list breaks the

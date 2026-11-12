@@ -1039,35 +1039,34 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     it moves its deduction clause to its own line (both are tried outermost
     first, and the parameters come first).
   * **DECISION: the agent's calls inside the leading-operator change, to
-    confirm** (built 2026-11-12, COMPLETED.md's entry of that day): (1) a
-    line that begins with a binary operator directly after a `}` (outside
-    brackets) is an error, `expr-wrap:after-brace`, `-` included, rather
-    than a continuation or (for `-`) a negation statement; the formatter
-    ends such a line with its operator (`Point { x: 1 } ==` / `    p`);
-    (2) the trailing `|` of an `is A |` / `B` head now parses too, as the
-    trailing form of every other binary operator does; (3) a run of a
-    tighter level inside a broken run sits one level further in (`if ok` /
-    `        && done` / `    || a > b {`); (4) `x ?: return e` / `+ 1` is
-    `x ?: return (e + 1)`: a leading binary operator binds at its own
-    precedence everywhere, an escape's value included, unlike a leading
-    `?:`; (5) an operator leading the line after a line-leading `.` link
-    continues the bracketed whole (`xs` / `.size()` / `- 1` is
-    `(xs.size()) - 1`, where it was `xs.size()` and a statement `-1`); (6)
+    confirm** (built 2026-11-12, COMPLETED.md's entry of that day; the
+    operator tiers decided later that day settled the rest): (1) after a
+    line-leading `.` link a leading `||` or `&&` continues the bracketed
+    whole (`xs` / `.is_empty()` / `|| ok` is `(xs.is_empty()) || ok`); (2)
     nothing continues a value-less `return`, `break` or `continue`.
-  * **DECISION: a negation as a block's value** (found 2026-11-12 building
-    the change; the brief called a line-leading `-x` statement useless,
-    which holds for a statement but not for a block's last expression): in
-    `if ok {` / `n += 1` / `-1` / `}` the `-1` now continues `n += 1`, so
-    the branch has no value and the `if` is `Int?`, an error only where an
-    `Int` is needed. The repository had none (the detector of that day's
-    entry). Options: leave it (parentheses, `(-1)`, as documented); warn
-    where a line-leading `-` continues a statement that is not a block's
-    last and whose block's value is read; or refuse a line-leading `-`
-    after a statement of a block whose value is read.
-  * **Left by the leading-operator change** (2026-11-12): a `when` arm's `is A | B` head is not broken by the formatter (its
-    `|` may lead a line in the parser); comments inside a chain still move
-    to the statement's end (`a // c` / `+ b` prints `a` / `+ b // c`), as
-    they did for every chain before.
+  * **DECISION: the agent's calls inside the operator tiers, to confirm**
+    (built 2026-11-12, COMPLETED.md's entry "The operators break lines by
+    tier"): (1) a statement that begins with a tier-3 operator other than
+    `-` is its own error, `expr-wrap:tier3-leading`, naming the fix, where
+    it was "expected expression, found `==`" (`-` begins a negation, as
+    decided); (2) a trailing tier-3 operator's operand is read from the
+    next line after the error, so the slip is reported once; (3) an `is`
+    head may be parenthesized, `x is (A` / `| B)` and a `when` arm's `is (A`
+    / `| B) {`, the tree keeping no record of the parentheses: the
+    formatter drops them from a head on one line and writes them round one
+    the author broke outside brackets; (4) inside brackets an author's
+    broken tier-3 run prints its operator leading each line, one level in,
+    as tiers 1 and 2 do; (5) the width breaks nothing inside a tier-3
+    expression, a union or an `is` head either (a call's arguments there
+    included), so such a line prints long; a block inside one breaks as
+    any unit; (6) the repository walk's width check exempts a line held
+    long by a tier-3 operator token or a `|`: one outside every bracket
+    opened on the line, or inside one whose item holding it would not fit
+    on a line of its own (`<` and `>` not counted, since generics write
+    them; a `-` or an `is` only after an operand).
+  * **Left by the leading-operator change** (2026-11-12): comments inside a
+    chain still move to the statement's end (`a // c` / `|| b` prints `a`
+    / `|| b // c`), as they did for every chain before.
   * **Not broken yet** (stage F): a declaration's generic parameters
     (`fn f<A, B>`), a `refn`'s parameters, an effect list (`[A, B]`,
     `eff[…]`, a projection's `x[A]`) and a test kind's arguments print on

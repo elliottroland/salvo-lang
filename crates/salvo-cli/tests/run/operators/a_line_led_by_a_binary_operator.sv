@@ -1,51 +1,68 @@
-// [expr-wrap] A binary operator may begin a continuation line, and binds at
-// its own precedence with the expression so far, as on one line: the
-// newline is layout. `--b` and `++b` on a line of their own are prefix
-// steps (one token each), so they start statements; `- -b` continues.
+// [expr-wrap] [expr-infix] Where a line may break, by tier, and what the
+// pick binds (user decision 2026-11-12): `|>`, `?>`, `?:`, `||` and `&&`
+// may begin a continuation line, `||`/`&&` binding at their own precedence
+// there; the tighter operators continue no line, so `a` then `-1` is two
+// statements, and inside parentheses any line breaks. `?:` sits between
+// the pipe and `||`: `n ?: 0 > 5` is `n ?: (0 > 5)`.
 //
 // Compile-and-run data ([test-run-data]).
 
 //--- a_leading_operator_binds_at_its_precedence
 fn pick(x: Int?) -> Int {
     return x ?: 10
-        + 1
+        |> _ + 1
+}
+
+fn compared(n: Int?) -> Int | Bool {
+    return n ?: 0 > 5
+}
+
+fn either(m: Bool?, ok: Bool) -> Bool {
+    return m ?: ok
+        || false
+}
+
+fn last(n: Int) -> Int {
+    let k = n
+    -1
+    return k
 }
 
 fn main() [use] {
     use StdConsole()
-    let a = 1
-        + 2 * 3
-    let b = 2
-        * 3 + 1
-    let c = 2 *
-        3
-    let d = 10
-        - 2
-        - 3
-    let e = 2
-        ** 3
+    let a = (1
+        + 2 * 3)
+    let b = (2 *
+        3 + 1)
+    let c = 2 ** 3
     let f = a > 6
         && b == 7
         || false
-    println("${a} ${b} ${c} ${d} ${e} ${f}")
-    // `x ?: 10 + 1` is `x ?: (10 + 1)`, on one line or two.
+    let g = false && true
+        || true
+    println("${a} ${b} ${c} ${f} ${g}")
+    // `x ?: 10` then `|> _ + 1` pipes the whole pick.
     println("${pick(5)} ${pick(None)}")
-    let n = 3
-    let m = n
-    --n
-    let k = m
-        - -n
-    ++n
-    println("${m} ${n} ${k}")
+    // The pick's right side is `0 > 5`; in parentheses the pick is compared.
+    let n: Int? = None
+    println("${compared(7)} ${compared(None)} ${(n ?: 9) > 5}")
+    // `||` on the line after a pick is in its right side.
+    println("${either(None, false)} ${either(false, true)} ${either(None, true)}")
+    // `x ?: y || z` and `x ?: y + 1` take the whole right side.
+    let p: Bool? = None
+    println("${p ?: false || true} ${n ?: 1 + 1}")
+    println("${last(4)}")
     let s: Int | Str = "s"
-    let wide = s
-        is Int
-        || s
-        is "s"
+    let wide = (s
+        is Int)
+        || s is "s"
     println("${wide}")
 }
 //= stdout
-//= 7 7 6 5 8 true
-//= 5 11
-//= 3 3 5
+//= 7 7 8 true true
+//= 6 11
+//= 7 false true
+//= false false true
+//= true 2
+//= 4
 //= true

@@ -380,7 +380,7 @@ fn main() [use] {
         is None { println("none") }
     }
     let n: Int? = 5
-    if n ?: 0 > 3 {
+    if (n ?: 0) > 3 {
         println("bigger")
     }
     println("sum ${n ?: 1 + 1}")

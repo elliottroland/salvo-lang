@@ -17,7 +17,8 @@ import aws
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type QueueAttributeName = "All"
+export type QueueAttributeName = (
+    "All"
     | "Policy"
     | "VisibilityTimeout"
     | "MaximumMessageSize"
@@ -40,13 +41,15 @@ export type QueueAttributeName = "All"
     | "RedriveAllowPolicy"
     | "SqsManagedSseEnabled"
     | Other Str
+)
 
 // MessageSystemAttributeName, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type MessageSystemAttributeName = "All"
+export type MessageSystemAttributeName = (
+    "All"
     | "SenderId"
     | "SentTimestamp"
     | "ApproximateReceiveCount"
@@ -57,6 +60,7 @@ export type MessageSystemAttributeName = "All"
     | "AWSTraceHeader"
     | "DeadLetterQueueSourceArn"
     | Other Str
+)
 
 export struct CreateQueueInput {
     // The name of the new queue. The following limits apply to this name:
@@ -274,19 +278,22 @@ export struct DeleteQueueInput {
 
 // The SqsError codes starting `Kms`, as one group: `if e.code is KmsErrorCode`
 // asks whether a failure was one of them.
-export type KmsErrorCode = "KmsAccessDenied"
+export type KmsErrorCode = (
+    "KmsAccessDenied"
     | "KmsDisabled"
     | "KmsInvalidKeyUsage"
     | "KmsInvalidState"
     | "KmsNotFound"
     | "KmsOptInRequired"
     | "KmsThrottled"
+)
 
 // A code Sqs answers with: one arm per error the model names for these
 // operations, and `Other` for anything else the service sends — throttling, an
 // authorization failure, a code newer than this model. A legacy wire code is
 // normalized to the model's name, so a code reads the same on every backend.
-export type SqsErrorCode = KmsErrorCode
+export type SqsErrorCode = (
+    KmsErrorCode
     | "InvalidAddress"
     | "InvalidAttributeName"
     | "InvalidAttributeValue"
@@ -301,6 +308,7 @@ export type SqsErrorCode = KmsErrorCode
     | "RequestThrottled"
     | "UnsupportedOperation"
     | Other Str
+)
 
 // The service answered with an error: what it said, and the HTTP status it said
 // it with.

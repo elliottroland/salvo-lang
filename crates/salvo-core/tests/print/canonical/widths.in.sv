@@ -1,6 +1,8 @@
 // [fmt-width] What a line too long for 120 columns becomes: each construct
 // written on one line, printed broken the canonical way
-// (`widths.out.sv`). Parsed only (`print_tests.rs`), never checked.
+// (`widths.out.sv`), but for a union and a chain of a tier-3 operator
+// (`+`, `is A | B`), which the width does not break [expr-wrap]: their
+// lines stay long. Parsed only (`print_tests.rs`), never checked.
 type Small = Int
 type Wide = FirstLongArmName | SecondLongArmName | ThirdLongArmName | FourthLongArmName | FifthLongArmName | SixthLongArmName
 type After = Int

@@ -23,17 +23,20 @@ import std.time.Instant
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ReturnConsumedCapacity = "INDEXES"
+export type ReturnConsumedCapacity = (
+    "INDEXES"
     | "TOTAL"
     | "NONE"
     | Other Str
+)
 
 // ComparisonOperator, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ComparisonOperator = "EQ"
+export type ComparisonOperator = (
+    "EQ"
     | "NE"
     | "IN"
     | "LE"
@@ -47,159 +50,191 @@ export type ComparisonOperator = "EQ"
     | "NOT_CONTAINS"
     | "BEGINS_WITH"
     | Other Str
+)
 
 // ReturnValue, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ReturnValue = "NONE"
+export type ReturnValue = (
+    "NONE"
     | "ALL_OLD"
     | "UPDATED_OLD"
     | "ALL_NEW"
     | "UPDATED_NEW"
     | Other Str
+)
 
 // ReturnItemCollectionMetrics, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ReturnItemCollectionMetrics = "SIZE"
+export type ReturnItemCollectionMetrics = (
+    "SIZE"
     | "NONE"
     | Other Str
+)
 
 // ConditionalOperator, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ConditionalOperator = "AND"
+export type ConditionalOperator = (
+    "AND"
     | "OR"
     | Other Str
+)
 
 // ReturnValuesOnConditionCheckFailure, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ReturnValuesOnConditionCheckFailure = "ALL_OLD"
+export type ReturnValuesOnConditionCheckFailure = (
+    "ALL_OLD"
     | "NONE"
     | Other Str
+)
 
 // Select, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type Select = "ALL_ATTRIBUTES"
+export type Select = (
+    "ALL_ATTRIBUTES"
     | "ALL_PROJECTED_ATTRIBUTES"
     | "SPECIFIC_ATTRIBUTES"
     | "COUNT"
     | Other Str
+)
 
 // ScalarAttributeType, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ScalarAttributeType = "S"
+export type ScalarAttributeType = (
+    "S"
     | "N"
     | "B"
     | Other Str
+)
 
 // KeyType, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type KeyType = "HASH"
+export type KeyType = (
+    "HASH"
     | "RANGE"
     | Other Str
+)
 
 // ProjectionType, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ProjectionType = "ALL"
+export type ProjectionType = (
+    "ALL"
     | "KEYS_ONLY"
     | "INCLUDE"
     | Other Str
+)
 
 // BillingMode, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type BillingMode = "PROVISIONED"
+export type BillingMode = (
+    "PROVISIONED"
     | "PAY_PER_REQUEST"
     | Other Str
+)
 
 // StreamViewType, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type StreamViewType = "NEW_IMAGE"
+export type StreamViewType = (
+    "NEW_IMAGE"
     | "OLD_IMAGE"
     | "NEW_AND_OLD_IMAGES"
     | "KEYS_ONLY"
     | Other Str
+)
 
 // SSEType, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type SSEType = "AES256"
+export type SSEType = (
+    "AES256"
     | "KMS"
     | Other Str
+)
 
 // TableClass, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type TableClass = "STANDARD"
+export type TableClass = (
+    "STANDARD"
     | "STANDARD_INFREQUENT_ACCESS"
     | Other Str
+)
 
 // GlobalTableSettingsReplicationMode, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type GlobalTableSettingsReplicationMode = "ENABLED"
+export type GlobalTableSettingsReplicationMode = (
+    "ENABLED"
     | "DISABLED"
     | "ENABLED_WITH_OVERRIDES"
     | Other Str
+)
 
 // SearchSchemaElementType, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type SearchSchemaElementType = "HASH"
+export type SearchSchemaElementType = (
+    "HASH"
     | "INLINE_FILTER"
     | Other Str
+)
 
 // VectorDistanceFunction, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type VectorDistanceFunction = "COSINE"
+export type VectorDistanceFunction = (
+    "COSINE"
     | "DOT_PRODUCT"
     | "EUCLIDEAN"
     | Other Str
+)
 
 // TableStatus, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type TableStatus = "CREATING"
+export type TableStatus = (
+    "CREATING"
     | "UPDATING"
     | "DELETING"
     | "ACTIVE"
@@ -208,24 +243,28 @@ export type TableStatus = "CREATING"
     | "ARCHIVED"
     | "REPLICATION_NOT_AUTHORIZED"
     | Other Str
+)
 
 // IndexStatus, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type IndexStatus = "CREATING"
+export type IndexStatus = (
+    "CREATING"
     | "UPDATING"
     | "DELETING"
     | "ACTIVE"
     | Other Str
+)
 
 // ReplicaStatus, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ReplicaStatus = "CREATING"
+export type ReplicaStatus = (
+    "CREATING"
     | "CREATION_FAILED"
     | "UPDATING"
     | "DELETING"
@@ -236,37 +275,44 @@ export type ReplicaStatus = "CREATING"
     | "ARCHIVED"
     | "REPLICATION_NOT_AUTHORIZED"
     | Other Str
+)
 
 // WitnessStatus, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type WitnessStatus = "CREATING"
+export type WitnessStatus = (
+    "CREATING"
     | "DELETING"
     | "ACTIVE"
     | Other Str
+)
 
 // SSEStatus, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type SSEStatus = "ENABLING"
+export type SSEStatus = (
+    "ENABLING"
     | "ENABLED"
     | "DISABLING"
     | "DISABLED"
     | "UPDATING"
     | Other Str
+)
 
 // MultiRegionConsistency, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type MultiRegionConsistency = "EVENTUAL"
+export type MultiRegionConsistency = (
+    "EVENTUAL"
     | "STRONG"
     | Other Str
+)
 
 // Represents the input of a GetItem operation.
 export struct GetItemInput {
@@ -1302,7 +1348,8 @@ export namespace AttributeValue {
     export struct Null { value: Bool }
 }
 
-export type AttributeValue = AttributeValue.S
+export type AttributeValue = (
+    AttributeValue.S
     | AttributeValue.N
     | AttributeValue.B
     | AttributeValue.Ss
@@ -1312,12 +1359,14 @@ export type AttributeValue = AttributeValue.S
     | AttributeValue.L
     | AttributeValue.Bool
     | AttributeValue.Null
+)
 
 // A code Ddb answers with: one arm per error the model names for these
 // operations, and `Other` for anything else the service sends — throttling, an
 // authorization failure, a code newer than this model. A legacy wire code is
 // normalized to the model's name, so a code reads the same on every backend.
-export type DdbErrorCode = "ConditionalCheckFailedException"
+export type DdbErrorCode = (
+    "ConditionalCheckFailedException"
     | "InternalServerError"
     | "InvalidEndpointException"
     | "ItemCollectionSizeLimitExceededException"
@@ -1330,6 +1379,7 @@ export type DdbErrorCode = "ConditionalCheckFailedException"
     | "ThrottlingException"
     | "TransactionConflictException"
     | Other Str
+)
 
 // The service answered with an error: what it said, and the HTTP status it said
 // it with.

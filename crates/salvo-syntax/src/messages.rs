@@ -1088,8 +1088,31 @@ messages! {
     expr_wrap_after_brace = "expr-wrap:after-brace" (op: &str) => format!(
         "a line that begins with `{op}` continues the expression above it, but not past a `}}`: \
          write `{op}` at the end of the line above, or put the expression it continues in \
-         parentheses{}",
-        if op == "-" { ", or write a negation in parentheses, `(-x)`" } else { "" }
+         parentheses"
+    );
+    /// An equality, comparison, arithmetic, `is`, `as!`/`as?` or union `|`
+    /// operator at the end of a line, outside brackets: it does not continue
+    /// onto the next.
+    expr_wrap_tier3_trailing = "expr-wrap:tier3-trailing" (op: &str) => format!(
+        "`{op}` cannot end a line: outside parentheses only `|>`, `?>`, `?:`, `||` and `&&` \
+         continue an expression onto the next line; keep the expression on one line, or put \
+         it in parentheses, inside which it may break anywhere"
+    );
+    /// A line that begins with an equality, comparison, arithmetic, `is`,
+    /// `as!`/`as?` or union `|` operator after an expression, outside
+    /// brackets: it does not continue the line above.
+    expr_wrap_tier3_leading = "expr-wrap:tier3-leading" (op: &str) => format!(
+        "a line cannot begin with `{op}`: outside parentheses only `|>`, `?>`, `?:`, `||` and \
+         `&&` continue the line above; keep the expression on one line, or put it in \
+         parentheses, inside which it may break anywhere"
+    );
+    /// A union type's `|` at the end of a line, or beginning one, outside
+    /// brackets.
+    expr_wrap_union_type_line = "expr-wrap:union-type-line" (leading: bool) => format!(
+        "a union type's `|` cannot {} a line outside parentheses: keep the union on one line, \
+         or put it in parentheses, `(` before its first arm and `)` after its last, inside \
+         which it may break before each `|`",
+        if leading { "begin" } else { "end" }
     );
 
     // [stmt-line]

@@ -1,15 +1,10 @@
 // [fmt-width] What a line too long for 120 columns becomes: each construct
 // written on one line, printed broken the canonical way
-// (`widths.out.sv`). Parsed only (`print_tests.rs`), never checked.
+// (`widths.out.sv`), but for a union and a chain of a tier-3 operator
+// (`+`, `is A | B`), which the width does not break [expr-wrap]: their
+// lines stay long. Parsed only (`print_tests.rs`), never checked.
 type Small = Int
-
-type Wide = FirstLongArmName
-    | SecondLongArmName
-    | ThirdLongArmName
-    | FourthLongArmName
-    | FifthLongArmName
-    | SixthLongArmName
-
+type Wide = FirstLongArmName | SecondLongArmName | ThirdLongArmName | FourthLongArmName | FifthLongArmName | SixthLongArmName
 type After = Int
 
 fn long_signature(
@@ -117,25 +112,11 @@ fn chains(m: Int?, xs: List<Int>, ok: Bool, done: Bool) {
         && fourth(ok) {
         return
     }
-    let sum = first_summand_of_the_total(xs)
-        + second_summand_of_the_total(xs)
-        + third_summand_of_the_total(xs)
-        + 4
-        + 5
-        + 6
-        + 7
+    let sum = first_summand_of_the_total(xs) + second_summand_of_the_total(xs) + third_summand_of_the_total(xs) + 4 + 5 + 6 + 7
     let in_brackets = check(
         m is FirstLongArmName | SecondLongArmName | ThirdLongArmName | FourthLongArmName | FifthLongArmName
     )
-    let in_brackets = check(
-        m is FirstLongArmName
-            | SecondLongArmName
-            | ThirdLongArmName
-            | FourthLongArmName
-            | FifthLongArmName
-            | SixthLongArmName
-            | Seventh
-    )
+    let in_brackets = check(m is FirstLongArmName | SecondLongArmName | ThirdLongArmName | FourthLongArmName | FifthLongArmName | SixthLongArmName | Seventh)
     total(first_argument_of_the_total)
         replyto got(first_argument_of_the_total)
         replyto done(second_argument_xxxxxxxxxxxx)

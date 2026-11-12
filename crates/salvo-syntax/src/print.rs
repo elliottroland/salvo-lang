@@ -264,21 +264,43 @@ pub fn binary_symbol(op: BinaryOp) -> &'static str {
 /// tighter than every prefix operator.
 fn binary_level(op: BinaryOp) -> u8 {
     match op {
-        BinaryOp::Or => 4,
-        BinaryOp::And => 6,
-        BinaryOp::Eq | BinaryOp::NotEq => 8,
-        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => 10,
+        BinaryOp::Or => 6,
+        BinaryOp::And => 8,
+        BinaryOp::Eq | BinaryOp::NotEq => 10,
+        BinaryOp::Lt | BinaryOp::Gt | BinaryOp::LtEq | BinaryOp::GtEq => COMPARE,
         BinaryOp::Add | BinaryOp::Sub => 14,
         BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => 16,
         BinaryOp::Pow => POWER,
     }
 }
 
+/// [actor-message] The effects of a union of `Message<E>`s, written
+/// `message[A, B]`, when `arms` is one.
+fn message_effects(arms: &[Type]) -> Option<Vec<&Type>> {
+    let effects: Option<Vec<&Type>> = arms
+        .iter()
+        .map(|a| match a {
+            Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == MESSAGE_TYPE && base.args.len() == 1 => Some(&base.args[0]),
+            _ => None,
+        })
+        .collect();
+    effects.filter(|m| m.len() > 1)
+}
+
+fn is_message_union(arms: &[Type]) -> bool {
+    message_effects(arms).is_some()
+}
+
+/// [fmt-author-breaks] Where one arm of a union ends and the next begins.
+fn union_gaps(arms: &[Type]) -> Vec<(u32, u32)> {
+    arms.windows(2).map(|w| (w[0].span().end, w[1].span().start)).collect()
+}
+
 /// Precedence levels, loosest first: what an expression needs its context
 /// to accept without parentheses.
 const PIPE: u8 = 2;
-const COMPARE: u8 = 10;
-const ELVIS: u8 = 12;
+const ELVIS: u8 = 4;
+const COMPARE: u8 = 12;
 const PREFIX: u8 = 18;
 const POWER: u8 = 19;
 const POSTFIX: u8 = 20;
@@ -356,6 +378,16 @@ struct Printer<'n> {
     undo: Vec<(NodeKey, Option<Placed>)>,
     /// [fmt-width] How many units are being printed.
     units: u32,
+    /// [fmt-width] Inside an operand of a tier-3 operator (equality,
+    /// comparison, arithmetic, `is`, `as!`/`as?`) or a union type, which
+    /// the width never breaks [expr-wrap]: nothing in it breaks for the
+    /// width either, so the expression prints long, as a long string does.
+    /// A statement in a block inside it is a unit of its own, and breaks.
+    frozen: u32,
+    /// [expr-wrap] Inside a pipe's right side outside brackets, where a
+    /// line-leading `?:` would take the whole pipe on its left: a pick
+    /// there does not break.
+    pipe_rhs: bool,
     /// [fmt-width] The links of the chains being printed broken: a newline
     /// goes before (or, for a binary operator after a `}`, after) each.
     breaks: Vec<NodeAddr>,
@@ -447,6 +479,8 @@ impl<'n> Printer<'n> {
             eol_comments: Vec::new(),
             undo: Vec::new(),
             units: 0,
+            frozen: 0,
+            pipe_rhs: false,
             breaks: Vec::new(),
             in_chain: Vec::new(),
         }
@@ -538,7 +572,7 @@ impl<'n> Printer<'n> {
     /// Construct `n` printed on one line from `start`: one the width may
     /// break.
     fn printed_flat(&mut self, n: u32, start: u32) {
-        if self.breaking() && self.units > 0 {
+        if self.breaking() && self.units > 0 && self.frozen == 0 {
             self.flat.push((n, start, self.at()));
         }
     }
@@ -645,6 +679,8 @@ impl<'n> Printer<'n> {
             return f(self);
         }
         let snap = self.snapshot();
+        let frozen = std::mem::take(&mut self.frozen);
+        let pipe_rhs = std::mem::take(&mut self.pipe_rhs);
         self.units += 1;
         f(self);
         // The unit's constructs are numbered from `snap.ordinal` to `end`;
@@ -700,6 +736,8 @@ impl<'n> Printer<'n> {
             self.print_with(&snap, f, end, &kept, &[]);
         }
         self.flat.truncate(snap.flat);
+        self.frozen = frozen;
+        self.pipe_rhs = pipe_rhs;
         self.units -= 1;
         if self.units == 0 {
             self.undo.clear();
@@ -801,12 +839,12 @@ impl<'n> Printer<'n> {
 
     /// [fmt-width] [fmt-author-breaks] Items joined by ` | ` (a union type's
     /// arms, an `is` head's tests), broken before each `|`, which then
-    /// begins its line [expr-wrap], when the author broke them at one of
-    /// `gaps` or the width does; when not `breakable` they stay on one line.
+    /// begins its line, when the author broke them at one of `gaps`; when
+    /// not `breakable` (outside brackets, where a `|` may neither begin nor
+    /// end a line [expr-wrap]) they stay on one line. The width never breaks
+    /// them: a line too wide with a long union in it stays long.
     fn bar_list<T>(&mut self, items: &[T], anchor: Span, gaps: &[(u32, u32)], breakable: bool, mut print: impl FnMut(&mut Self, usize, &T)) {
-        let n = self.construct();
-        let broken = breakable && (self.written_broken(anchor, gaps) || self.width_breaks(n));
-        let start = self.at();
+        let broken = breakable && self.written_broken(anchor, gaps);
         self.indent += usize::from(broken);
         for (i, it) in items.iter().enumerate() {
             if i > 0 {
@@ -820,8 +858,36 @@ impl<'n> Printer<'n> {
             print(self, i, it);
         }
         self.indent -= usize::from(broken);
-        if breakable && !broken {
-            self.printed_flat(n, start);
+    }
+
+    /// [is-union] [when-union-head] An `is` head's tests, the first one's
+    /// binding after it, on one line unless the author broke them before a
+    /// `|` [fmt-author-breaks]: inside brackets they then break where they
+    /// are, and outside them in parentheses of their own, which the parser
+    /// reads as the same head, one test per line and the `)` on a line of
+    /// its own [expr-wrap].
+    fn is_tests(&mut self, checks: &[&[TypeRef]], binding: Option<&Ident>, anchor: Span) {
+        let gaps: Vec<(u32, u32)> = checks.windows(2).filter_map(|w| Some((w[0].last()?.span.end, w[1].first()?.span.start))).collect();
+        let wrap = checks.len() > 1 && self.group == 0 && self.written_broken(anchor, &gaps);
+        if wrap {
+            self.push("(");
+            self.group += 1;
+            self.indent += 1;
+            self.newline();
+            self.indent -= 1;
+        }
+        let breakable = checks.len() > 1 && self.group > 0;
+        self.bar_list(checks, anchor, &gaps, breakable, |p, i, check| {
+            p.list(check, " ", |p, r| p.type_ref(r));
+            if let (0, Some(b)) = (i, binding) {
+                p.push(" ");
+                p.ident(b);
+            }
+        });
+        if wrap {
+            self.newline();
+            self.group -= 1;
+            self.push(")");
         }
     }
 
@@ -835,6 +901,7 @@ impl<'n> Printer<'n> {
         }
         let mut c = Chain::default();
         match e {
+            Expr::Elvis { .. } if self.pipe_rhs && self.group == 0 => return None,
             Expr::Elvis { .. } => {
                 let mut cur = e;
                 while let Expr::Elvis { subject, rhs, .. } = cur {
@@ -862,6 +929,15 @@ impl<'n> Printer<'n> {
                 c.width = true;
             }
             Expr::Binary { op, .. } if *op != BinaryOp::Pow => {
+                // [expr-wrap] `||` and `&&` may lead a line anywhere, and
+                // break for the width; a tighter operator breaks only inside
+                // brackets, where the author broke it: outside it neither
+                // begins nor ends a line, and a line too wide with one stays
+                // long.
+                let tier2 = matches!(op, BinaryOp::Or | BinaryOp::And);
+                if !tier2 && self.group == 0 {
+                    return None;
+                }
                 let level = binary_level(*op);
                 let mut cur = e;
                 while let Expr::Binary { op, lhs, rhs, .. } = cur {
@@ -876,7 +952,7 @@ impl<'n> Printer<'n> {
                     }
                     cur = lhs;
                 }
-                c.width = true;
+                c.width = tier2;
             }
             Expr::Sugar(sugar) if matches!(**sugar, Sugar::TrailingReply { .. }) => {
                 // A newline-leading `replyto` continues the expression of a
@@ -2492,13 +2568,31 @@ impl<'n> Printer<'n> {
 
     // --- Types ---
 
-    /// `t` inside the parentheses written around it [expr-group].
+    /// `t` inside the parentheses written around it [expr-group]. Inside
+    /// them a newline ends nothing, so a union there the author broke prints
+    /// one arm per line, one level in, `|` leading each line after the
+    /// first, and the closing `)` on a line of its own [expr-wrap]
+    /// [fmt-author-breaks].
     fn ty(&mut self, t: &Type) {
         let parens = t.parens();
         for _ in 0..parens {
             self.push("(");
         }
+        self.group += u32::from(parens);
+        let broken = match t {
+            Type::Union { arms, .. } if parens > 0 && !is_message_union(arms) => self.written_broken(t.span(), &union_gaps(arms)),
+            _ => false,
+        };
+        if broken {
+            self.indent += 1;
+            self.newline();
+            self.indent -= 1;
+        }
         self.ty_inner(t);
+        if broken {
+            self.newline();
+        }
+        self.group -= u32::from(parens);
         for _ in 0..parens {
             self.push(")");
         }
@@ -2524,27 +2618,25 @@ impl<'n> Printer<'n> {
                 if paren {
                     self.push("(");
                 }
+                self.group += u32::from(paren);
                 self.ty(base);
+                self.group -= u32::from(paren);
                 if paren {
                     self.push(")");
                 }
             }
             Type::Union { arms, .. } => {
-                let messages: Option<Vec<&Type>> = arms
-                    .iter()
-                    .map(|a| match a {
-                        Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name == MESSAGE_TYPE && base.args.len() == 1 => Some(&base.args[0]),
-                        _ => None,
-                    })
-                    .collect();
-                if let Some(effects) = messages.filter(|m| m.len() > 1) {
+                if let Some(effects) = message_effects(arms) {
                     self.push("message[");
                     self.list(&effects, ", ", |p, e| p.ty(e));
                     self.push("]");
                 } else {
-                    // [fmt-width] A union breaks before each `|`.
-                    let gaps: Vec<(u32, u32)> = arms.windows(2).map(|w| (w[0].span().end, w[1].span().start)).collect();
-                    self.bar_list(arms, t.span(), &gaps, true, |p, _, a| {
+                    // [fmt-width] A union breaks before each `|`, inside
+                    // brackets alone [expr-wrap].
+                    let gaps = union_gaps(arms);
+                    let breakable = self.group > 0;
+                    self.frozen += 1;
+                    self.bar_list(arms, t.span(), &gaps, breakable, |p, _, a| {
                         // A fn type takes the arms after it into its return
                         // type. As the last arm it needs no pair, but gets
                         // one for the reader: `A | () -> B` reads as
@@ -2558,6 +2650,7 @@ impl<'n> Printer<'n> {
                             p.push(")");
                         }
                     });
+                    self.frozen -= 1;
                 }
             }
             Type::Spread { inner, .. } => {
@@ -2593,6 +2686,7 @@ impl<'n> Printer<'n> {
             }
             Type::Fn { params, param_names, effects, deductions, ret, .. } => {
                 self.push("(");
+                self.group += 1;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {
                         self.push(", ");
@@ -2603,6 +2697,7 @@ impl<'n> Printer<'n> {
                     }
                     self.ty(p);
                 }
+                self.group -= 1;
                 self.push(")");
                 if let Some(effects) = effects {
                     self.push(" ");
@@ -3095,7 +3190,11 @@ impl<'n> Printer<'n> {
         let last = spans.iter().map(|s| s.end).max().unwrap_or(0);
         let close = from.filter(|f| self.anchored(*f)).and_then(|f| self.close_after(last.max(f.end), '>'));
         let anchor = from.unwrap_or_default();
+        // [fmt-width] The parser reads type arguments as a bracket's
+        // contents: a newline in them ends nothing.
+        self.group += 1;
         self.bracketed(targs, Type::span, "<", ">", false, from.map(|f| f.end), close, anchor, |p, t| p.ty(t));
+        self.group -= 1;
     }
 
     fn opt_message(&mut self, m: &Option<Box<Expr>>) {
@@ -3278,6 +3377,8 @@ impl<'n> Printer<'n> {
             }
             Expr::Binary { op, lhs, rhs, .. } => {
                 let level = binary_level(*op);
+                let frozen = u32::from(!matches!(op, BinaryOp::Or | BinaryOp::And));
+                self.frozen += frozen;
                 if *op == BinaryOp::Pow {
                     self.expr(lhs, POSTFIX);
                     self.push(" ** ");
@@ -3287,8 +3388,10 @@ impl<'n> Printer<'n> {
                     self.binary_op(e, binary_symbol(*op));
                     self.expr(rhs, level + 1);
                 }
+                self.frozen -= frozen;
             }
             Expr::Is { subject, check, binding, .. } => {
+                self.frozen += 1;
                 self.expr(subject, COMPARE);
                 self.push(" is ");
                 self.list(check, " ", |p, r| p.type_ref(r));
@@ -3298,6 +3401,7 @@ impl<'n> Printer<'n> {
                     self.push(" ");
                     self.ident(b);
                 }
+                self.frozen -= 1;
             }
             Expr::Retype { subject, retype, .. } => {
                 self.expr(subject, 1);
@@ -3472,19 +3576,19 @@ impl<'n> Printer<'n> {
                 self.block(body);
             }
             Expr::Elvis { subject, rhs, .. } => {
-                self.expr(subject, ELVIS);
+                // [expr-wrap] A pick leading its line takes everything before
+                // it, a pipe included, so a pipe subject needs no pair there.
+                let leads = self.breaks_at(e) && self.group == 0;
+                self.expr(subject, if leads { PIPE } else { ELVIS });
                 self.leading_op(e, "?:");
                 self.expr(rhs, ELVIS + 1);
             }
-            Expr::Pipe { lhs, rhs, .. } => {
+            Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } => {
                 self.expr(lhs, PIPE);
-                self.leading_op(e, "|>");
+                self.leading_op(e, if matches!(e, Expr::Pipe { .. }) { "|>" } else { "?>" });
+                let outer = std::mem::replace(&mut self.pipe_rhs, self.group == 0);
                 self.expr(rhs, PIPE + 1);
-            }
-            Expr::SafePipe { lhs, rhs, .. } => {
-                self.expr(lhs, PIPE);
-                self.leading_op(e, "?>");
-                self.expr(rhs, PIPE + 1);
+                self.pipe_rhs = outer;
             }
             Expr::Placeholder { .. } => self.push("_"),
             Expr::Return { value, .. } => {
@@ -3590,23 +3694,19 @@ impl<'n> Printer<'n> {
     fn sugar(&mut self, sugar: &Sugar) {
         match sugar {
             Sugar::AsQual { subject, check, trap, .. } => {
+                self.frozen += 1;
                 self.expr(subject, COMPARE);
                 self.push(if *trap { " as! " } else { " as? " });
                 self.list(check, " ", |p, r| p.type_ref(r));
+                self.frozen -= 1;
             }
             Sugar::Is { subject, checks, binding, not, span } => {
+                self.frozen += 1;
                 self.expr(subject, COMPARE);
                 self.push(if not.is_some() { " !is " } else { " is " });
-                // [fmt-width] The tests break before each `|`.
-                let gaps: Vec<(u32, u32)> = checks.windows(2).filter_map(|w| Some((w[0].last()?.span.end, w[1].first()?.span.start))).collect();
-                let breakable = checks.len() > 1;
-                self.bar_list(checks, *span, &gaps, breakable, |p, i, check| {
-                    p.list(check, " ", |p, r| p.type_ref(r));
-                    if let (0, Some(b)) = (i, binding) {
-                        p.push(" ");
-                        p.ident(b);
-                    }
-                });
+                let checks: Vec<&[TypeRef]> = checks.iter().map(Vec::as_slice).collect();
+                self.is_tests(&checks, binding.as_ref(), *span);
+                self.frozen -= 1;
             }
             Sugar::Pair { key, value, .. } => {
                 self.arg(key);
@@ -3918,7 +4018,11 @@ impl<'n> Printer<'n> {
         let saved = std::mem::replace(&mut self.no_struct, false);
         let (from, to) = (region.map(|r| r.start), region.map(|r| r.end.saturating_sub(1)));
         let anchor = region.unwrap_or_default();
+        // [fmt-width] The parser reads a literal's fields as it reads a
+        // bracket's contents: a newline in them ends nothing.
+        self.group += 1;
         self.bracketed(fields, |f| f.span, "{", "}", true, from, to, anchor, |p, f| p.struct_field(f));
+        self.group -= 1;
         self.no_struct = saved;
     }
 
@@ -4093,15 +4197,14 @@ impl<'n> Printer<'n> {
                     self.push(hole_mark(hole));
                     self.push("}");
                 }
-                None => self.list(&br.check, " ", |p, r| p.type_ref(r)),
+                None => {
+                    let checks: Vec<&[TypeRef]> = std::iter::once(br.check.as_slice()).chain(br.or.iter().map(Vec::as_slice)).collect();
+                    self.is_tests(&checks, br.binding.as_ref(), br.span);
+                }
             }
-            if let Some(b) = &br.binding {
+            if let (Some(b), Some(_)) = (&br.binding, br.hole) {
                 self.push(" ");
                 self.ident(b);
-            }
-            for alt in &br.or {
-                self.push(" | ");
-                self.list(alt, " ", |p, r| p.type_ref(r));
             }
             self.push(" ");
             self.block(&br.body);

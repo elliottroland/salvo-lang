@@ -136,13 +136,15 @@ import std.stream
 // }
 // ```
 // @compilerrules [type-checked]
-export type FsError = NotFound
+export type FsError = (
+    NotFound
     | PermissionDenied
     | AlreadyExists
     | NotADirectory
     | PathEscapes
     | IoError
     | Streaming
+)
 
 // Nothing exists at the path.
 export struct NotFound {

@@ -322,6 +322,13 @@ Conventions:
     ([flow-place]) and can be an `is` subject.
 * [type-union] `A | B | C` is a union type. Duplicate arms collapse
   (`Str | Str` ≡ `Str`) — but *qualified* duplicates are distinct arms.
+  * **One line outside brackets** (user decision 2026-11-12) [expr-wrap]: a
+    union's `|` neither begins nor ends a line outside brackets
+    (`expr-wrap:union-type-line`, the union read on so the slip is reported
+    once). A long union is written in parentheses, one arm per line: `type
+    Json = (` / `Null` / `| Bool` / `)`, in every type position (an alias,
+    with a body or an obligation clause after the `)`, a parameter, a
+    return type, a field, a type argument, an effect member's signature).
   * `Ty::Union` invariants: ≥ 2 arms, no nested unions (flattened), arms
     deduped, declaration order preserved. Arms dedup as **one type spelled
     two ways** (`same_but_spelling`, 2026-11-11): equal, except that a claim
@@ -599,9 +606,12 @@ Conventions:
     joins into the result, so `Int? ?: "none"` is `Int | Str`. Both sides are
     coerced into the join, each at its own span, as the arms of any value
     `when` are [type-rewrap] [when-lowered].
-  * **Precedence is Kotlin's** for binding tightness: tighter than
-    `is`/comparison/equality, looser than additive. `m[k] ?: 0 > 3` is
-    `(m[k] ?: 0) > 3`; `a ?: b + 1` is `a ?: (b + 1)`. It is
+  * **Precedence: between the pipe and `||`** (user decision 2026-11-12,
+    replacing Kotlin's, which put it between comparison and additive): the
+    right side is a whole expression of every tighter operator, so `m[k] ?:
+    0 > 3` is `m[k] ?: (0 > 3)` (`(m[k] ?: 0) > 3` compares the pick), `a ?:
+    b || c` is `a ?: (b || c)`, `a && b ?: c` is `(a && b) ?: c`, and `a ?:
+    b + 1` is `a ?: (b + 1)` [expr-infix]. It is
     **left-associative** (user decision 2026-10-12, [elvis-assoc]):
     `a ?: b ?: c` is `(a ?: b) ?: c`, so a chain of picks — each handling the
     arms the previous one left behind — reads left to right. (Kotlin's `?:` is
@@ -615,8 +625,8 @@ Conventions:
     2026-10-12): a `return`/escape right side stops at the newline, so the
     next-line pick applies to the whole chain so far, not to the escape's
     value — `x ?: return e\n    ?: d` is `(x ?: return e) ?: d` (a leading
-    binary operator is not flattening and binds at its own precedence, so
-    the escape's value takes it, [expr-wrap] below). A lone `?` or
+    `||` or `&&` is not flattening and binds at its own precedence, so the
+    escape's value takes it, [expr-wrap] below). A lone `?` or
     `:` that is not a `?:` is left unconsumed, so a stray leading `:` is not
     swallowed.
   * **[expr-wrap] A postfix `.member`/`.method(…)` on a continuation line
@@ -629,55 +639,71 @@ Conventions:
     stops at the newline (as above). A same-line trailer is unchanged; only a
     newline-leading one brackets left. (A wrapped method chain
     `x\n    .a()\n    .b()` reads `((x).a()).b()` by the same rule.)
-  * [expr-wrap] **A binary operator may begin a continuation line, or end
-    the line it continues** (user decision 2026-11-12): `a\n    && b` and
-    `a &&\n    b` are both `a && b`, two layouts of one grammar, and the
-    formatter prints the first [fmt-width]. The operators: `||`, `&&`, `==`,
-    `!=`, `<`, `>`, `<=`, `>=`, `is`, `!is`, `as!`, `as?`, `+`, `-`, `*`,
-    `/`, `%`, `**`, and the `|` of an `is A | B` test or a `when` arm's head
-    [is-union] [when-union-head] (a union type's `|` always continued, in a
-    type position). Unlike the flattening operators above, a leading binary
-    operator **binds at its own precedence** with the expression so far, as
-    on one line — the newline is layout, and indentation means nothing:
-    `a\n    + b * c` is `a + (b * c)`, `x ?: y\n    + 1` is `x ?: (y + 1)`
-    (`+` binds tighter than `?:`), and an escape's value takes it, so
-    `x ?: return e\n    + 1` is `x ?: return (e + 1)`.
-    * **Not after a `}`** (outside brackets): a line that begins with one of
-      these operators directly after a `}` — a block's, a `when`'s or an
-      `if`'s used as a value, a struct literal's — is an error,
-      `expr-wrap:after-brace`, `-` included, naming the fixes (the operator
-      at the end of the line above, or the expression in parentheses, whose
-      `)` is continued). The `}` may end a statement (`if c { … }`, `for …
-      { … }`), after which the line would read as a new statement (a `-x`
-      negation) to one reader and as a continuation to another; refusing it
-      after every `}` silently changes no program's meaning and leaves no
-      line that reads two ways (agent's call under the user's brief, to
-      confirm; ROADMAP §0av). A `}` inside brackets
-      is no line's end, so `(if c { 1 } else { 2 })\n    + 3` and
-      `apply((x) -> { x })\n    + 1` continue. A subject-less `when`'s arm
-      condition after the arm before it (`-x > 0 { … }`) is the next arm, as
-      no expression is open there. The error steps over the operator, so its
-      operand is checked as the statement; after `is`, `as!`, `as?` or `|`
-      the line is skipped.
+  * [expr-wrap] **The operators break lines by tier** (user decision
+    2026-11-12, replacing that day's earlier rule that every binary operator
+    may lead a line): **tier 1**, the flattening operators (`|>`, `?>`,
+    `?:`, and the postfix `.`/`replyto` above), may begin a continuation
+    line or end the line they continue, and a leading one brackets
+    everything before it on its left, a pipe included: inside a pipe's
+    right side a line-leading `?:` is left for the loop that began the
+    expression (`parse_binary_from`, when `min_bp > 0`), so `x |> f(_)\n
+    ?: d` is `(x |> f(_)) ?: d`, and the printer breaks no pick in a pipe's
+    right side outside brackets (`Printer::pipe_rhs`); **tier 2**, `||` and `&&`, may begin
+    a continuation line or end the line they continue, `a\n    && b` and
+    `a &&\n    b` both `a && b`, and a leading one **binds at its own
+    precedence** with the expression so far, as on one line — the newline
+    is layout, and indentation means nothing: `a\n    && b || c` is `(a &&
+    b) || c`, `x ?: y\n    || z` is `x ?: (y || z)`, and an escape's value
+    takes it, so `x ?: return e\n    || f` is `x ?: return (e || f)`;
+    **tier 3**, every tighter operator (`==`, `!=`, `<`, `>`, `<=`, `>=`,
+    `is`, `!is`, `as!`, `as?`, `+`, `-`, `*`, `/`, `%`, `**`, and the `|` of
+    an `is A | B` test or a `when` arm's head [is-union] [when-union-head]),
+    neither begins nor ends a line outside brackets [expr-infix], nor does a union
+    type's `|` [type-union]. The formatter prints tiers 1 and 2 leading
+    [fmt-width].
+    * **A tier-3 operator at a line's end** is refused,
+      `expr-wrap:tier3-trailing` (`Parser::refuse_trailing`), naming the
+      fixes (the expression on one line, or in parentheses); its operand is
+      read from the next line, so the slip is reported once.
+    * **A line that begins with a tier-3 operator** after an expression does
+      not continue it, as before 2026-11-12: the statement ended at the
+      newline, and a statement that begins with one is refused,
+      `expr-wrap:tier3-leading` (`Parser::binary_leads_line`), its operand
+      read as the statement (after `is`, `as!`, `as?` or `|`, the line is
+      skipped). **`-` is a negation there**: `a\n    -1` is two statements,
+      `let k = a` and `-1`, and a block's last line `-1` is its value.
+    * **Inside brackets** a newline is nothing [expr-infix], so a tier-3
+      expression, an `is` head or a union breaks there anywhere. An `is`
+      head may be parenthesized for that, `x is (A\n    | B)` and a `when`
+      arm's `is (A\n    | B) { … }` (`Parser::parse_is_head`): the same
+      head as `x is A | B`, the parentheses grouping its tests as they
+      would a union type's arms; the tree keeps no record of them.
+    * **Not after a `}`** (outside brackets): a line that begins with `||`
+      or `&&` directly after a `}` — a block's, a `when`'s or an `if`'s
+      used as a value, a struct literal's — is an error,
+      `expr-wrap:after-brace`, naming the fixes (the operator at the end of
+      the line above, or the expression in parentheses, whose `)` is
+      continued). The `}` may end a statement (`if c { … }`, `for … { …
+      }`), after which the line would read as a new statement to one
+      reader and as a continuation to another. A `}` inside brackets is no
+      line's end, so `(if c { true } else { false })\n    || ok`
+      continues. A tier-1 operator continues after a `}`; a tier-3 one is
+      refused there as anywhere, and a `-` begins a negation. A
+      subject-less `when`'s arm condition after the arm before it (`-x > 0
+      { … }`) is the next arm, as no expression is open there.
     * **Not after a trailing `(x) -> ...` argument** [expr-terminal-lambda]:
       the body starts on the next line, so that line is the body's first
       statement. **Nor after a value-less escape** (`return`, `break` or
       `continue` last on its line [expr-escape]): its value ended at the
-      newline, so `return` / `-x` is a `return`, then an unreachable `-x`.
+      newline.
     * **After a line-leading `.` or `replyto` link**, which brackets the
-      whole expression so far, a line-leading infix operator continues that
-      whole: `xs\n    .size()\n    - 1` is `(xs.size()) - 1` (`parse_expr`
-      runs the binary loop again after `newline_postfix`).
+      whole expression so far, a line-leading `||` or `&&` continues that
+      whole: `xs\n    .is_empty()\n    || ok` is `(xs.is_empty()) || ok`
+      (`parse_expr` runs the binary loop again after `newline_postfix`).
     * **`--` and `++` are one token each** [op-inc-dec], so a line beginning
       with one is a prefix step, a statement of its own (`a\n--b` is `a`,
-      then `--b`); `a\n- -b` is `a - (-b)`. `!` is prefix-only and begins a
-      statement; `!is` is the operator.
-    * **A negation cannot begin a line after an expression**: `f()\n
-      -x` is `f() - x`. As a statement a negation has no use, but as a
-      block's value it does, and there it must be parenthesized: in `if ok
-      {\n    n += 1\n    -1\n}` the branch is `n += 1 - 1`, of no value,
-      where `(-1)` is the value `-1` (`check/syntax/leading_operators.sv`;
-      ROADMAP §0av).
+      then `--b`). `!` is prefix-only and begins a statement; `!is` is the
+      operator.
     * **Not continued**: an assignment's `=` and a compound assignment
       (`+=`, …) are statements' operators, not binary ones, and a newline
       before them still ends the statement [op-compound].
@@ -2868,16 +2894,22 @@ Conventions:
   decision 2026-10-14, replacing the former tier-per-operator cascade). The
   table is the one definition of operator precedence — loosest first:
 
-  | level | operators |
-  |---|---|
-  | pipe | `\|>` |
-  | or | `\|\|` |
-  | and | `&&` |
-  | equality | `==` `!=` |
-  | comparison | `<` `>` `<=` `>=`, `is`, `!is` |
-  | elvis | `?…?:` / `:?…?` |
-  | additive | `+` `-` |
-  | multiplicative | `*` `/` `%` |
+  | tier | level | operators |
+  |---|---|---|
+  | 1 | pipe | `\|>` `?>` |
+  | 1 | pick | `?:` |
+  | 2 | or | `\|\|` |
+  | 2 | and | `&&` |
+  | 3 | equality | `==` `!=` |
+  | 3 | comparison | `<` `>` `<=` `>=`, `is`, `!is`, `as!`, `as?` |
+  | 3 | additive | `+` `-` |
+  | 3 | multiplicative | `*` `/` `%` |
+  | 3 | power | `**` [op-pow] |
+
+  (user decision 2026-11-12: the pick moved from between comparison and
+  additive to between the pipe and `||`). The tier is where a line may
+  break [expr-wrap]. An `is` head's `|` and a union type's bind tighter
+  than `is`: `x is A | B` is `x is (A | B)`.
 
   Every binary operator is **left-associative** (the loop recurses for its
   right side at one level tighter). Three operators are not plain
@@ -2889,19 +2921,24 @@ Conventions:
   * **Statement termination is by newline** [expr-escape]: a token carries
     `newline_before`, and `same_line` is "no newline before, or inside a
     bracket group". A newline ends the statement unless the next line begins
-    with an infix operator [expr-wrap]. A **binary** operator there
+    with a tier-1 or tier-2 operator [expr-wrap]. A tier-2 operator there
     (`continues_line`) binds at its own level with the expression so far,
     exactly as on one line, and does not continue after a `}`, a value-less
-    escape or a trailing `(x) -> ...` argument. The **flattening** operators (`|>` and the elvis
-    forms here, and the postfix `.`/`replyto` in [expr-wrap]) continue after
-    a `}` too, and a newline-leading one brackets the whole expression so far
-    on its left, which the loop's left fold produces for free, since a
-    flattening operator sits at a loose level and its left side is already
-    complete.
+    escape or a trailing `(x) -> ...` argument. The **flattening** operators
+    (tier 1: `|>`, `?>` and `?:` here, and the postfix `.`/`replyto` in
+    [expr-wrap]) continue after a `}` too, and a newline-leading one
+    brackets the whole expression so far on its left, which the loop's left
+    fold produces for free, since a flattening operator sits at a loose
+    level and its left side is already complete. A tier-3 operator needs
+    its line (`same_line`).
   * **Explicit parentheses override precedence across lines too**: inside
-    `(…)`/`[…]` newlines are ignored (`group_depth > 0`), so a chain wrapped
-    inside parentheses is one expression regardless of which operators it
-    uses — the way to force a grouping the default precedence would not give.
+    brackets newlines are ignored (`group_depth > 0`): `(…)`, `[…]`, a
+    struct literal's `{…}` and a call's type arguments `<…>` (a block's
+    `{…}` is not one: its statements end at their lines). So a chain
+    wrapped inside parentheses is one expression regardless of which
+    operators it uses — the way to force a grouping the default precedence
+    would not give, and the way to break a tier-3 expression [expr-wrap].
+    The printer counts the same brackets (`Printer::group`).
 * [stmt-line] **A statement starts on its own line** (user decision
   2026-11-11). Salvo has no statement separator: a statement ends at its
   line's end, and one that begins on the line of the statement before it is
@@ -3148,8 +3185,9 @@ Conventions:
     b)`, `a ** b ** c` is `a ** (b ** c)`, `2 ** -1` is `2 ** (-1)`, `a * b
     ** c` is `a * (b ** c)` (the brief says nothing; chosen as most languages
     with the operator, Python's rule; §II.10 P18, for confirmation).
-    It may begin a continuation line, as `*` may [expr-wrap]; one token
-    `**`; its compound assignment is `**=` [op-compound].
+    Like `*`, it neither begins nor ends a line outside brackets
+    [expr-wrap]; one token `**`; its compound assignment is `**=`
+    [op-compound].
   * **No widening**: an exponent is not the same kind of operand as a base,
     so `a ** b` is the call at the written types, and a mixed pair is the
     call's business, not [op-promote]'s.
@@ -3440,6 +3478,10 @@ Conventions:
   binding is refused (by the parser), and `!is A | B` negates the whole.
   * A place only one side narrows is not narrowed [flow-or-not]; `&&` and
     the `else` of `||` are as before.
+  * **The tests may be parenthesized**, `x is (A | B)` (user decision
+    2026-11-12): the same head, so a long one breaks inside the parentheses
+    before each `|` [expr-wrap]; outside brackets its `|` neither begins
+    nor ends a line. The `|` binds tighter than `is`.
   * **A literal test on a plain base compares the value** (fixed
     2026-10-20): `s is "json"` on a `Str` records a value test with no
     wrapper (`UnionTest` of size 1 with a value condition) and narrows `s` to
@@ -3673,7 +3715,8 @@ Conventions:
   union inside it, as `x is A | B` narrows in a condition [is-union]. Arms are
   consumed in order, so an alternative an earlier arm took is no error, and a
   head none of whose alternatives is left is dead [when-exhaustive]. Like
-  [is-union] it takes no binding (`is-union:binding`).
+  [is-union] it takes no binding (`is-union:binding`), and its tests may be
+  parenthesized to break across lines, `is (A\n    | B) { … }` [expr-wrap].
   * Lowered as one arm test over the alternatives' arms
     (`merge_union_tests`): the arms of each, a `None` test of either, a value
     test on a literal arm only where no alternative takes the arm whole. Two
@@ -13483,31 +13526,49 @@ replaced the working document TESTING.md).
     continuation lines one level in: a postfix chain of calls
     (`x\n    .f()\n    .g()`, breaking before each `.` that opens a call and
     before a `?.` call inside brackets), a `?:` chain, a `|>`/`?>` chain and
-    a trailing `replyto` chain, a run of one binary operator's level (`&&`,
-    `||`, `==`/`!=`, comparisons, `+`/`-`, `*`/`/`/`%`), a union type `A |
-    B | C` and an `is A | B` head with the operator leading each
-    continuation line (user decision 2026-11-12); a run inside a run (`a +
-    b * c` with both broken) sits one level further in. A fn's deduction clause goes on a line of its own, indented with the
+    a trailing `replyto` chain, and a run of `||` or of `&&`, with the
+    operator leading each continuation line (user decision 2026-11-12); a
+    run inside a run (`a && b || c` with both broken) sits one level further
+    in. A fn's deduction clause goes on a line of its own, indented with the
     declaration [deduce-syntax], and its effect list and return type stay on
     the `)` line. A `when`'s arms are one per line already. Not broken
     (yet): a declaration's generic parameters, a `refn`'s parameters, an
     effect list (`[A, B]`, `eff[…]`) and a test kind's arguments, which
     print on one line.
-  * **Which operators lead a line, which end one** [expr-wrap]: a newline
-    ends the statement before every operator but the flattening ones, so
-    `?:`, `|>` and `?>` may begin a continuation line anywhere, and `.` and
+  * **What the width never breaks** (user decision 2026-11-12): a tier-3
+    expression (`==`, `<`, `+`, `*`, `**`, `is`, `as!`, …) [expr-wrap], a
+    union type and an `is` head, nor anything in their operands
+    (`Printer::frozen`; a statement of a block inside one is a unit of its
+    own and breaks): a line too wide with one prints long, as a line holding
+    a long string does, and no parentheses are added to make room. Where
+    the author broke one inside brackets the breaks are kept
+    [fmt-author-breaks], the operator leading each continuation line one
+    level in (agent's call: leading, as tiers 1 and 2 print). A union the
+    author broke inside its own parentheses prints `(`, one arm per line one
+    level in with `|` leading all but the first, and `)` on a line of its
+    own; an `is` head the author broke outside brackets prints in
+    parentheses of its own the same way (`is (` / `A` / `| B` / `)`), which
+    the parser reads as the same head; one written in parentheses on one
+    line prints without them. The repository walk exempts from its width
+    check a line held long by a tier-3 operator or a union's `|`: one
+    outside every bracket opened on the line, or inside one whose item
+    holding it would not fit on a line of its own (`print_tests.rs`'s
+    `too_wide`).
+  * **Which operators lead a line, which end one** [expr-wrap]: `?:`, `|>`
+    and `?>` may begin a continuation line anywhere, and `.` and
     `replyto` at depth 0 only where the expression is a statement slot's
     (a `let`'s or an assignment's value, an expression statement, a
     `return`'s value: the expression `parse_expr` reads, where a
     newline-leading `.` brackets all of it on its left) — elsewhere at depth
     0 a leading `.` would take a different left side, so a chain there does
     not break; inside brackets a newline is nothing, so a chain breaks there
-    anywhere, `?.` included. A binary operator and an `is` head's or a union
-    type's `|` lead their line anywhere, except a binary operator directly
-    after a `}` outside brackets (or after a trailing `(x) -> ...`
-    argument), which the parser would not continue: there it ends its line
-    (`Point { x: 1 } ==\n    p`), the form that parses
-    (`Printer::binary_op`). An author's trailing operators print leading. No
+    anywhere, `?.` included. `||` and `&&` lead their line anywhere, except
+    directly after a `}` outside brackets (or after a trailing `(x) -> ...`
+    argument), which the parser would not continue: there they end their
+    line (`when … { … } ||\n    ok`), the form that parses
+    (`Printer::binary_op`). A tier-3 operator and a union's `|` break only
+    inside brackets, and only where the author did. An author's trailing
+    operators print leading. No
     break is ever made where the parser would end the statement: every
     broken form parses back to the same tree (`print_tests.rs`).
   * **How a line too wide is broken**: each statement, declaration, member
@@ -13526,7 +13587,9 @@ replaced the working document TESTING.md).
 * [fmt-author-breaks] **The author's line breaks are kept, all or nothing
   per construct** (user decision 2026-11-11: an author may find a multi-line
   chain of `?:`, `replyto`, `?>`, `.` calls or `|>` more natural to read even
-  when it would fit). A construct of [fmt-width] the author broke anywhere
+  when it would fit). Inside brackets this covers a tier-3 run, an `is`
+  head and a union too, which the width never breaks [expr-wrap]. A
+  construct of [fmt-width] the author broke anywhere
   between its items — between its opening bracket and its first item, two
   items, its last item and its closing bracket, or before a chain's link —
   prints broken, one item per line; one written on one line stays on one

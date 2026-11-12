@@ -20,7 +20,8 @@ import std.time.Instant
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ObjectCannedACL = "private"
+export type ObjectCannedACL = (
+    "private"
     | "public-read"
     | "public-read-write"
     | "authenticated-read"
@@ -28,13 +29,15 @@ export type ObjectCannedACL = "private"
     | "bucket-owner-read"
     | "bucket-owner-full-control"
     | Other Str
+)
 
 // ChecksumAlgorithm, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ChecksumAlgorithm = "CRC32"
+export type ChecksumAlgorithm = (
+    "CRC32"
     | "CRC32C"
     | "SHA1"
     | "SHA256"
@@ -45,25 +48,29 @@ export type ChecksumAlgorithm = "CRC32"
     | "XXHASH3"
     | "XXHASH128"
     | Other Str
+)
 
 // ServerSideEncryption, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ServerSideEncryption = "AES256"
+export type ServerSideEncryption = (
+    "AES256"
     | "aws:fsx"
     | "aws:backup"
     | "aws:kms"
     | "aws:kms:dsse"
     | Other Str
+)
 
 // StorageClass, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type StorageClass = "STANDARD"
+export type StorageClass = (
+    "STANDARD"
     | "REDUCED_REDUNDANCY"
     | "STANDARD_IA"
     | "ONEZONE_IA"
@@ -79,6 +86,7 @@ export type StorageClass = "STANDARD"
     | "AWS_BACKUP_WARM"
     | "AWS_BACKUP_LOW_COST_WARM"
     | Other Str
+)
 
 // Confirms that the requester knows that they will be charged for the request.
 // Bucket owners need not specify this parameter in their requests. If either
@@ -90,44 +98,54 @@ export type StorageClass = "STANDARD"
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type RequestPayer = "requester"
+export type RequestPayer = (
+    "requester"
     | Other Str
+)
 
 // ObjectLockMode, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ObjectLockMode = "GOVERNANCE"
+export type ObjectLockMode = (
+    "GOVERNANCE"
     | "COMPLIANCE"
     | Other Str
+)
 
 // ObjectLockLegalHoldStatus, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ObjectLockLegalHoldStatus = "ON"
+export type ObjectLockLegalHoldStatus = (
+    "ON"
     | "OFF"
     | Other Str
+)
 
 // ObjectLockEventHold, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ObjectLockEventHold = "ON"
+export type ObjectLockEventHold = (
+    "ON"
     | "OFF"
     | Other Str
+)
 
 // ChecksumType, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ChecksumType = "COMPOSITE"
+export type ChecksumType = (
+    "COMPOSITE"
     | "FULL_OBJECT"
     | Other Str
+)
 
 // If present, indicates that the requester was successfully charged for the
 // request. For more information, see Using Requester Pays buckets for storage
@@ -136,37 +154,45 @@ export type ChecksumType = "COMPOSITE"
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type RequestCharged = "requester"
+export type RequestCharged = (
+    "requester"
     | Other Str
+)
 
 // ChecksumMode, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ChecksumMode = "ENABLED"
+export type ChecksumMode = (
+    "ENABLED"
     | Other Str
+)
 
 // ReplicationStatus, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type ReplicationStatus = "COMPLETE"
+export type ReplicationStatus = (
+    "COMPLETE"
     | "PENDING"
     | "FAILED"
     | "REPLICA"
     | "COMPLETED"
     | Other Str
+)
 
 // IntelligentTieringAccessTier, one literal per value the model names.
 //
 // Open, as Smithy enums are: a value this model does not name arrives as the
 // `Other` arm [type-literal]. At run time a plain string, the value as it is on
 // the wire.
-export type IntelligentTieringAccessTier = "ARCHIVE_ACCESS"
+export type IntelligentTieringAccessTier = (
+    "ARCHIVE_ACCESS"
     | "DEEP_ARCHIVE_ACCESS"
     | Other Str
+)
 
 // Not mapped: `expires` — the SDKs customize it away from the model
 // (`omitMembers` in smithy-build.json).
@@ -717,13 +743,15 @@ export fn close(value: GetObjectOutput) [Streams] -> Ok None | Err Checked<Strea
 // operations, and `Other` for anything else the service sends — throttling, an
 // authorization failure, a code newer than this model. A legacy wire code is
 // normalized to the model's name, so a code reads the same on every backend.
-export type S3ErrorCode = "EncryptionTypeMismatch"
+export type S3ErrorCode = (
+    "EncryptionTypeMismatch"
     | "InvalidObjectState"
     | "InvalidRequest"
     | "InvalidWriteOffset"
     | "NoSuchKey"
     | "TooManyParts"
     | Other Str
+)
 
 // The service answered with an error: what it said, and the HTTP status it said
 // it with.

@@ -10,15 +10,13 @@ struct Point {
 
 type Short = Int | Str
 
-type Broken = Int
+type Broken = (
+    Int
     | Str
+)
 
-type Long = FirstLongArmName
-    | SecondLongArmName
-    | ThirdLongArmName
-    | FourthLongArmName
-    | FifthLongArmName
-    | Sixth
+// A union too long stays long: the width does not break one.
+type Long = FirstLongArmName | SecondLongArmName | ThirdLongArmName | FourthLongArmName | FifthLongArmName | SixthLongArm
 
 fn short(a: Int, b: Int) -> Int {
     return a + b
@@ -160,13 +158,11 @@ fn chains(m: Int?, xs: List<Int>, ok: Bool, done: Bool) {
         return
     }
     let sum = 1 + 2 + 3
-    let sum = 1
+    let sum = (1
         + 2
-        + 3
-    let sum = first_summand_of_the_total(xs)
-        + second_summand_of_the_total(xs)
-        + third_summand_of_the_total(xs)
-        + 4
+        + 3)
+    // A sum too long stays long: the width does not break one, nor what is in it.
+    let sum = first_summand_of_the_total(xs) + second_summand_of_the_total(xs) + third_summand_of_the_total(xs) + 4
     let in_brackets = check(m is Int | Str)
     let in_brackets = check(m is Int
         | Str)

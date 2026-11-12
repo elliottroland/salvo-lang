@@ -3032,14 +3032,28 @@ fn power_binds_tighter_than_unary_minus() {
     assert!(matches!(lhs, Expr::Field { .. }), "the base is `f(x).y`: {lhs:?}");
 }
 
-/// Elvis sits tighter than comparison, looser than additive:
-/// `m ?: 0 > 3` is `(m ?: 0) > 3`, and `a ?: b + 1` is `a ?: (b + 1)`.
+/// [expr-infix] The pick sits between the pipe and `||` (user decision
+/// 2026-11-12): `m ?: 0 > 3` is `m ?: (0 > 3)`, `a && b ?: c` is
+/// `(a && b) ?: c`, and `a ?: b + 1` is `a ?: (b + 1)`.
 #[test]
-fn elvis_precedence_matches_kotlin() {
+fn elvis_binds_looser_than_the_logical_operators() {
     let gt = parse_expr_stmt("m ?: 0 > 3");
-    let (op, lhs, _rhs) = bin(&gt);
-    assert_eq!(op, BinaryOp::Gt);
-    assert!(matches!(lhs, Expr::Elvis { .. }), "lhs of `>` is the elvis");
+    let Expr::Elvis { rhs, .. } = &gt else {
+        panic!("expected an elvis, got {gt:?}");
+    };
+    assert_eq!(bin(rhs).0, BinaryOp::Gt, "elvis right side is `0 > 3`");
+
+    let and = parse_expr_stmt("a && b ?: c");
+    let Expr::Elvis { subject, .. } = &and else {
+        panic!("expected an elvis, got {and:?}");
+    };
+    assert_eq!(bin(subject).0, BinaryOp::And, "elvis subject is `a && b`");
+
+    let or = parse_expr_stmt("a ?: b || c");
+    let Expr::Elvis { rhs, .. } = &or else {
+        panic!("expected an elvis, got {or:?}");
+    };
+    assert_eq!(bin(rhs).0, BinaryOp::Or, "elvis right side is `b || c`");
 
     let add = parse_expr_stmt("a ?: b + 1");
     let Expr::Elvis { rhs, .. } = &add else {

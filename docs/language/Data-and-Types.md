@@ -908,10 +908,14 @@ The rest of the rules:
   arms joins into the result, so `n ?: "none"` on an `Int?` is an `Int | Str`.
 * The operator works on any union: on `Str | Int | None` it keeps the `Str`,
   and `_` is `Int | None`.
-* Its precedence is Kotlin's: tighter than `is` and comparison, looser than
-  arithmetic. It is **left-associative**, so `count ?: 0 > 3` reads as
-  `(count ?: 0) > 3`, and `a ?: b ?: 0` is `(a ?: b) ?: 0`, each pick handling
-  the arms the last one left behind.
+* It binds looser than every operator but the pipe, `||` and `&&`
+  included, unlike Kotlin's `?:` (which is tighter than comparison): its
+  right side is a whole expression, so `count ?: 0 > 3` reads as
+  `count ?: (0 > 3)` and `ok && done ?: false` as `(ok && done) ?: false`;
+  write `(count ?: 0) > 3` to compare the pick
+  ([Precedence](Control-Flow.md#precedence)). It is **left-associative**, so
+  `a ?: b ?: 0` is `(a ?: b) ?: 0`, each pick handling the arms the last one
+  left behind.
 
 `?:` may start a continuation line, so a long chain can wrap; the newline
 brackets everything before it on the left:

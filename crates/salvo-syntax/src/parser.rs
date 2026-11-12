@@ -3,9 +3,10 @@
 //! Design notes:
 //! * Salvo has no statement terminators; statements end at newlines. Tokens
 //!   carry a `newline_before` flag; inside parentheses/brackets
-//!   (`group_depth > 0`) a newline is nothing, and outside them only an
-//!   infix operator, or a postfix `.`/`replyto`, may begin a continuation
-//!   line [expr-wrap].
+//!   (`group_depth > 0`) a newline is nothing, and outside them only a
+//!   flattening operator (`|>`, `?>`, `?:`, a postfix `.`/`replyto`), or a
+//!   `||`/`&&`, may begin a continuation line [expr-wrap]; the tighter
+//!   operators neither begin nor end one.
 //! * Struct literals (`Person { ... }`) are ambiguous with blocks in
 //!   condition position (`if x is Person { ... }`), so struct-literal
 //!   speculation is disabled while parsing conditions (`no_struct`)
@@ -503,13 +504,13 @@ impl<'s> Parser<'s> {
         self.group_depth > 0 || !self.peek().newline_before
     }
 
-    /// [expr-wrap] True when a binary operator here continues the expression
-    /// so far: on its line, or leading a continuation line, as long as that
+    /// [expr-wrap] True when a `||` or `&&` here continues the expression so
+    /// far: on its line, or leading a continuation line, as long as that
     /// line does not follow a `}` (a block's or a literal's, which ends what
-    /// may be a statement: `binary_after_brace` refuses it), a value-less
+    /// may be a statement: `binary_leads_line` refuses it), a value-less
     /// escape, or a trailing `(x) -> ...` argument (whose body starts on the
     /// next line). Where the operator leads, it binds at its own precedence,
-    /// as on one line.
+    /// as on one line. The tighter operators continue no line (`same_line`).
     fn continues_line(&self) -> bool {
         self.same_line() || (!self.after_brace() && !self.after_escape() && self.pending_terminal_lambda.is_none())
     }
@@ -521,20 +522,26 @@ impl<'s> Parser<'s> {
         self.pos > 0 && matches!(self.tokens[self.pos - 1].kind, TokenKind::KwReturn | TokenKind::KwBreak | TokenKind::KwContinue)
     }
 
-    /// [expr-wrap] A statement that begins with a binary operator on the
-    /// line after a `}`: the operator would continue the expression above
-    /// anywhere else, so it is refused rather than read as the start of a
-    /// statement (a `-` included, which would otherwise negate). The
-    /// operator is stepped over, so its operand parses as the statement and
-    /// the slip is reported once; after one that takes a type (`is`, `|`, …)
-    /// the line is skipped, and the result is true.
-    fn binary_after_brace(&mut self) -> bool {
-        if !self.peek().newline_before || !self.after_brace() {
+    /// [expr-wrap] A statement that begins with a binary operator on a line
+    /// of its own: a `||` or `&&` after a `}` (which would continue the
+    /// expression above anywhere else), or an operator of the tighter tier,
+    /// which continues no line, are refused rather than read as the start
+    /// of a statement. A `-` is a negation and begins one. The operator is
+    /// stepped over, so its operand parses as the statement and the slip is
+    /// reported once; after one that takes a type (`is`, `|`, …) the line is
+    /// skipped, and the result is true.
+    fn binary_leads_line(&mut self) -> bool {
+        if !self.peek().newline_before || self.pos == 0 {
             return false;
         }
         let Some(op) = self.at_binary_operator() else { return false };
         let span = self.peek().span;
-        self.error(messages::expr_wrap_after_brace(op), span);
+        match op {
+            "-" => return false,
+            "||" | "&&" if self.after_brace() => self.error(messages::expr_wrap_after_brace(op), span),
+            "||" | "&&" => return false,
+            _ => self.error(messages::expr_wrap_tier3_leading(op), span),
+        }
         self.bump();
         // A type follows `is`, `as!` and `|`: the rest of the line is skipped.
         if matches!(op, "is" | "!is" | "as!" | "as?" | "|") {
@@ -547,14 +554,24 @@ impl<'s> Parser<'s> {
         false
     }
 
+    /// [expr-wrap] After an operator of the tighter tier (equality,
+    /// comparison, arithmetic, `is`, `as!`/`as?`, an `is` head's `|`) has
+    /// been read: one that ends its line outside brackets is refused, and
+    /// its operand is read from the next line, so the slip is reported once.
+    fn refuse_trailing(&mut self, op: &str, span: Span) {
+        if self.group_depth == 0 && self.peek().newline_before && !self.at_eof() {
+            self.error(messages::expr_wrap_tier3_trailing(op), span);
+        }
+    }
+
     /// Whether the token before the current one is a `}`.
     fn after_brace(&self) -> bool {
         self.pos > 0 && matches!(self.tokens[self.pos - 1].kind, TokenKind::RBrace)
     }
 
-    /// [expr-wrap] The binary operator the current token begins, when it is
-    /// one that may lead a continuation line: `&&`, `||`, a comparison, an
-    /// arithmetic operator, `**`, `is`, `!is`, `as!`, `as?` or a union's `|`.
+    /// [expr-wrap] The binary operator the current token begins: `&&`,
+    /// `||`, a comparison, an arithmetic operator, `**`, `is`, `!is`, `as!`,
+    /// `as?` or a union's `|`.
     fn at_binary_operator(&self) -> Option<&'static str> {
         Some(match self.kind() {
             TokenKind::PipePipe => "||",
@@ -3734,7 +3751,17 @@ impl<'s> Parser<'s> {
             return Some(first);
         }
         let mut arms = vec![first];
-        while self.eat(&TokenKind::Pipe).is_some() {
+        while self.at(&TokenKind::Pipe) {
+            // [expr-wrap] Outside brackets a union is on one line: a `|` that
+            // begins or ends one is refused, and the union read on, so the
+            // slip is reported once.
+            let leading = self.group_depth == 0 && self.peek().newline_before;
+            let bar = self.bump().span;
+            if leading {
+                self.error(messages::expr_wrap_union_type_line(true), bar);
+            } else if self.group_depth == 0 && self.peek().newline_before && !self.at_eof() {
+                self.error(messages::expr_wrap_union_type_line(false), bar);
+            }
             arms.push(self.parse_union_arm()?);
         }
         let span = arms.first().unwrap().span().to(arms.last().unwrap().span());
@@ -5111,7 +5138,7 @@ impl<'s> Parser<'s> {
                 })
             }
             _ => {
-                if self.binary_after_brace() {
+                if self.binary_leads_line() {
                     return None;
                 }
                 let expr = self.parse_expr()?;
@@ -5964,8 +5991,9 @@ impl<'s> Parser<'s> {
         }
         let mut e = self.parse_binary(0)?;
         // [expr-wrap] A line-leading `.` or `replyto` brackets everything
-        // before it; an infix operator leading the line after one continues
-        // that whole, `(x.f()) - 1`, as it would continue any other line.
+        // before it; an operator leading the line after one (`||`, `&&` or a
+        // flattening one) continues that whole, `(x.f()) || ok`, as it would
+        // continue any other line.
         loop {
             let before = self.pos;
             e = self.newline_postfix(e)?;
@@ -6260,14 +6288,17 @@ impl<'s> Parser<'s> {
     /// (`?…?:` / `:?…?`, a `?`-run with its own wrap rule), and the pipe
     /// `|>` (binds `_` in its right side). The rest build `Expr::Binary`.
     ///
-    /// [expr-wrap] Every infix operator may begin a continuation line. A
-    /// binary one (`continues_line`: not after a `}`, a value-less escape or
-    /// a trailing `(x) -> ...` argument) binds there at its own precedence,
-    /// as on one line. The *flattening* operators (`|>`, both elvis forms,
-    /// and — in the postfix tier — `.`/`replyto`) bracket the whole
-    /// expression so far on their left instead (the loop's left fold *is* that bracketing, since a
-    /// flattening operator sits at a loose tier and `lhs` already holds
-    /// everything to its left), and do so after a `}` too.
+    /// [expr-wrap] The operators are in three tiers by where a line may
+    /// break. Tier 1, the *flattening* operators (`|>`, `?>`, `?:`, and — in
+    /// the postfix level — `.`/`replyto`), may begin a continuation line,
+    /// where they bracket the whole expression so far on their left (the
+    /// loop's left fold *is* that bracketing, since a flattening operator
+    /// sits at a loose level and `lhs` already holds everything to its
+    /// left), after a `}` too. Tier 2, `||` and `&&`, may begin one where
+    /// `continues_line` says (not after a `}`, a value-less escape or a
+    /// trailing `(x) -> ...` argument) and binds there at its own
+    /// precedence, as on one line. Tier 3, every tighter operator, neither
+    /// begins nor ends a line outside brackets (`refuse_trailing`).
     fn parse_binary(&mut self, min_bp: u8) -> Option<Expr> {
         let lhs = self.parse_unary()?;
         self.parse_binary_from(lhs, min_bp)
@@ -6279,6 +6310,14 @@ impl<'s> Parser<'s> {
         loop {
             let Some((lbp, kind)) = self.infix_bp() else { break };
             if lbp <= min_bp {
+                break;
+            }
+            // [expr-wrap] A tier-1 operator leading its line brackets
+            // everything before it: inside a right side (a pipe's, whose
+            // level is looser than the pick's) it is left for the loop that
+            // began the expression, so `x |> f(_)` / `?: d` is
+            // `(x |> f(_)) ?: d`.
+            if min_bp > 0 && !self.same_line() && matches!(kind, InfixKind::Elvis | InfixKind::Pipe | InfixKind::SafePipe) {
                 break;
             }
             // `is`/`!is`: a check, not a binary. Same tier as comparison.
@@ -6316,7 +6355,10 @@ impl<'s> Parser<'s> {
             }
             // A plain binary operator. `rbp = lbp + 1` makes it left-associative.
             let InfixKind::Binary(op) = kind else { break };
-            self.bump();
+            let at = self.bump().span;
+            if !matches!(op, BinaryOp::Or | BinaryOp::And) {
+                self.refuse_trailing(crate::print::binary_symbol(op), at);
+            }
             let rhs = self.sub_expr(|p| p.parse_binary(lbp + 1))?;
             let span = lhs.span().to(rhs.span());
             lhs = Expr::Binary {
@@ -6334,26 +6376,26 @@ impl<'s> Parser<'s> {
     /// is not an infix operator here. The single definition of operator
     /// precedence — loosest (lowest) first:
     ///
-    /// | bp | operators |
-    /// |----|-----------|
-    /// |  2 | `\|>` (pipe) |
-    /// |  4 | `\|\|` |
-    /// |  6 | `&&` |
-    /// |  8 | `==` `!=` |
-    /// | 10 | `<` `>` `<=` `>=`, `is`, `!is` |
-    /// | 12 | elvis `?…?:` / `:?…?` |
-    /// | 14 | `+` `-` |
-    /// | 16 | `*` `/` `%` |
+    /// | bp | operators | tier |
+    /// |----|-----------|------|
+    /// |  2 | `\|>` `?>` (pipe) | 1 |
+    /// |  4 | `?:` (pick) | 1 |
+    /// |  6 | `\|\|` | 2 |
+    /// |  8 | `&&` | 2 |
+    /// | 10 | `==` `!=` | 3 |
+    /// | 12 | `<` `>` `<=` `>=`, `is`, `!is`, `as!`, `as?` | 3 |
+    /// | 14 | `+` `-` | 3 |
+    /// | 16 | `*` `/` `%` | 3 |
     ///
     /// Tighter than all of them, and than the prefix operators, is `**`
     /// [op-pow], right-associative, which is parsed at the unary level
     /// (`parse_power`) rather than here.
     ///
-    /// Every operator here may begin a continuation line [expr-wrap]: the
-    /// flattening ones (`|>` and elvis) anywhere, the rest where
-    /// `continues_line` says (not after a `}`, a value-less escape or a
-    /// trailing `(x) -> ...` argument), returning `None` there so the
-    /// statement ends.
+    /// The tier says where a line may break [expr-wrap]: tier 1 (the
+    /// flattening operators) may begin a continuation line anywhere, tier 2
+    /// where `continues_line` says (not after a `}`, a value-less escape or
+    /// a trailing `(x) -> ...` argument), and tier 3 never: those return
+    /// `None` there so the statement ends.
     /// Even-numbered levels leave the odd `lbp + 1` for each left-associative
     /// operator's right side.
     fn infix_bp(&self) -> Option<(u8, InfixKind)> {
@@ -6377,29 +6419,30 @@ impl<'s> Parser<'s> {
             // wrap decision is in `parse_elvis_tail`. Only `?` begins a pick
             // now (the backward `:?` form was retired), so a lone `:` is left
             // unconsumed.
-            TokenKind::Question => (12, InfixKind::Elvis),
-            // [expr-wrap] The rest may lead a continuation line too, where
-            // `continues_line` says.
-            _ if !same && !self.continues_line() => return None,
-            TokenKind::PipePipe => (4, InfixKind::Binary(BinaryOp::Or)),
-            TokenKind::AmpAmp => (6, InfixKind::Binary(BinaryOp::And)),
-            TokenKind::EqEq => (8, InfixKind::Binary(BinaryOp::Eq)),
-            TokenKind::BangEq => (8, InfixKind::Binary(BinaryOp::NotEq)),
-            TokenKind::Lt => (10, InfixKind::Binary(BinaryOp::Lt)),
-            TokenKind::Gt => (10, InfixKind::Binary(BinaryOp::Gt)),
-            TokenKind::LtEq => (10, InfixKind::Binary(BinaryOp::LtEq)),
-            TokenKind::GtEq => (10, InfixKind::Binary(BinaryOp::GtEq)),
-            TokenKind::KwIs => (10, InfixKind::Is),
+            TokenKind::Question => (4, InfixKind::Elvis),
+            // [expr-wrap] `||` and `&&` may lead a continuation line too,
+            // where `continues_line` says, binding at their own level.
+            TokenKind::PipePipe if same || self.continues_line() => (6, InfixKind::Binary(BinaryOp::Or)),
+            TokenKind::AmpAmp if same || self.continues_line() => (8, InfixKind::Binary(BinaryOp::And)),
+            // [expr-wrap] The tighter operators continue no line.
+            _ if !same => return None,
+            TokenKind::EqEq => (10, InfixKind::Binary(BinaryOp::Eq)),
+            TokenKind::BangEq => (10, InfixKind::Binary(BinaryOp::NotEq)),
+            TokenKind::Lt => (12, InfixKind::Binary(BinaryOp::Lt)),
+            TokenKind::Gt => (12, InfixKind::Binary(BinaryOp::Gt)),
+            TokenKind::LtEq => (12, InfixKind::Binary(BinaryOp::LtEq)),
+            TokenKind::GtEq => (12, InfixKind::Binary(BinaryOp::GtEq)),
+            TokenKind::KwIs => (12, InfixKind::Is),
             // [expr-as-qual] `as!` and `as?`, the bang or question mark written
             // against the `as`.
             TokenKind::KwAs
                 if matches!(self.peek_at(1).kind, TokenKind::Bang | TokenKind::Question)
                     && self.peek().span.end == self.peek_at(1).span.start =>
             {
-                (10, InfixKind::AsQual)
+                (12, InfixKind::AsQual)
             }
             TokenKind::Bang if matches!(self.peek_at(1).kind, TokenKind::KwIs) => {
-                (10, InfixKind::IsNot)
+                (12, InfixKind::IsNot)
             }
             TokenKind::Plus => (14, InfixKind::Binary(BinaryOp::Add)),
             TokenKind::Minus => (14, InfixKind::Binary(BinaryOp::Sub)),
@@ -6417,25 +6460,16 @@ impl<'s> Parser<'s> {
     /// and the guard rule all reach it unchanged.
     fn parse_is_tail(&mut self, lhs: Expr, not: bool) -> Option<Expr> {
         let not = not.then(|| self.bump().span);
-        self.bump(); // `is`
-        let (check, binding) = self.parse_is_check()?;
-        let mut checks = vec![check];
+        let is = self.bump().span; // `is`
+        let across = self.group_depth == 0 && self.peek().newline_before;
+        self.refuse_trailing(if not.is_some() { "!is" } else { "is" }, not.unwrap_or(is).to(is));
+        let (mut checks, binding, mut end) = self.parse_is_head(across)?;
         // [is-union] `s is "json" | "text"`, `x is Int | Str`: the
         // disjunction of the tests, which narrows to the union of what they
         // test (the CLI design record X4, Q9). Written over a place, read once per
         // test as `s is "json" || s is "text"` is; a value with a binding or
         // a lift has nothing single to name.
-        let mut end = checks[0].last().map(|r| r.span).unwrap_or_else(|| lhs.span());
-        if self.at(&TokenKind::Pipe) && self.continues_line() {
-            while self.at(&TokenKind::Pipe) && self.continues_line() {
-                self.bump();
-                let (more, b) = self.parse_is_check_after_bar()?;
-                if let Some(b) = b {
-                    self.error(messages::is_union_binding(), b.span);
-                }
-                end = more.last().map(|r| r.span).unwrap_or(end);
-                checks.push(more);
-            }
+        if checks.len() > 1 {
             if let Some(b) = &binding {
                 self.error(messages::is_union_binding(), b.span);
             }
@@ -6458,6 +6492,56 @@ impl<'s> Parser<'s> {
         Some(Expr::Sugar(Box::new(Sugar::Is { subject: lhs, checks, binding, not, span })))
     }
 
+    /// [is-union] [when-union-head] The tests of an `is` head, `A`, `A | B`
+    /// or `(A | B)`, with the first test's binding (a later test's is
+    /// refused) and where the head ends. Outside brackets the `|`s stay on
+    /// the head's line [expr-wrap]; in parentheses, which group the tests as
+    /// they would a union type, the head may break before each `|`. `across`
+    /// reads the first test from the next line, after an `is` that ended its
+    /// line (already refused).
+    fn parse_is_head(&mut self, across: bool) -> Option<(Vec<Vec<TypeRef>>, Option<Ident>, Span)> {
+        let open = self.at(&TokenKind::LParen).then(|| self.bump().span);
+        if open.is_some() {
+            self.group_depth += 1;
+        }
+        let first = self.parse_is_check_from(across || open.is_some());
+        let Some((check, binding)) = first else {
+            if open.is_some() {
+                self.group_depth -= 1;
+            }
+            return None;
+        };
+        let mut end = check.last().map(|r| r.span).or(open).unwrap_or(self.peek().span);
+        let mut checks = vec![check];
+        // A `|` beginning the next line, outside brackets, is refused and
+        // read on, so the slip is reported once (a line cannot begin with
+        // `|` otherwise).
+        while self.at(&TokenKind::Pipe) && (self.same_line() || self.group_depth == 0) {
+            if !self.same_line() {
+                let span = self.peek().span;
+                self.error(messages::expr_wrap_tier3_leading("|"), span);
+            }
+            let bar = self.bump().span;
+            self.refuse_trailing("|", bar);
+            let Some((more, b)) = self.parse_is_check_after_bar() else {
+                if open.is_some() {
+                    self.group_depth -= 1;
+                }
+                return None;
+            };
+            if let Some(b) = b {
+                self.error(messages::is_union_binding(), b.span);
+            }
+            end = more.last().map(|r| r.span).unwrap_or(end);
+            checks.push(more);
+        }
+        if open.is_some() {
+            self.group_depth -= 1;
+            end = self.expect(&TokenKind::RParen)?.span;
+        }
+        Some((checks, binding, end))
+    }
+
     /// [expr-as-qual] `x as! Q` and `x as? Q` (user decision 2026-11-05): `x`
     /// given the qualifier `Q`, kept as written [syntax-lowered]; the code it
     /// stands for is written before resolution (`desugar::lower_sugar`).
@@ -6465,7 +6549,9 @@ impl<'s> Parser<'s> {
         let op = self.bump().span; // `as`
         let mark = self.bump(); // `!` or `?`
         let trap = matches!(mark.kind, TokenKind::Bang);
-        let (check, binding) = self.parse_is_check()?;
+        let across = self.group_depth == 0 && self.peek().newline_before;
+        self.refuse_trailing(if trap { "as!" } else { "as?" }, op.to(mark.span));
+        let (check, binding) = self.parse_is_check_from(across)?;
         if let Some(b) = &binding {
             self.error(messages::expr_as_qual_binding(), b.span);
         }
@@ -6474,24 +6560,22 @@ impl<'s> Parser<'s> {
         Some(Expr::Sugar(Box::new(Sugar::AsQual { subject: lhs, check, trap, op, mark: mark.span, span })))
     }
 
-    /// The type-ref sequence after `is`, with an optional trailing binding.
-    /// Type names are uppercase by convention; a trailing lowercase
-    /// identifier is a binding: `is Str s`, `is Err Str`, `is NonEmpty`.
-    fn parse_is_check(&mut self) -> Option<(Vec<TypeRef>, Option<Ident>)> {
-        self.parse_is_check_from(false)
-    }
-
-    /// [expr-wrap] A test after an `is` head's `|`, which may end its line:
-    /// the test may then start the next one.
+    /// [expr-wrap] A test after an `is` head's `|`: when the `|` ended its
+    /// line (refused, `refuse_trailing`), the test is read from the next.
     fn parse_is_check_after_bar(&mut self) -> Option<(Vec<TypeRef>, Option<Ident>)> {
         self.parse_is_check_from(true)
     }
 
-    fn parse_is_check_from(&mut self, after_bar: bool) -> Option<(Vec<TypeRef>, Option<Ident>)> {
+    /// The type-ref sequence of a test, with an optional trailing binding.
+    /// Type names are uppercase by convention; a trailing lowercase
+    /// identifier is a binding: `is Str s`, `is Err Str`, `is NonEmpty`.
+    /// `across` reads its first ref from the next line, after an operator
+    /// that ended its line (already refused), or after a `(`.
+    fn parse_is_check_from(&mut self, across: bool) -> Option<(Vec<TypeRef>, Option<Ident>)> {
         let mut refs = Vec::new();
         let mut binding = None;
         loop {
-            if !self.same_line() && !(after_bar && refs.is_empty()) {
+            if !self.same_line() && !(across && refs.is_empty()) {
                 break;
             }
             // [comptime-is-splice] `v is [field.type]`: every claim the
@@ -6561,10 +6645,11 @@ impl<'s> Parser<'s> {
     /// current token is not a `?:` here (a lone `?`/`:`, or a next-line `?:`
     /// left for an enclosing chain) — the loop then stops at this tier.
     ///
-    /// Precedence is Kotlin's (tighter than comparison, looser than
-    /// additive), and the chain is **left-associative** — the loop folds it,
-    /// and the right side is parsed one tier up (additive, bp 13+), not
-    /// recursively, which is what makes `a ?: b ?: c` read `(a ?: b) ?: c`.
+    /// Precedence is the pick's own (user decision 2026-11-12): tighter than
+    /// the pipe, looser than `||`, and the chain is **left-associative** —
+    /// the loop folds it, and the right side is parsed one level up (`||`,
+    /// bp 5+), not recursively, which is what makes `a ?: b ?: c` read
+    /// `(a ?: b) ?: c`.
     ///
     /// The right side is an ordinary expression — which since [expr-escape]
     /// includes `return`/`break`/`continue`, so `x ?: return _` needs no
@@ -6590,13 +6675,13 @@ impl<'s> Parser<'s> {
         }
         self.bump(); // `?`
         self.expect(&TokenKind::Colon)?;
-        // The right side is an operand one tier up (additive, bp 13+), *not* a
+        // The right side is an operand one level up (`||`, bp 5+), *not* a
         // recursive elvis: that is what makes the chain left-associative. It
         // may still be a `return`/escape, whose value must not wrap a next-line
         // `?:` — that operator brackets the whole chain so far on its left
         // (`elvis_no_wrap`), not the escape's value.
         let saved = std::mem::replace(&mut self.elvis_no_wrap, true);
-        let rhs = self.sub_expr(|p| p.parse_binary(13));
+        let rhs = self.sub_expr(|p| p.parse_binary(5));
         self.elvis_no_wrap = saved;
         let rhs = rhs?;
         let span = subject.span().to(rhs.span());
@@ -6642,10 +6727,12 @@ impl<'s> Parser<'s> {
         // The right side is parsed at bp 3 — every operator tighter than the
         // pipe, i.e. a full expression stopping only at the next `|>`. It is
         // *not* under `elvis_no_wrap`: unlike an elvis right side (parsed at
-        // additive level, so a following elvis must be left for the chain),
+        // the `||` level, so a following elvis must be left for the chain),
         // the pipe is the loosest operator, so a tighter operator in its right
         // side (`x |> f(_) ?: g(_)` is `x |> (f(_) ?: g(_))`) belongs to the
-        // right side and the bp-3 recursion absorbs it correctly.
+        // right side and the bp-3 recursion absorbs it correctly, on its
+        // line: a line-leading `?:` is left for the loop that began the
+        // expression (`parse_binary_from`) [expr-wrap].
         let rhs = self.sub_expr(|p| p.parse_binary(3))?;
         let span = lhs.span().to(rhs.span());
         Some(Expr::Pipe {
@@ -6709,13 +6796,14 @@ impl<'s> Parser<'s> {
     /// `-(a ** b)` and `a ** b ** c` is `a ** (b ** c)`; its right operand
     /// may itself be unary (`2 ** -1`). Parsed at the unary level for that
     /// reason, not in the binding-power table: a prefix operator's operand is
-    /// a power. It may begin a continuation line, as `*` may [expr-wrap].
+    /// a power. It continues no line, as `*` does not [expr-wrap].
     fn parse_power(&mut self) -> Option<Expr> {
         let base = self.parse_postfix()?;
-        if !(self.at(&TokenKind::StarStar) && self.continues_line()) {
+        if !(self.at(&TokenKind::StarStar) && self.same_line()) {
             return Some(base);
         }
-        self.bump();
+        let at = self.bump().span;
+        self.refuse_trailing("**", at);
         let exponent = self.sub_expr(|p| p.parse_unary())?;
         let span = base.span().to(exponent.span());
         Some(Expr::Binary { op: BinaryOp::Pow, lhs: Box::new(base), rhs: Box::new(exponent), span })
@@ -8497,19 +8585,11 @@ impl<'s> Parser<'s> {
                 continue;
             }
             let head_span = self.expect(&TokenKind::KwIs)?.span;
-            let (check, binding) = self.parse_is_check()?;
             // [when-union-head] `is A | B { … }`: one arm for every
             // alternative (user decision 2026-10-30, option 1a), as `x is A
             // | B` is in a condition [is-union]: no binding.
-            let mut or = Vec::new();
-            while self.at(&TokenKind::Pipe) && self.continues_line() {
-                self.bump();
-                let (more, b) = self.parse_is_check_after_bar()?;
-                if let Some(b) = b {
-                    self.error(messages::is_union_binding(), b.span);
-                }
-                or.push(more);
-            }
+            let (mut or, binding, _) = self.parse_is_head(false)?;
+            let check = or.remove(0);
             if !or.is_empty() {
                 if let Some(b) = &binding {
                     self.error(messages::is_union_binding(), b.span);
