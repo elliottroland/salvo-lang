@@ -7,6 +7,7 @@
 //! salvo run --backend rust --src ./some_dir --main ./some_dir/bin/tool.sv
 //! salvo run --backend rust --src ./some_dir --target ./out --clean-target before
 //! salvo analyze --src ./some_dir [--format json]
+//! salvo fmt [--check] [PATH ...]      (`-` alone: stdin to stdout)
 //! salvo test --src ./some_dir [--backend rust] [FILTER] [--list] [--clean-target both]
 //! salvo platform generate --backend kotlin --src ./some_dir
 //! salvo lsp
@@ -228,6 +229,19 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Format::Text)]
         format: Format,
     },
+    /// [cli-fmt] Format Salvo sources in place: the project's source tree,
+    /// or the files and directories named. Formatting only parses; a file
+    /// that does not parse is left as written and its errors reported.
+    Fmt {
+        /// Files or directories to format (default: every `.sv` under the
+        /// manifest's source root). `-` alone reads standard input and
+        /// writes the formatted text to standard output.
+        paths: Vec<PathBuf>,
+        /// Write nothing; list the files that would change, and fail if
+        /// any would.
+        #[arg(long)]
+        check: bool,
+    },
     /// [cli-docs] Write the project's documentation as GitHub-wiki pages: a
     /// page per module from its doc comments, an index, and the `[docs]`
     /// home and topic pages.
@@ -356,6 +370,7 @@ fn main() -> ExitCode {
         } => build_command(backend, src, main_file, out, skip_tests),
         Command::Analyze { src, format } => analyze(src, format),
         Command::Docs { src, out, check } => docs_command(src, out, check),
+        Command::Fmt { paths, check } => salvo_cli::fmt::run(&paths, check),
         Command::Dump { phase, src, all, module, expr_types, rows } => dump_command(phase, src, all, module, expr_types, rows),
         Command::Test {
             backend,

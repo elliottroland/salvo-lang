@@ -4,6 +4,7 @@ pub mod ast;
 pub mod doc;
 pub mod desugar;
 pub mod diag;
+pub mod fmt;
 pub mod lexer;
 pub mod known;
 pub mod messages;

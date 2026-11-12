@@ -513,57 +513,16 @@ impl SourceSet {
             .flatten()
             .map(|project| project.platform_roots());
         let roots = std_roots.as_ref().unwrap_or(&self.platform).canonical();
-        let ignored = read_svignore(root);
-        let is_ignored = |path: &Path| {
-            path.strip_prefix(root)
-                .is_ok_and(|rel| ignored.iter().any(|entry| rel == entry))
-        };
-
-        let mut errors = Vec::new();
         // The source tree, then every platform root outside it.
-        let mut stack = vec![root.to_path_buf()];
-        for dir in roots.dirs() {
-            if !dir.starts_with(root) && dir.is_dir() {
-                stack.push(dir.to_path_buf());
-            }
-        }
-        let mut paths = Vec::new();
-        while let Some(dir) = stack.pop() {
-            let entries = match std::fs::read_dir(&dir) {
-                Ok(e) => e,
-                Err(err) => {
-                    errors.push(format!("failed to read `{}`: {err}", dir.display()));
-                    continue;
-                }
-            };
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let hidden = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with('.'));
-                    // [manifest-discovery] A nested project's tree is its own
-                    // program, not part of this one.
-                    if hidden
-                        || path.join("CACHEDIR.TAG").is_file()
-                        || is_ignored(&path)
-                        || crate::manifest::is_nested_project(root, &path)
-                    {
-                        continue;
-                    }
-                    stack.push(path);
-                } else if path
-                    .extension()
-                    .is_some_and(|e| e == "sv" || e == native_ext || e == "kt" || e == "rs")
-                    && !is_ignored(&path)
-                {
-                    paths.push(path);
-                }
-            }
-        }
-        paths.sort();
-        paths.dedup();
+        let beside: Vec<PathBuf> = roots
+            .dirs()
+            .into_iter()
+            .filter(|dir| !dir.starts_with(root) && dir.is_dir())
+            .map(Path::to_path_buf)
+            .collect();
+        let (paths, mut errors) = walk_tree(root, &beside, Walk::Project, |e| {
+            e == "sv" || e == native_ext || e == "kt" || e == "rs"
+        });
         for path in paths {
             // A file outside the source tree (a root beside it) is named by
             // its absolute path, as a dependency's files are.
@@ -869,6 +828,68 @@ pub fn dependencies_with_reached_platform(
         }
     }
     out
+}
+
+/// [mod-ignore] What a walk of a tree leaves out besides hidden and cache
+/// directories.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Walk {
+    /// A project's source tree: also the entries `<root>/.svignore` lists and
+    /// a nested project's tree [manifest-discovery].
+    Project,
+    /// A directory named on the command line: everything else under it.
+    Named,
+}
+
+/// [mod-ignore] The files under `root` (and the directories `beside` it)
+/// whose extension `wanted` accepts, sorted, with one message per directory
+/// that could not be read. Hidden directories and cache directories (a
+/// `CACHEDIR.TAG`) are skipped, and under [`Walk::Project`] what
+/// `.svignore` lists and nested projects too; `root` itself is exempt.
+pub fn walk_tree(root: &Path, beside: &[PathBuf], walk: Walk, wanted: impl Fn(&std::ffi::OsStr) -> bool) -> (Vec<PathBuf>, Vec<String>) {
+    let ignored = if walk == Walk::Project { read_svignore(root) } else { Vec::new() };
+    let is_ignored = |path: &Path| path.strip_prefix(root).is_ok_and(|rel| ignored.iter().any(|entry| rel == entry));
+    let mut errors = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    stack.extend(beside.iter().cloned());
+    let mut paths = Vec::new();
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(err) => {
+                errors.push(format!("failed to read `{}`: {err}", dir.display()));
+                continue;
+            }
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let hidden = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.'));
+                // [manifest-discovery] A nested project's tree is its own
+                // program, not part of this one.
+                if hidden
+                    || path.join("CACHEDIR.TAG").is_file()
+                    || is_ignored(&path)
+                    || (walk == Walk::Project && crate::manifest::is_nested_project(root, &path))
+                {
+                    continue;
+                }
+                stack.push(path);
+            } else if path.extension().is_some_and(&wanted) && !is_ignored(&path) {
+                paths.push(path);
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    (paths, errors)
+}
+
+/// [cli-fmt] The `.sv` files of the source tree at `root`, as
+/// [`SourceSet::add_dir`] finds them, annexes included.
+pub fn source_tree_sv_files(root: &Path) -> (Vec<PathBuf>, Vec<String>) {
+    let root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    walk_tree(&root, &[], Walk::Project, |e| e == "sv")
 }
 
 /// Parses `<root>/.svignore` [mod-ignore]: one entry per line, `/`-separated

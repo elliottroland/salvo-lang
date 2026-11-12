@@ -35,7 +35,8 @@ messages, and virtual time in a test).
 Ownership on the Rust side is derived mechanically from deductions — no
 lifetimes in emitted signatures except the one deliberate exception
 ([proj-readonly-return]). Around it: `salvo analyze` (with `type?(place)` and
-`type!(place: T)` to show and pin a place's type), a language server, a VS Code
+`type!(place: T)` to show and pin a place's type), `salvo fmt` (a formatter
+over the parsed tree, also the language server's), a language server, a VS Code
 extension (Salvo and its platform templates), worked [examples/](examples/), and `salvo test` — `test "name" { … }`
 blocks in `*.test.sv` annexes, run by a generated Salvo harness with one report
 on both backends, which is how std's own modules are tested.
@@ -149,6 +150,93 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-11-12 — `salvo fmt`, the editor's formatting, and one import sort ([cli-fmt] [lsp-format] [fmt-imports])
+
+Stage G of the formatter record below (user decisions 2026-11-11: the
+command, `--check`, `-`, whole-document formatting only, a file that does not
+parse left alone, imports reordered exactly as organize-imports does by
+reusing its code, and nothing else).
+
+- **One formatter** (`salvo_syntax::fmt::format`): `parse_module` (the pure
+  parse: nothing checked, expanded or lowered, so comptime is formatted as
+  written), `print_module`, then `sort_imports`. The command
+  (`salvo_cli::fmt`, `Command::Fmt` in `main.rs`) and the language server
+  (`format_document` in `lsp.rs`) both call it.
+- **Each formatting is checked before it is written** (agent's call, to
+  confirm): it must parse, parse to the same tree (`fmt::shape`: the debug
+  form with spans written `~`, the parentheses counted on them read alike,
+  and the imports sorted on both sides) and hold the same comments as often
+  as written. A failure is a printer defect, reported, and the file is left
+  as written. Over the repository it refuses exactly the four
+  `DOCS_ON_A_SHARED_LINE` files (their printing repeats a container's docs,
+  ROADMAP §0av); the tree check refused nothing. Cost: a second parse and two
+  debug forms per file; `salvo fmt --check` over all 586 files of the
+  repository takes 2.6s on a debug build.
+- **What organize-imports did, and what is shared.** It took the lines from
+  the first top-level `import` line to the last, dropped exact duplicates,
+  then (with the program free of errors) every import whose removal left the
+  program no worse, analysed once per import; and sorted the rest by the
+  line without `export `, dropping the blank lines, but only when the run
+  held nothing but imports and blank lines (a comment anywhere stopped the
+  sort). The removals need the checker, so `fmt` takes only the sort, now
+  `salvo_syntax::fmt::sort_imports`, which both call (organize-imports after
+  its removals; its edit now covers the lines that differ). The sort needed
+  nothing from the checker. It was made comment-safe: the comment lines
+  directly above an import move with it, a trailing comment is part of its
+  line, and the comment run above the first import is its own unless it is
+  the module's docs [doc-module]. It leaves the run as written for a
+  declaration between imports, a heading comment (one with a blank line after
+  it) and, found by a probe, a sort that would bring a comment to the top of
+  a file with nothing above its imports: the parser reads a comment run
+  directly above a file's first `import` as the module's docs, so the moved
+  comment would have become documentation (the tree check caught it too). A
+  comment the sort brings directly under the module's docs gets a blank line,
+  so it does not join them. `export import`, which organize-imports still
+  names, has been a parse error since [mod-export]; the sort does not
+  recognize it.
+- **Which files**: with no paths, `salvo_core::source::source_tree_sv_files`
+  of the project found from the working directory, which walks as
+  `SourceSet::add_dir` does: the walk was factored out of it into
+  `source::walk_tree` (hidden and cache directories, and for a project's tree
+  `.svignore` and nested projects). A directory named is walked whole but for
+  hidden and cache directories (`Walk::Named`, agent's call, to confirm); a
+  `.test.sv` annex is formatted like any file; std is formatted by `salvo
+  fmt` in `lib/`, like any project.
+- **The surface** (agent's calls, to confirm, ROADMAP §0av): `--check` lists
+  each file that would change on stdout, relative to the working directory,
+  and ends stderr with `fmt: N of M files would be reformatted`; a write ends
+  with `fmt: reformatted N of M files` and touches only changed files (the
+  mtime of the others stays); a file that does not parse prints its errors
+  in the usual form and `fmt: K files left as written`; every failure exits
+  1. `-` reads stdin (diagnostics name it `<stdin>`); under `--check` it
+  prints nothing to stdout. The language server advertises
+  `documentFormattingProvider` and answers with one edit replacing the
+  document, an empty list when nothing changes, and null when the document
+  does not parse. The VS Code extension needed nothing: the language client
+  registers the formatter from the capability.
+- **Docs**: `docs/language/Formatting.md` (new, in the reading order under
+  "The surrounding world"), the README's quick start, and the rules
+  [cli-fmt], [fmt-imports] and [lsp-format].
+- **Tests**: `fmt_tests.rs` (9 CLI tests: the project formatted in place and
+  formatting again changing nothing, an annex included; a formatted file's
+  mtime kept; `--check`'s listing, exit codes and relative paths; stdin to
+  stdout, with and without `--check`, and a broken stdin; a file that does
+  not parse left as written while the others are formatted; a directory
+  named, hidden directories skipped, a `.txt` refused; imports sorted with
+  an attached comment and a duplicate kept, then idempotent; `--check` in a
+  scratch copy of `lib/` finding all 71 of std's files and writing none;
+  the language page's before-and-after example formatting as shown);
+  `lsp_tests.rs` (the capability; formatting a changed, a formatted and an
+  unparseable document; organize-imports moving a comment with its import);
+  `salvo-syntax`'s `fmt` unit tests (the sort with comments, the module's
+  docs, the runs left as written, the shape and its spans, and a printing
+  refused for not parsing, a changed literal spelling, changed docs, and a
+  lost or a repeated comment).
+- 804 tests under `cargo nextest run`, all green: 3m02 wall (nextest's own
+  148s, `run_data` 54s of it), every binary relinked by the `salvo-syntax`
+  change, load averages 83–209. The new tests cost little: `fmt_tests.rs`'s
+  nine take 1.7s together, the scratch copy of std included.
 
 ### 2026-11-12 — Lines break at 120 columns, and where the author broke them ([fmt-width] [fmt-author-breaks] [ast-print])
 
@@ -43145,6 +43233,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **Moving a comment to a file's first line changes the tree** (2026-11-12,
+  [fmt-imports] [doc-module]): a comment run directly above a file's first
+  `import`, with nothing but blank lines before it, is the module's docs,
+  not trivia. Any rewrite that moves text above the first import (the import
+  sort is one) must check where a comment lands; `fmt::format`'s tree check
+  (`fmt::shape`) is what catches it, since the comments' multiset does not
+  change.
 
 - **A printing that reads back what the printer wrote as comments of its
   own is not stable once comments are kept** (2026-11-11, [fmt-comments]):

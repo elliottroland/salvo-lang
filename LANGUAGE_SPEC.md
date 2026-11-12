@@ -13215,7 +13215,8 @@ replaced the working document TESTING.md).
   statements, heads, calls and splices (`[for …]`, `[if …] … else { … }`,
   `[when …]`, `[let …]`, `refuse!(…)`, `[...for …] { … }`, `[name(…)]`,
   `v.[f]`, `[f]: …`, `[field.type]`, `name@[site]`), so that it parses back
-  to the same tree and prints the same again — what `salvo fmt` will be.
+  to the same tree and prints the same again — what `salvo fmt` writes
+  [cli-fmt].
   What the tree holds with no spelling is written as the surface it came
   from where the tree says so — a type-named call `Mut_List(…)` as `Mut
   List(…)` [fn-type-named], `name@[site]` in a stamped body as the bare
@@ -13432,6 +13433,58 @@ replaced the working document TESTING.md).
   it. The breaks are read from the tree and the trivia (`Trivia::line_of`
   of where one item ends and the next begins), so the tree holds nothing
   for them. A comment written in a list breaks it too [fmt-comments].
+* [fmt-imports] **The formatter sorts the imports, and reorders nothing
+  else** (user decision 2026-11-11: as the language server's
+  organize-imports does, reusing that code). `salvo_syntax::fmt::sort_imports`
+  is the one sort, called by `salvo fmt` [cli-fmt] after printing and by
+  organize-imports [lsp-organize-imports] after its removals. It is
+  textual: the run from the file's first top-level `import` line to its
+  last, with the comment lines directly above the first unless they are
+  the module's docs [doc-module], is sorted by each import's line (its
+  trailing comment aside), stably; the comment lines directly above an
+  import move with it, a trailing comment is part of its line, and the
+  blank lines between imports go. Nothing is removed. The run is left as
+  written when it holds anything else (a declaration between imports), a
+  comment with a blank line after it (a heading over a group belongs to
+  no one import), or when the sort would bring a comment to the top of a
+  file that has nothing above its imports, where the parser would read it
+  as the module's docs. A comment that the sort brings directly under the
+  module's docs gets a blank line between them, so it does not join them.
+* [cli-fmt] **`salvo fmt [--check] [PATH…]` formats sources in place**
+  (user decisions 2026-11-11, COMPLETED.md's formatter record):
+  `salvo_syntax::fmt::format` parses a file as written (`parse_module`:
+  nothing is checked, expanded or lowered, so comptime prints as written),
+  prints it [ast-print] and sorts its imports [fmt-imports]. Without paths
+  it formats every `.sv` under the source root of the project found from
+  the working directory [manifest-discovery], as `salvo analyze` finds
+  them [mod-ignore] (`salvo_core::source::source_tree_sv_files`: annexes
+  included, a nested project's tree, a `.svignore`d entry, hidden and cache
+  directories not); no manifest is an error. A path is a `.sv` file (any
+  other file is refused) or a directory, formatted throughout but for its
+  hidden and cache directories (nested projects and `.svignore` do not
+  apply to a directory named). std is formatted like any project, by
+  `salvo fmt` in `lib/`.
+  * A file is written only when its text changes, so an unchanged file's
+    modification time stays. stderr ends with `fmt: reformatted N of M
+    files`.
+  * `--check` writes nothing: it prints each file that would change on
+    stdout, one per line, relative to the working directory, ends stderr
+    with `fmt: N of M files would be reformatted`, and exits 1 when N is
+    not 0.
+  * `-` as the only path reads standard input and writes its formatting to
+    standard output; with `--check` it prints nothing to stdout and exits 1
+    when the input is not formatted. Its diagnostics name it `<stdin>`.
+  * A file that does not parse is left as written, its parse errors are
+    printed as diagnostics are (`error: … --> src/bad.sv:1:7`), the others
+    are still formatted, stderr says `fmt: K files left as written`, and
+    the exit is 1.
+  * **Each formatting is checked before it is written**: it must parse,
+    parse to the same tree (spans, grouping parentheses [expr-group] and
+    the imports' order aside) and hold the same comments, as often as
+    written [fmt-comments] — the guarantees `print_tests.rs` holds over
+    every file of the repository, checked again on each file formatted. A
+    formatting that fails is a printer defect: the file is left as
+    written, an error says so, and the exit is 1.
 * [round-trip] **Every choice survives being written out** (the pipeline record B4
   and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
   P24). `salvo_core::round_trip` prints a checked file's expanded tree back
@@ -15774,11 +15827,19 @@ replaced the working document TESTING.md).
   platform generate`, run by the server in the document's project
   (`workspace/executeCommand`, `salvo.platformGenerate`).
 * [lsp-organize-imports] **`source.organizeImports`** removes duplicate
-  imports and the unused ones, and sorts the rest. An import is unused when
+  imports and the unused ones, and sorts the rest [fmt-imports]. An import is unused when
   the program analysed without it has no more errors than with it, so none
   is removed while the program has errors; `export import`s stay. Offered
   only when asked for by kind, since it analyses the program once for each
-  import.
+  import. The sort is `salvo fmt`'s [fmt-imports], so a comment directly
+  above an import moves with it.
+* [lsp-format] **`textDocument/formatting`** formats the whole document
+  with `salvo_syntax::fmt::format`, as `salvo fmt` does [cli-fmt]: one edit
+  replacing the document when its formatting differs, none when it does
+  not, and none (a null result) when the document does not parse or its
+  formatting is refused, so a half-typed file is never rewritten. No range
+  formatting is offered. The VS Code extension needs nothing for it: the
+  language client registers a formatter from the capability.
 * [cli-lang] `salvo lang tm-grammar [--out PATH]` emits the TextMate
   grammar consumed by the VS Code extension (`vscode/syntaxes/`); without
   `--out` it prints to stdout.

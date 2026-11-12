@@ -184,6 +184,7 @@ Start at the top; each page stands on its own, so jumping in is fine too.
 |---|---|
 | [Modules](Modules.md) | files as modules, `export`, `import`, namespaces, and documentation comments |
 | [The Manifest](Manifest.md) | `salvo.toml`: projects, build settings, dependencies, host libraries, and every valid option |
+| [Formatting](Formatting.md) | `salvo fmt` and the editor's formatting: the layout, what is kept as written, and the import order |
 | [Testing](Testing.md) | `test` declarations, where they live, assertions, actor tests, and checking a type when compiling with `type!` |
 | [Writing Test Kinds](Test-Kinds.md) | `comptime fn` test kinds: the `Test` parameter, arguments, verdicts, and writing your own |
 | [Files](Files.md) | the file system and its streams |

@@ -77,6 +77,12 @@ cargo run -- run --backend rust --src ./my_project --main ./my_project/bin/tool.
 cargo run -- analyze --src ./my_project              # or --format json
 cargo run -- -v analyze --src ./my_project           # each diagnostic with its id, error[rule:name]
 
+# Format .sv files in place (it only parses; inside a project, no path means
+# its whole source tree; `--check` lists what would change and fails; `-`
+# formats stdin to stdout):
+cargo run -- fmt ./my_project
+cargo run -- fmt --check ./my_project
+
 # Run the tests a source tree declares (`test "name" { ... }` blocks in
 # `<module>.test.sv` files beside the modules they test):
 cargo run -- test --src ./my_project                 # or --list, or a filter

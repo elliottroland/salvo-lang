@@ -505,7 +505,8 @@ impl Server<'_> {
     }
 
     /// [lsp-organize-imports] The file's top-level imports with duplicates
-    /// and unused ones removed and the rest sorted. An import is unused when
+    /// and unused ones removed and the rest sorted as `salvo fmt` sorts them
+    /// ([fmt-imports], `salvo_syntax::fmt::sort_imports`). An import is unused when
     /// the program, analysed without it, has no more errors than with it —
     /// so only offered while the program has none, and `export import`s are
     /// kept (the others using them are not in this file).
@@ -520,7 +521,6 @@ impl Server<'_> {
         let first = lines.iter().position(|l| is_import(l))?;
         let last = lines.iter().rposition(|l| is_import(l))?;
         let region = &lines[first..=last];
-        let sortable = region.iter().all(|l| is_import(l) || l.trim().is_empty());
 
         // Duplicates.
         let mut keep: Vec<&str> = Vec::new();
@@ -556,26 +556,24 @@ impl Server<'_> {
             }
             keep = current;
         }
-        let mut rebuilt: Vec<String> = keep.iter().map(|l| l.to_string()).collect();
-        if sortable {
-            rebuilt.retain(|l| !l.trim().is_empty());
-            rebuilt.sort_by(|a, b| a.trim().trim_start_matches("export ").cmp(b.trim().trim_start_matches("export ")));
-            for l in rebuilt.iter_mut() {
-                if !l.ends_with('\n') {
-                    l.push('\n');
-                }
-            }
-        }
-        let new_text: String = rebuilt.concat();
-        let old_text: String = region.concat();
-        if new_text == old_text {
+        // [fmt-imports] The sort `salvo fmt` makes, over what is kept.
+        let kept: String = lines[..first].iter().copied().chain(keep.iter().copied()).chain(lines[last + 1..].iter().copied()).collect();
+        let new_text = salvo_syntax::fmt::sort_imports(&kept);
+        if new_text == content {
             return None;
         }
-        let start: usize = lines[..first].iter().map(|l| l.len()).sum();
-        let end = start + old_text.len();
+        // The edit covers the lines that differ.
+        let same_start = content.bytes().zip(new_text.bytes()).take_while(|(a, b)| a == b).count();
+        let start = content.as_bytes()[..same_start].iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+        let same_end = content[start..].bytes().rev().zip(new_text[start..].bytes().rev()).take_while(|(a, b)| a == b).count();
+        let (mut end, mut new_end) = (content.len() - same_end, new_text.len() - same_end);
+        while end < content.len() && (end == 0 || content.as_bytes()[end - 1] != b'\n') {
+            end += 1;
+            new_end += 1;
+        }
         Some(TextEdit {
             range: Range::new(offset_to_position(content, start as u32), offset_to_position(content, end as u32)),
-            new_text,
+            new_text: new_text[start..new_end].to_string(),
         })
     }
 

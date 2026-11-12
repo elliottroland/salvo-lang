@@ -1003,7 +1003,9 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   literals' spellings [lit-spelling] (stage D), its comments and blank
   lines beside it [fmt-comments] [fmt-blank-lines] (stage E), and the
   printer writes it back [ast-print], breaking lines at 120 and where the
-  author broke them [fmt-width] [fmt-author-breaks] (stage F) — every `.sv`
+  author broke them [fmt-width] [fmt-author-breaks] (stage F), and `salvo
+  fmt`, the language server's document formatting and the shared import
+  sort run it [cli-fmt] [lsp-format] [fmt-imports] (stage G) — every `.sv`
   file of the repository that parses prints keeping every comment, parses
   back to the same tree and prints the same again, and the fixtures
   (`crates/salvo-core/tests/print/{sugar,spellings,comments,breaks}.sv`)
@@ -1056,17 +1058,31 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     (`DOCS_ON_A_SHARED_LINE` in `print_tests.rs`). Refusing members on one
     line (below) ends it, or the doc rule could take docs only for a
     declaration that starts its line, as fields already do.
-  * **G. The command**: `salvo fmt [paths]` writing files in place (default:
-    the project's source roots), `--check` (exit non-zero and name the
-    files that would change), `-` / stdin to stdout for editors, the
-    language server's whole-document formatting (no range formatting); a
-    file that does not parse is left alone, its errors reported, and the
-    exit is non-zero. It reorders imports exactly as the language server's
-    organize-imports action does (reusing that code), and nothing else.
-    The guarantees it inherits, each tested over every `.sv` source: the
-    formatted text parses to the same tree (spans and parentheses aside),
-    formatting it again changes nothing, and no comment is lost.
-  * **H.** Reformat the repository's own `.sv` files with it.
+  * **DECISION: the agent's calls inside stage G, to confirm** (built
+    2026-11-12, COMPLETED.md's stage-G entry): (1) every formatting is
+    checked before it is written (it parses, to the same tree with the
+    imports sorted, and keeps the same comments) and refused as a formatter
+    defect otherwise; (2) a directory named is walked whole but for hidden
+    and cache directories (nested projects and `.svignore` apply only to
+    the project's own tree, with no paths); a named file that is no `.sv`
+    is refused; there is no `--src`; (3) the messages: `--check` lists paths
+    on stdout and a count on stderr (`fmt: N of M files would be
+    reformatted`), a write ends with `fmt: reformatted N of M files`,
+    failures add `fmt: K files left as written`; every failure is exit 1;
+    stdin's diagnostics name it `<stdin>`; (4) the sort is textual over the
+    printed text and leaves the imports as written when a declaration or a
+    heading comment (one with a blank line after it) stands among them, or
+    when sorting would bring a comment to the top of a file with nothing
+    above its imports (it would become the module's docs); (5) the language
+    server answers an unparseable document with a null result rather than
+    an error, and organize-imports now sorts imports that have comments
+    (it used to leave such a run unsorted).
+  * **H.** Reformat the repository's own `.sv` files with it (`salvo fmt
+    --check crates lib examples bench modules`, measured 2026-11-12: 414 of
+    586 files would change, 43 do not parse (test data meant not to), and
+    `fmt` refuses the four `DOCS_ON_A_SHARED_LINE` files, whose printing
+    repeats their docs, until the item below is fixed). `demo/` is the
+    user's.
   * **Spellings not kept yet** [lit-spelling]: a literal type's
     (`InRange(-1_000, 5)`, `x is "a\'b"`: `TypeLit` and the `is` chain's
     type-ref name hold the value only) and a compile-time expression's

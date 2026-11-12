@@ -26,7 +26,7 @@ use lsp_types::notification::{
 };
 use lsp_types::request::{
     CodeActionRequest, Completion, DocumentHighlightRequest, ExecuteCommand, GotoDefinition,
-    HoverRequest, OnTypeFormatting, PrepareRenameRequest, References, Rename, Request as _,
+    Formatting, HoverRequest, OnTypeFormatting, PrepareRenameRequest, References, Rename, Request as _,
     SignatureHelpRequest,
 };
 use lsp_types::{
@@ -34,7 +34,8 @@ use lsp_types::{
     CodeActionProviderCapability, CompletionItem, CompletionItemKind, CompletionOptions,
     CompletionParams, CompletionResponse, Diagnostic, DiagnosticSeverity,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentOnTypeFormattingOptions, DocumentOnTypeFormattingParams,
+    DidSaveTextDocumentParams, DocumentFormattingParams, DocumentOnTypeFormattingOptions,
+    DocumentOnTypeFormattingParams,
     GotoDefinitionParams, GotoDefinitionResponse, Hover,
     HoverContents, HoverParams, HoverProviderCapability, InitializeParams,
     Location, MarkupContent, MarkupKind, OneOf, ParameterInformation, ParameterLabel, Position,
@@ -291,6 +292,9 @@ pub fn serve_connection(
             first_trigger_character: "\n".to_string(),
             more_trigger_character: None,
         }),
+        // [lsp-format] The whole document, as `salvo fmt` formats it; no
+        // range formatting.
+        document_formatting_provider: Some(OneOf::Left(true)),
         ..Default::default()
     })?;
     let init_params: InitializeParams =
@@ -626,6 +630,11 @@ impl Server<'_> {
             PrepareRenameRequest::METHOD => {
                 let params: TextDocumentPositionParams = serde_json::from_value(req.params)?;
                 let result = self.prepare_rename(&params);
+                self.respond(Response::new_ok(req.id, result))?;
+            }
+            Formatting::METHOD => {
+                let params: DocumentFormattingParams = serde_json::from_value(req.params)?;
+                let result = self.format_document(&params);
                 self.respond(Response::new_ok(req.id, result))?;
             }
             OnTypeFormatting::METHOD => {
@@ -1956,6 +1965,24 @@ impl Server<'_> {
         // [std-shadow] A shadowing file is, and navigates like any.
         let (uri, range) = self.site_location(&analysis, site.file, site.span)?;
         Some(GotoDefinitionResponse::Scalar(Location { uri, range }))
+    }
+
+    /// [lsp-format] `textDocument/formatting`: one edit replacing the
+    /// document with its formatting ([cli-fmt], `salvo_syntax::fmt::format`),
+    /// none when it is formatted already, and none (a null result) when it
+    /// does not parse, so a half-typed file is never rewritten.
+    fn format_document(&self, params: &DocumentFormattingParams) -> Option<Vec<TextEdit>> {
+        let path = file_path(&params.text_document.uri)?;
+        let text = match self.overlay.get(&path) {
+            Some(t) => t.clone(),
+            None => std::fs::read_to_string(&path).ok()?,
+        };
+        let formatted = salvo_syntax::fmt::format(&text).ok()?;
+        if formatted == text {
+            return Some(Vec::new());
+        }
+        let end = offset_to_position(&text, text.len() as u32);
+        Some(vec![TextEdit { range: Range::new(Position::new(0, 0), end), new_text: formatted }])
     }
 
     /// [lsp-comment-continuation] `textDocument/onTypeFormatting`, fired

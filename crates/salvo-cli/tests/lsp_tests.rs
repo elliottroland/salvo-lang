@@ -231,6 +231,12 @@ fn initialize(mut lsp: Lsp, root: &PathBuf, capabilities: serde_json::Value) -> 
         triggers == &json!([".", "[", ","]),
         "completion trigger characters: {response}"
     );
+    // [lsp-format] The whole document; no range formatting.
+    assert!(
+        response["result"]["capabilities"]["documentFormattingProvider"] == json!(true)
+            && response["result"]["capabilities"]["documentRangeFormattingProvider"].is_null(),
+        "unexpected capabilities: {response}"
+    );
     send(
         &mut lsp.stdin,
         json!({"jsonrpc": "2.0", "method": "initialized", "params": {}}),
@@ -4414,6 +4420,56 @@ fn organize_imports_sorts_the_imports_it_keeps() {
     let action = actions.iter().find(|a| a["title"] == json!("Organize imports")).unwrap_or_else(|| panic!("{actions:?}"));
     let fixed = apply_edits(text, action["edit"]["changes"][&uri].as_array().unwrap());
     assert!(fixed.starts_with("import extras.unit\nimport shapes.area\n\nfn main"), "{fixed}");
+}
+
+// [lsp-format] Formatting a document is one edit replacing it with what
+// `salvo fmt` writes; a formatted document gets none, and so does one that
+// does not parse, which is never rewritten.
+#[test]
+fn formatting_replaces_the_document_with_its_formatting() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_formatting");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let format = |lsp: &mut Lsp, id: i64| {
+        send(
+            &mut lsp.stdin,
+            json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/formatting",
+                   "params": {"textDocument": {"uri": uri}, "options": {"tabSize": 4, "insertSpaces": true}}}),
+        );
+        expect_response(&lsp.rx, id)["result"].clone()
+    };
+    let text = "import std.random.DefaultRandom\nimport std.heap.Heap\n\nfn main( ) -> Int {\n  return 1\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    let edits = format(&mut lsp, 2).as_array().cloned().unwrap();
+    assert_eq!(edits.len(), 1, "{edits:?}");
+    assert_eq!(edits[0]["range"], json!({"start": {"line": 0, "character": 0}, "end": {"line": 6, "character": 0}}));
+    let formatted = apply_edits(text, &edits);
+    assert_eq!(formatted, "import std.heap.Heap\nimport std.random.DefaultRandom\n\nfn main() -> Int {\n    return 1\n}\n");
+    set_text(&mut lsp, &uri, 2, &formatted);
+    assert_eq!(format(&mut lsp, 3), json!([]));
+    set_text(&mut lsp, &uri, 3, "fn main( -> Int {\n  return 1\n}\n");
+    assert!(format(&mut lsp, 4).is_null());
+}
+
+// [lsp-organize-imports] [fmt-imports] The sort keeps a comment with the
+// import it is written above.
+#[test]
+fn organize_imports_moves_a_comment_with_its_import() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_organize_comment");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
+    std::fs::write(root.join("extras.sv"), "export fn unit() -> Int {\n    return 1\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let text = "// The app.\n\nimport shapes.area\n// One.\nimport extras.unit\n\nfn main() -> Int {\n    return area(unit())\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    let actions = code_actions(&mut lsp, 2, &uri, &[], Some(json!(["source.organizeImports"])));
+    let action = actions.iter().find(|a| a["title"] == json!("Organize imports")).unwrap_or_else(|| panic!("{actions:?}"));
+    let fixed = apply_edits(text, action["edit"]["changes"][&uri].as_array().unwrap());
+    assert!(fixed.starts_with("// The app.\n\n// One.\nimport extras.unit\nimport shapes.area\n\nfn main"), "{fixed}");
 }
 
 // [lsp-stub] A program that declares platform fns is offered the host
