@@ -375,6 +375,7 @@ Module {
                             Int {
                                 value: 0,
                                 long: false,
+                                spelling: None,
                                 span: 311..312,
                             },
                         ),
@@ -453,9 +454,10 @@ Module {
                                                 rhs: Int {
                                                     value: 1,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 365..366,
                                                 },
-                                                span: 361..366,
+                                                span: (361..366),
                                             },
                                             rhs: Call {
                                                 callee: Field {
@@ -723,21 +725,25 @@ Module {
                                                 Int {
                                                     value: 1,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 555..556,
                                                 },
                                                 Int {
                                                     value: 2,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 558..559,
                                                 },
                                                 Int {
                                                     value: 3,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 561..562,
                                                 },
                                                 Int {
                                                     value: 4,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 564..565,
                                                 },
                                             ],
@@ -995,9 +1001,10 @@ Module {
                                     args: [
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "In ",
-                                                ),
+                                                Text {
+                                                    text: "In ",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Ident(
                                                         Ident {
@@ -1006,9 +1013,10 @@ Module {
                                                         },
                                                     ),
                                                 ),
-                                                Text(
-                                                    " years, ",
-                                                ),
+                                                Text {
+                                                    text: " years, ",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Call {
                                                         callee: Ident(
@@ -1030,9 +1038,10 @@ Module {
                                                         span: 753..770,
                                                     },
                                                 ),
-                                                Text(
-                                                    " will be ",
-                                                ),
+                                                Text {
+                                                    text: " will be ",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Binary {
                                                         op: Add,
@@ -1223,6 +1232,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 1019..1020,
                                                 },
                                                 span: 1005..1020,
@@ -1241,9 +1251,10 @@ Module {
                                                             args: [
                                                                 Str {
                                                                     parts: [
-                                                                        Text(
-                                                                            "empty line",
-                                                                        ),
+                                                                        Text {
+                                                                            text: "empty line",
+                                                                            spelling: None,
+                                                                        },
                                                                     ],
                                                                     span: 1037..1049,
                                                                 },
@@ -1482,9 +1493,10 @@ Module {
                                                             args: [
                                                                 Str {
                                                                     parts: [
-                                                                        Text(
-                                                                            "length ",
-                                                                        ),
+                                                                        Text {
+                                                                            text: "length ",
+                                                                            spelling: None,
+                                                                        },
                                                                         Interp(
                                                                             Ident(
                                                                                 Ident {
@@ -1541,9 +1553,10 @@ Module {
                                                             args: [
                                                                 Str {
                                                                     parts: [
-                                                                        Text(
-                                                                            "could not parse: ",
-                                                                        ),
+                                                                        Text {
+                                                                            text: "could not parse: ",
+                                                                            spelling: None,
+                                                                        },
                                                                         Interp(
                                                                             Ident(
                                                                                 Ident {

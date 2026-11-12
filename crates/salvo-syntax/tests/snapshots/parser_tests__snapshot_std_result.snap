@@ -3788,9 +3788,10 @@ Module {
                                     message: Some(
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "two non-empty lists joined are not empty",
-                                                ),
+                                                Text {
+                                                    text: "two non-empty lists joined are not empty",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 8704..8746,
                                         },

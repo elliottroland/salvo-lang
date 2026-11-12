@@ -512,9 +512,10 @@ Module {
                                     args: [
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "\n",
-                                                ),
+                                                Text {
+                                                    text: "\n",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 2647..2651,
                                         },

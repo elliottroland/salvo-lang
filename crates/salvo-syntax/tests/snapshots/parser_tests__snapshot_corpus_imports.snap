@@ -460,9 +460,10 @@ Module {
                                     value: Some(
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "",
-                                                ),
+                                                Text {
+                                                    text: "",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 452..454,
                                         },

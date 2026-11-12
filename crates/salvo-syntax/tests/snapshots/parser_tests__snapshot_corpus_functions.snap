@@ -1042,16 +1042,19 @@ Module {
                                         Int {
                                             value: 1,
                                             long: false,
+                                            spelling: None,
                                             span: 632..633,
                                         },
                                         Int {
                                             value: 2,
                                             long: false,
+                                            spelling: None,
                                             span: 635..636,
                                         },
                                         Int {
                                             value: 3,
                                             long: false,
+                                            spelling: None,
                                             span: 638..639,
                                         },
                                     ],
@@ -1502,6 +1505,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 1167..1168,
                                     },
                                     span: 1162..1168,
@@ -2020,6 +2024,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 1488..1489,
                                                 },
                                                 span: 1480..1489,
@@ -2126,6 +2131,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 1567..1568,
                                     },
                                     span: 1560..1568,
@@ -2240,16 +2246,19 @@ Module {
                                         Int {
                                             value: 1,
                                             long: false,
+                                            spelling: None,
                                             span: 1644..1645,
                                         },
                                         Int {
                                             value: 2,
                                             long: false,
+                                            spelling: None,
                                             span: 1647..1648,
                                         },
                                         Int {
                                             value: 3,
                                             long: false,
+                                            spelling: None,
                                             span: 1650..1651,
                                         },
                                     ],
@@ -2299,6 +2308,7 @@ Module {
                                         Int {
                                             value: 5,
                                             long: false,
+                                            spelling: None,
                                             span: 1689..1690,
                                         },
                                         Lambda {
@@ -2319,6 +2329,7 @@ Module {
                                                 Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 1699..1700,
                                                 },
                                             ),
@@ -2378,6 +2389,7 @@ Module {
                                     index: Int {
                                         value: 0,
                                         long: false,
+                                        spelling: None,
                                         span: 1756..1757,
                                     },
                                     span: 1748..1758,
@@ -2580,6 +2592,7 @@ Module {
                                                     Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 1849..1850,
                                                     },
                                                 ],
@@ -2907,6 +2920,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 2013..2014,
                                                 },
                                                 span: 1997..2014,
@@ -3560,9 +3574,10 @@ Module {
                                                                 args: [
                                                                     Str {
                                                                         parts: [
-                                                                            Text(
-                                                                                "shouting ",
-                                                                            ),
+                                                                            Text {
+                                                                                text: "shouting ",
+                                                                                spelling: None,
+                                                                            },
                                                                             Interp(
                                                                                 Ident(
                                                                                     Ident {
@@ -3592,9 +3607,10 @@ Module {
                                                                                     },
                                                                                 ),
                                                                             ),
-                                                                            Text(
-                                                                                "!",
-                                                                            ),
+                                                                            Text {
+                                                                                text: "!",
+                                                                                spelling: None,
+                                                                            },
                                                                         ],
                                                                         span: 2582..2589,
                                                                     },
@@ -3611,9 +3627,10 @@ Module {
                                         },
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "hello",
-                                                ),
+                                                Text {
+                                                    text: "hello",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 2597..2604,
                                         },
@@ -4424,16 +4441,19 @@ Module {
                                                                     Int {
                                                                         value: 1,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 3408..3409,
                                                                     },
                                                                     Int {
                                                                         value: 2,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 3411..3412,
                                                                     },
                                                                     Int {
                                                                         value: 3,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 3414..3415,
                                                                     },
                                                                 ],
@@ -4487,16 +4507,19 @@ Module {
                                                                     Int {
                                                                         value: 2,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 3447..3448,
                                                                     },
                                                                     Int {
                                                                         value: 3,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 3450..3451,
                                                                     },
                                                                     Int {
                                                                         value: 4,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 3453..3454,
                                                                     },
                                                                 ],

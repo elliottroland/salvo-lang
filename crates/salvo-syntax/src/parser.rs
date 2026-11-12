@@ -1205,7 +1205,7 @@ impl<'s> Parser<'s> {
         };
         let name = match parts.as_slice() {
             [] => String::new(),
-            [StrPart::Text(text)] => text.clone(),
+            [StrPart::Text { text, .. }] => text.clone(),
             _ => {
                 self.error(messages::test_decl_interpolated_name(), name_token.span);
                 return None;
@@ -3632,7 +3632,7 @@ impl<'s> Parser<'s> {
                 let mut text = String::new();
                 for part in parts {
                     match part {
-                        StrPart::Text(t) => text.push_str(t),
+                        StrPart::Text { text: t, .. } => text.push_str(t),
                         StrPart::Interp { .. } => {
                             self.error(messages::type_literal_interpolated(), start);
                             self.bump();
@@ -4220,7 +4220,10 @@ impl<'s> Parser<'s> {
             self.error(messages::syntax_expected_fn_type_arrow(), start);
         }
         if elems.len() == 1 {
-            return Some(elems.into_iter().next().unwrap());
+            // [expr-group] A grouped type, its parentheses counted.
+            let mut ty = elems.into_iter().next().unwrap();
+            ty.group();
+            return Some(ty);
         }
         let span = start.to(end);
         Some(Type::Tuple { elems, span })
@@ -4536,7 +4539,7 @@ impl<'s> Parser<'s> {
                         let mut plain = true;
                         for part in parts {
                             match part {
-                                StrPart::Text(t) => text.push_str(&t),
+                                StrPart::Text { text: t, .. } => text.push_str(&t),
                                 StrPart::Interp { .. } => plain = false,
                             }
                         }
@@ -5460,8 +5463,10 @@ impl<'s> Parser<'s> {
                 }
                 let inner = self.parse_comp_expr();
                 self.group_depth -= 1;
-                let inner = inner?;
+                let mut inner = inner?;
                 self.expect(&TokenKind::RParen)?;
+                // [expr-group] Its parentheses counted on its span.
+                inner.group();
                 Some(inner)
             }
             TokenKind::Ident(name) => {
@@ -5589,7 +5594,7 @@ impl<'s> Parser<'s> {
         let mut lit = String::new();
         for part in parts {
             match part {
-                StrPart::Text(t) => lit.push_str(&t),
+                StrPart::Text { text: t, .. } => lit.push_str(&t),
                 StrPart::Interp { .. } => {
                     self.error(messages::comptime_name_interpolated(), lit_span);
                     return None;
@@ -7450,6 +7455,7 @@ impl<'s> Parser<'s> {
                 Some(Expr::Int {
                     value,
                     long,
+                    spelling: tok.spelling,
                     span: tok.span,
                 })
             }
@@ -7458,6 +7464,7 @@ impl<'s> Parser<'s> {
                 Some(Expr::Float {
                     value,
                     single,
+                    spelling: tok.spelling,
                     span: tok.span,
                 })
             }
@@ -7479,6 +7486,7 @@ impl<'s> Parser<'s> {
                 let tok = self.bump();
                 Some(Expr::Char {
                     value,
+                    spelling: tok.spelling,
                     span: tok.span,
                 })
             }
@@ -7802,11 +7810,15 @@ impl<'s> Parser<'s> {
         self.group_depth -= 1;
         let end = self.expect(&TokenKind::RParen)?.span;
         match elems.len() {
-            // [fn-member-call] `(x.f)` keeps that it was grouped: as a callee
-            // it is the explicit member call.
+            // [expr-group] A group is the expression, with its parentheses
+            // counted on its span. [fn-member-call] `(x.f)` also keeps that
+            // it was grouped: as a callee it is the explicit member call.
             1 => Some(match elems.into_iter().next().unwrap() {
-                Expr::Field { base, field, span, .. } => Expr::Field { base, field, span, grouped: true },
-                e => e,
+                Expr::Field { base, field, span, .. } => Expr::Field { base, field, span: span.grouped(), grouped: true },
+                mut e => {
+                    e.group();
+                    e
+                }
             }),
             _ => Some(Expr::Tuple {
                 elems,
@@ -8391,7 +8403,7 @@ impl<'s> Parser<'s> {
         parts
             .into_iter()
             .map(|part| match part {
-                StrPart::Text(text) => StrExprPart::Text(text),
+                StrPart::Text { text, spelling } => StrExprPart::Text { text, spelling },
                 StrPart::Interp { source, offset } => {
                     let (expr, diags) = parse_interpolated_expr(&source, offset, self.in_compfn);
                     self.diagnostics.extend(diags);

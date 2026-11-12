@@ -1406,6 +1406,7 @@ Module {
                                 value: Int {
                                     value: 7,
                                     long: true,
+                                    spelling: None,
                                     span: 7181..7183,
                                 },
                                 span: 7173..7183,
@@ -1775,6 +1776,7 @@ Module {
                                                         Int {
                                                             value: 7,
                                                             long: true,
+                                                            spelling: None,
                                                             span: 7447..7449,
                                                         },
                                                         Call {
@@ -2206,6 +2208,7 @@ Module {
                                                                 Int {
                                                                     value: 7,
                                                                     long: true,
+                                                                    spelling: None,
                                                                     span: 7712..7714,
                                                                 },
                                                                 Call {
@@ -2467,6 +2470,7 @@ Module {
                                                 rhs: Int {
                                                     value: 31,
                                                     long: true,
+                                                    spelling: None,
                                                     span: 8293..8296,
                                                 },
                                                 span: 8286..8296,

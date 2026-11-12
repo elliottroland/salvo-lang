@@ -872,14 +872,14 @@ impl<'a, 'p> Lower<'a, 'p> {
 
     fn string(&mut self, parts: &[StrExprPart], span: Span) -> Expr {
         let ty = Ty::named("Str");
-        if parts.iter().all(|p| matches!(p, StrExprPart::Text(_))) {
-            let text: String = parts.iter().map(|p| match p { StrExprPart::Text(t) => t.as_str(), _ => "" }).collect();
+        if parts.iter().all(|p| matches!(p, StrExprPart::Text { .. })) {
+            let text: String = parts.iter().map(|p| match p { StrExprPart::Text { text: t, .. } => t.as_str(), _ => "" }).collect();
             return Expr { ty, span, kind: ExprKind::Str(text) };
         }
         let mut out = Vec::new();
         for p in parts {
             match p {
-                StrExprPart::Text(t) => out.push(Expr { ty: ty.clone(), span, kind: ExprKind::Str(t.clone()) }),
+                StrExprPart::Text { text: t, .. } => out.push(Expr { ty: ty.clone(), span, kind: ExprKind::Str(t.clone()) }),
                 StrExprPart::Interp(e) => out.push(self.interp(e)),
             }
         }

@@ -989,7 +989,7 @@ Module {
                                                                         ),
                                                                         span: 696..699,
                                                                     },
-                                                                    span: 693..699,
+                                                                    span: (693..699),
                                                                 },
                                                                 check: [
                                                                     TypeRef {

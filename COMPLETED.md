@@ -150,6 +150,134 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — The tree keeps grouping parentheses and literal spellings as written; the formatter's decision record ([expr-group] [lit-spelling] [ast-print])
+
+**The formatter's decision record** (user decisions 2026-11-11, for `salvo
+fmt`; each later stage cites them):
+
+- **Width 120.** **Author line breaks are kept**, all-or-nothing per
+  construct: a list or chain the author broke prints one item per line; one
+  the author did not break stays on one line while it fits in 120, and
+  breaks canonically when it does not.
+- **Layout**: four-space indent, LF line endings, one trailing newline, no
+  trailing whitespace. **Trailing commas**: none, unless the grammar already
+  accepts them (no grammar is added for them).
+- **Comments attach to nodes**: leading own-line runs, a trailing
+  end-of-line comment, a run before a closing `}`. A comment inside a
+  bracketed list forces that list to break. Comments and doc blocks are
+  never reflowed. **Free-standing comment runs** (blank lines around them,
+  a heading over a group of fns) are allowed and stay where they are; a
+  module doc comment keeps its existing doc handling.
+- **Blank lines**: one or more written become exactly one; none at a
+  block's start or end; one between declarations.
+- **Grouping parentheses: KEEP what was written.** The tree records them;
+  the "same tree" guarantee ignores them; parentheses precedence requires
+  are still added where none were written.
+- **Literal spellings: KEEP as written** (`1_000`, escapes in strings and
+  chars).
+- **Reordering**: `fmt` reorders imports exactly as the language server's
+  organize-imports action does (reusing that code), and nothing else.
+- **The command**: `salvo fmt [paths]` in place (default: the project's
+  source roots), `--check` (non-zero exit, names the files), `-` / stdin to
+  stdout, the language server's whole-document formatting (no range
+  formatting); a file that does not parse is left alone, its errors
+  reported, with a non-zero exit.
+- **Guarantees, tested over every `.sv` source**: the formatted text parses
+  to the same tree (spans and parentheses aside), formatting twice changes
+  nothing, no comment is lost. Then the repository's own `.sv` files are
+  reformatted.
+- **The stages**: D (this entry) the parentheses and spellings; E comments
+  and blank lines; F line breaking at 120 keeping the author's breaks; G the
+  command, the language server's formatting and import ordering; H
+  reformatting the repository. ROADMAP §0av holds E–H.
+
+**Stage D, built:**
+
+- **Grouping parentheses** [expr-group]: `(x)`, `((a + b))`, `(a && b) ||
+  c`, a parenthesized condition, a grouped type and a grouped compile-time
+  expression are the expression (or type) itself, with the pairs written
+  around it counted on its span, `Span::parens` (a `u8`; a named type's on
+  its base's span, since `Type::Named` has none of its own). `Expr::group`,
+  `Type::group`, `CompExpr::group` and `Span::grouped` add one; `parens()`
+  reads it. The count is no part of a span's `==`, `Hash` or `Ord`, and
+  `Span::to`/`at` make spans without it, while an expansion's copy
+  (`in_expansion`, `..span`) keeps it. A span's debug form writes it
+  around the range, `((12..15))`, so the parser snapshots record it.
+- **Why a count on the span and not an `Expr::Paren` node** (agent's call,
+  to confirm): the brief allowed a node or a flag, whichever fits the AST
+  and its visitors. A node would have had to be seen through by every
+  phase: salvo-core holds ~1,500 matches on `Expr` (check.rs alone 417,
+  comptime.rs 180, the IR builder 109), and the crates hold 123 `if
+  let`/`matches!` tests of a child's shape (is the callee an `Ident`, is the
+  condition an `Is`, is the place a `Field`) besides the `match` arms, each
+  of which would have stopped seeing `(x)` as `x`; every `_ =>` arm that
+  missed one would have changed what a program means, silently. `Type`'s
+  variants are matched ~650 times more. A flag on `Expr` cannot be
+  written once (it is an enum of 50 variants); its one place every node
+  already has is its span. So no consumer changed: the checker, the IR, the
+  lowerings, comptime, the language server and both backends read the tree
+  exactly as before, by construction, and no visitor gained an arm. The
+  cost: an expansion that copies a grouped expression's span onto a node it
+  builds around it writes the parentheses around that node in a dump (never
+  in a parse's own printing, which nothing rewrites). `Expr::Field`'s
+  `grouped` stays the semantic flag of `(x.f)` [fn-member-call], set beside
+  the count; the printer writes a grouped field's parentheses from the
+  count, or one pair for a grouped field no parse counted.
+- **The printer** writes the counted parentheses, and adds one pair only
+  where none were written and precedence or a condition's struct literal
+  needs it; a written group shields a struct literal in a condition (`if p
+  == (Point { x }) {` prints as written, where the printer used to wrap the
+  whole condition). Types: a union arm, an array or optional element, a
+  qualified group's base get the printer's parentheses only where none were
+  written. `Printed::nodes`' outer range now reaches a node's written
+  parentheses: a node is placed at its first printing, which for an
+  identifier is the inner one, so a later record around it widens the outer
+  range (the typed dump's `to_str` of `${(x)}` went inside the parentheses
+  without it).
+- **Literal spellings** [lit-spelling]: `Expr::Int`, `Float` and `Char` gain
+  `spelling: Option<Box<str>>`, and a string's run of text is
+  `StrExprPart::Text { text, spelling }` (with `StrExprPart::text` for one a
+  rewrite makes). The lexer keeps the source text where it is not the
+  printer's own spelling of the value (`print::float_text`, `quote_char`, the
+  new `escape_str`), so `1_000`, `0.500_5`, `1.50`, `007`, `'\"'`, `\'` and a
+  `\$` before anything but `{` are kept, and a literal written the printer's
+  way, or made by a rewrite, has none (the as-written and the lowered tree
+  comparisons both hold without special cases, and a snapshot shows a
+  `spelling: None` line per literal). It is part of `==` and the debug form.
+  Comptime's run joining (`push_text`, the new `push_part`) drops a joined
+  run's spelling and keeps an unjoined one's; a comptime literal it makes
+  has none. A negative literal is `Unary(Neg, Int)` as parsed, so its `-` is
+  the operator's. Salvo has no hex, `\u{…}` or raw strings.
+- **Not kept yet**, recorded in ROADMAP §0av: a literal type's spelling
+  (`InRange(-1_000, 5)`, `is "a\'b"`) and a compile-time expression's
+  literals (`[if n == 1_000]`); both print in the printer's spelling, which
+  reads back to the same value.
+- **The dumps** print through the same printer, so both show the written
+  parentheses and spellings: `let y = ((x#{1:…}))`, `return times@…((plus@…(y,
+  1_000)), 2)`. The iteration example's dump snapshots did not change (its
+  source writes neither); the `--rows` keys print a span without its
+  parentheses (identity, not spelling).
+- **Tests**: `tests/print/spellings.sv` (redundant, nested and required
+  parentheses in each position — conditions, `when`/`for`/`while`
+  subjects, callees including `(p.f)(1)` and `((p.f))(1)`, a re-typing
+  argument `(x: -Ok)`, lambda bodies and parameter types, tuples, postfix
+  bases, interpolation; grouped types; separated, padded and escaped
+  literals; a grouped comptime head), parsed into the as-written tree test;
+  `every_print_fixture_prints_as_written` (was
+  `the_sugar_fixture_prints_as_written`: both fixtures, byte for byte);
+  `the_dumps_show_written_parentheses_and_spellings` (golden_tests.rs,
+  both dumps); checker data `syntax/grouping.sv` (narrowing through grouped
+  conditions and a grouped `!`, grouped places assigned, a grouped callee,
+  separated and escaped literals of each type, checking clean). The tree
+  comparisons of `print_tests.rs` leave the count aside with the spans
+  (`shape_of`). All 16 changed parser snapshots reviewed: 183 `spelling:
+  None` lines (one per literal), 61 `Text(…)` → `Text { text, spelling }`,
+  and 15 spans now written inside their parentheses, each the same span as
+  before (five in the corpus: `control_flow`, `effects`, `qualifiers` twice,
+  `type_queries`; ten in std: `string`, `list` nine times); nothing else. 780 tests
+  under `cargo nextest run`, all green: 2m59 wall (nextest's own 160s),
+  every binary relinked by the salvo-syntax change, load averages 140–199.
+
 ### 2026-11-11 — A statement starts on its own line ([stmt-line])
 
 **User decision (2026-11-11)**: refuse two statements on one line, closing
@@ -42810,6 +42938,23 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A span is copied, and its parentheses with it** (2026-11-11,
+  [expr-group]): `Span::parens` rides on every copy of a span (`..span`,
+  `in_expansion`, a `span: e.span()` on a node a lowering builds), and only
+  `Span::to`/`at`/`new` make one without it. So a node a rewrite builds
+  with a grouped expression's span prints inside that expression's
+  parentheses in a dump; build a wrapper's span with `to`, or take
+  `ungrouped()`, when that matters. Nothing but the printer may read the
+  count: it is not part of `==`, and a phase that branched on it would
+  make `(x)` mean something `x` does not.
+
+- **The printer places a node at its first printing** (2026-11-11,
+  [ast-print]): `Printed::nodes` keeps the first record of a node key, and
+  an identifier is recorded by `ident()` inside the expression before
+  `expr()` records it with its parentheses. A later record whose outer
+  range contains the first widens it; a dump edit that wraps a node must
+  use the outer range to land outside written parentheses.
 
 - **To sweep the repo for a new parse error, parse; do not analyze**
   (2026-11-11, [stmt-line]): grep cannot tell `{ a } b` from `{ a } else`,

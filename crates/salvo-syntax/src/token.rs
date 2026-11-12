@@ -9,6 +9,9 @@ pub struct Token {
     /// True when at least one newline appears between the previous token and
     /// this one. Used by the parser for implicit statement termination.
     pub newline_before: bool,
+    /// [lit-spelling] A numeric or char literal as written, where that is not
+    /// the printer's spelling of its value (`1_000`, `0.50`, `'\"'`).
+    pub spelling: Option<Box<str>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -141,7 +144,9 @@ pub enum TokenKind {
 /// spans.
 #[derive(Clone, Debug, PartialEq)]
 pub enum StrPart {
-    Text(String),
+    /// A run of text, its escapes read, and the run as written where that is
+    /// not the printer's escaping of it [lit-spelling].
+    Text { text: String, spelling: Option<Box<str>> },
     /// Raw expression source of a `${...}` interpolation and the byte offset
     /// where it starts in the original file.
     Interp { source: String, offset: u32 },

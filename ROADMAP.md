@@ -996,41 +996,57 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   with a selector that reaches it, private ones included, which Salvo
   cannot spell).
 - **What `salvo fmt` still needs** (user direction 2026-11-09: a formatter
-  is the printer over the parsed tree, as Go's is). Built: the parser's
-  tree is the source as written [syntax-lowered], and the printer writes it
+  is the printer over the parsed tree, as Go's is; the user's decisions of
+  2026-11-11 are COMPLETED.md's formatter record, which each stage below
+  cites). Built: the parser's tree is the source as written
+  [syntax-lowered], with its grouping parentheses [expr-group] and its
+  literals' spellings [lit-spelling] (stage D), and the printer writes it
   back [ast-print] — every std source, every example, the corpus and
-  `crates/salvo-core/tests/print/sugar.sv` parse back to the same tree and
-  print the same again, and the fixture prints back to its own text. Left:
-  * **Comments in bodies.** The lexer keeps own-line comments by line
+  `crates/salvo-core/tests/print/{sugar,spellings}.sv` parse back to the
+  same tree and print the same again, and the fixtures print back to their
+  own text byte for byte. Left, in the stages the user set:
+  * **E. Comments in bodies.** The lexer keeps own-line comments by line
     (`Parser::comments`) only to attach doc runs; every other comment,
-    and every end-of-line comment, is dropped. Attach each to a node
-    (leading own-line runs, trailing end-of-line ones, a run before a
-    closing `}`), keep them through the print, and add comments to the
-    round-trip test (the text test's fixture with comments in it).
-  * **Blank lines.** Blank lines inside a body, which separate a body's
-    paragraphs, are not in the tree: the printer writes none. Keep one where
-    one or more was written (a statement's leading-blank flag, or a span
-    gap the printer reads off the source). Between declarations the
-    printer writes one.
-  * **Line breaking and a width.** Every expression is printed on one line.
-    Needs a width (100?) and the break rules: call arguments and parameter
-    lists one per line, a method chain or a trailing `replyto` or `?:` on
-    continuation lines [expr-wrap], a long struct literal one field per
-    line, a long `is A | B` union. A user decision what the width is and
-    whether a break the author wrote is kept when the line would fit.
-  * **Grouping parentheses** are not in the tree: the printer writes the
-    ones precedence needs, so redundant ones go and a condition holding a
-    struct literal is parenthesized whole (`if (p == Point { x })`, written
-    `if p == (Point { x })`). Decide whether to keep written groups.
-  * **Literal spellings**: digit separators (`1_000` prints `1000`), and
-    escapes in strings and chars, print in the printer's own spelling.
-  * **The command**: `salvo fmt [paths]` writing files in place, `--check`
-    (exit non-zero and name the files that would change), `-` / stdin to
-    stdout for editors, the language server's formatting request; a file
-    that does not parse is left alone and its errors reported. The
-    guarantees it inherits, each tested over every source file: the
-    formatted text parses to the same tree (spans aside), formatting it
-    again changes nothing, and (once attached) no comment is lost.
+    and every end-of-line comment, is dropped. Attach each to a node:
+    leading own-line runs, a trailing end-of-line one, a run before a
+    closing `}`; a comment inside a bracketed list forces the list to break
+    (stage F); a free-standing run (blank lines around it, a heading over a
+    group of fns) stays where it is; a module doc keeps its handling; no
+    comment or doc block is reflowed. Add comments to the round-trip test
+    (a fixture with comments in it) and test that none is lost.
+  * **E. Blank lines.** Blank lines inside a body are not in the tree: the
+    printer writes none. One or more written become exactly one; none at a
+    block's start or end; one between declarations (as now). A statement's
+    leading-blank flag, or a span gap the printer reads off the source.
+  * **F. Line breaking at a width of 120, the author's breaks kept.** Every
+    expression is printed on one line now. All-or-nothing per construct: a
+    list or chain the author broke prints one item per line; one the author
+    did not break stays on one line while it fits in 120 and breaks in the
+    canonical way when it does not. The constructs: call arguments and
+    parameter lists, a method chain or a trailing `replyto` or `?:` on
+    continuation lines [expr-wrap], a struct literal one field per line, a
+    long `is A | B` union. Trailing commas only where the grammar already
+    accepts them (none added to the grammar). Four-space indent, LF, one
+    trailing newline, no trailing whitespace. The span a written group
+    covers (`Span::parens` counts the pairs; the printer has the inner and
+    outer ranges) is what a break inside parentheses needs.
+  * **G. The command**: `salvo fmt [paths]` writing files in place (default:
+    the project's source roots), `--check` (exit non-zero and name the
+    files that would change), `-` / stdin to stdout for editors, the
+    language server's whole-document formatting (no range formatting); a
+    file that does not parse is left alone, its errors reported, and the
+    exit is non-zero. It reorders imports exactly as the language server's
+    organize-imports action does (reusing that code), and nothing else.
+    The guarantees it inherits, each tested over every `.sv` source: the
+    formatted text parses to the same tree (spans and parentheses aside),
+    formatting it again changes nothing, and no comment is lost.
+  * **H.** Reformat the repository's own `.sv` files with it.
+  * **Spellings not kept yet** [lit-spelling]: a literal type's
+    (`InRange(-1_000, 5)`, `x is "a\'b"`: `TypeLit` and the `is` chain's
+    type-ref name hold the value only) and a compile-time expression's
+    literals (`[if n == 1_000]`: `CompExpr::Int`, `Char`, `Str`). Both print
+    in the printer's spelling, which parses to the same value; giving them a
+    spelling is the same field the expression literals have.
 - **Members on one line** (left by [stmt-line], 2026-11-11): a statement,
   and a module's or a namespace's declaration, now starts on its own line,
   but a declaration's member lists are separate loops (an effect's, a

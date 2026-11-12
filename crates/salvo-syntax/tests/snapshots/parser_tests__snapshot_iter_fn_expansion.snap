@@ -641,6 +641,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 161..162,
                                                 },
                                                 span: 155..162,
@@ -710,6 +711,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 211..212,
                                     },
                                     span: 206..212,
@@ -747,6 +749,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 237..238,
                                                     },
                                                     span: 232..238,

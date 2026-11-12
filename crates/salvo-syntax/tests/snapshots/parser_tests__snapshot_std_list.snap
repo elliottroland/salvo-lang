@@ -2556,6 +2556,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 11244..11245,
                                 },
                                 span: 11236..11245,
@@ -2651,6 +2652,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 11315..11316,
                                                     },
                                                     span: 11311..11316,
@@ -2897,7 +2899,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 11994..11995,
+                                span: (11994..11995),
                             },
                         },
                         span: 11983..11997,
@@ -3192,6 +3194,7 @@ Module {
                                                     rhs: Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 12975..12976,
                                                     },
                                                     span: 12967..12976,
@@ -3796,6 +3799,7 @@ Module {
                                                     rhs: Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 14050..14051,
                                                     },
                                                     span: 14046..14051,
@@ -3811,6 +3815,7 @@ Module {
                                                     rhs: Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 14057..14058,
                                                     },
                                                     span: 14053..14058,
@@ -4856,6 +4861,7 @@ Module {
                                                     rhs: Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 17433..17434,
                                                     },
                                                     span: 17425..17434,
@@ -7676,6 +7682,7 @@ Module {
                                         rhs: Int {
                                             value: 0,
                                             long: false,
+                                            spelling: None,
                                             span: 24701..24702,
                                         },
                                         span: 24691..24702,
@@ -8668,6 +8675,7 @@ Module {
                                                     Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 26429..26430,
                                                     },
                                                 ],
@@ -9048,6 +9056,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 27014..27015,
                                                     },
                                                     span: 27001..27015,
@@ -9238,6 +9247,7 @@ Module {
                                             rhs: Int {
                                                 value: 0,
                                                 long: false,
+                                                spelling: None,
                                                 span: 27183..27184,
                                             },
                                             span: 27169..27184,
@@ -9532,6 +9542,7 @@ Module {
                                                 Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 27679..27680,
                                                 },
                                                 Ident(
@@ -9866,6 +9877,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 28148..28149,
                                                 },
                                                 span: 28143..28149,
@@ -9882,6 +9894,7 @@ Module {
                                                         value: Int {
                                                             value: 0,
                                                             long: false,
+                                                            spelling: None,
                                                             span: 28165..28166,
                                                         },
                                                         span: 28160..28166,
@@ -10280,6 +10293,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 28734..28735,
                                 },
                                 span: 28726..28735,
@@ -10384,6 +10398,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 28819..28820,
                                                     },
                                                     span: 28815..28820,
@@ -10419,6 +10434,7 @@ Module {
                                                 Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 28857..28858,
                                                 },
                                                 Ident(
@@ -10801,6 +10817,7 @@ Module {
                                             rhs: Int {
                                                 value: 0,
                                                 long: false,
+                                                spelling: None,
                                                 span: 29405..29406,
                                             },
                                             span: 29400..29406,
@@ -10841,6 +10858,7 @@ Module {
                                                                 rhs: Int {
                                                                     value: 1,
                                                                     long: false,
+                                                                    spelling: None,
                                                                     span: 29430..29431,
                                                                 },
                                                                 span: 29425..29431,
@@ -10881,6 +10899,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 29472..29473,
                                                     },
                                                     span: 29467..29473,
@@ -11329,6 +11348,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 30378..30379,
                                                 },
                                                 span: 30374..30379,
@@ -11345,6 +11365,7 @@ Module {
                                                         value: Int {
                                                             value: 0,
                                                             long: false,
+                                                            spelling: None,
                                                             span: 30394..30395,
                                                         },
                                                         span: 30390..30395,
@@ -11496,6 +11517,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 30510..30511,
                                                     },
                                                     span: 30506..30511,
@@ -11786,7 +11808,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 31037..31040,
+                                span: (31037..31040),
                             },
                         },
                         span: 31027..31042,
@@ -12168,7 +12190,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 31424..31427,
+                                span: (31424..31427),
                             },
                         },
                         span: 31414..31429,
@@ -12531,7 +12553,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 31944..31947,
+                                span: (31944..31947),
                             },
                         },
                         span: 31934..31949,
@@ -12894,7 +12916,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 32293..32296,
+                                span: (32293..32296),
                             },
                         },
                         span: 32283..32298,
@@ -13248,6 +13270,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 32796..32797,
                                 },
                                 span: 32788..32797,
@@ -13381,6 +13404,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 32929..32930,
                                                     },
                                                     span: 32925..32930,
@@ -13683,7 +13707,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
-                                                span: 33238..33268,
+                                                span: (33238..33268),
                                             },
                                             span: 33236..33268,
                                         },
@@ -13936,6 +13960,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 33648..33649,
                                 },
                                 span: 33640..33649,
@@ -14067,6 +14092,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 33779..33780,
                                                     },
                                                     span: 33775..33780,
@@ -14335,6 +14361,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 34070..34071,
                                 },
                                 span: 34062..34071,
@@ -14350,6 +14377,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 34084..34085,
                                 },
                                 span: 34076..34085,
@@ -14456,6 +14484,7 @@ Module {
                                                                             rhs: Int {
                                                                                 value: 1,
                                                                                 long: false,
+                                                                                spelling: None,
                                                                                 span: 34183..34184,
                                                                             },
                                                                             span: 34179..34184,
@@ -14490,6 +14519,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 34211..34212,
                                                     },
                                                     span: 34207..34212,
@@ -14992,6 +15022,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 34838..34839,
                                 },
                                 span: 34830..34839,
@@ -15211,6 +15242,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 35037..35038,
                                                     },
                                                     span: 35033..35038,
@@ -15453,6 +15485,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 35485..35486,
                                 },
                                 span: 35477..35486,
@@ -15489,6 +15522,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 35512..35513,
                                     },
                                     span: 35499..35513,
@@ -15605,6 +15639,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 35593..35594,
                                                     },
                                                     span: 35589..35594,
@@ -15629,6 +15664,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 35611..35612,
                                                     },
                                                     span: 35607..35612,
@@ -15898,6 +15934,7 @@ Module {
                                                         value: Int {
                                                             value: 0,
                                                             long: false,
+                                                            spelling: None,
                                                             span: 36198..36199,
                                                         },
                                                     },
@@ -16327,7 +16364,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 37122..37123,
+                                        span: (37122..37123),
                                     },
                                 },
                                 span: 37105..37123,
@@ -16504,6 +16541,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 37380..37381,
                                     },
                                     span: 37373..37381,
@@ -16813,6 +16851,7 @@ Module {
                                                             rhs: Int {
                                                                 value: 1,
                                                                 long: false,
+                                                                spelling: None,
                                                                 span: 38017..38018,
                                                             },
                                                             span: 38004..38018,
@@ -17241,7 +17280,7 @@ Module {
                                         binder: false,
                                         established: false,
                                         alias: None,
-                                        span: 38588..38589,
+                                        span: (38588..38589),
                                     },
                                 },
                                 span: 38571..38589,
@@ -17418,6 +17457,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 38777..38778,
                                     },
                                     span: 38770..38778,
@@ -17822,6 +17862,7 @@ Module {
                                                         value: Int {
                                                             value: 0,
                                                             long: false,
+                                                            spelling: None,
                                                             span: 40180..40181,
                                                         },
                                                     },
@@ -17836,6 +17877,7 @@ Module {
                                                         value: Int {
                                                             value: 1,
                                                             long: false,
+                                                            spelling: None,
                                                             span: 40189..40190,
                                                         },
                                                     },
@@ -18120,6 +18162,7 @@ Module {
                                                             rhs: Int {
                                                                 value: 1,
                                                                 long: false,
+                                                                spelling: None,
                                                                 span: 40607..40608,
                                                             },
                                                             span: 40594..40608,
@@ -18138,6 +18181,7 @@ Module {
                                                             operand: Int {
                                                                 value: 1,
                                                                 long: false,
+                                                                spelling: None,
                                                                 span: 40617..40618,
                                                             },
                                                             span: 40616..40618,
@@ -19143,9 +19187,10 @@ Module {
                                     args: [
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "[",
-                                                ),
+                                                Text {
+                                                    text: "[",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 42074..42077,
                                         },
@@ -19166,6 +19211,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 42091..42092,
                                 },
                                 span: 42083..42092,
@@ -19201,6 +19247,7 @@ Module {
                                                                 rhs: Int {
                                                                     value: 0,
                                                                     long: false,
+                                                                    spelling: None,
                                                                     span: 42128..42129,
                                                                 },
                                                                 span: 42124..42129,
@@ -19225,9 +19272,10 @@ Module {
                                                                                 ),
                                                                                 Str {
                                                                                     parts: [
-                                                                                        Text(
-                                                                                            ", ",
-                                                                                        ),
+                                                                                        Text {
+                                                                                            text: ", ",
+                                                                                            spelling: None,
+                                                                                        },
                                                                                     ],
                                                                                     span: 42156..42160,
                                                                                 },
@@ -19304,6 +19352,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 42219..42220,
                                                     },
                                                     span: 42215..42220,
@@ -19336,9 +19385,10 @@ Module {
                                         ),
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "]",
-                                                ),
+                                                Text {
+                                                    text: "]",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 42243..42246,
                                         },
@@ -21651,7 +21701,7 @@ Module {
                                 binder: false,
                                 established: false,
                                 alias: None,
-                                span: 49165..49168,
+                                span: (49165..49168),
                             },
                         },
                         span: 49155..49170,
@@ -22825,6 +22875,7 @@ Module {
                                                                                         rhs: Int {
                                                                                             value: 0,
                                                                                             long: false,
+                                                                                            spelling: None,
                                                                                             span: 51176..51177,
                                                                                         },
                                                                                         span: 51171..51177,
@@ -22869,6 +22920,7 @@ Module {
                                                                             Int {
                                                                                 value: 1,
                                                                                 long: false,
+                                                                                spelling: None,
                                                                                 span: 51255..51256,
                                                                             },
                                                                         ),
@@ -22947,6 +22999,7 @@ Module {
                                                                     operand: Int {
                                                                         value: 1,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 51316..51317,
                                                                     },
                                                                     span: 51315..51317,
@@ -22971,6 +23024,7 @@ Module {
                                         Int {
                                             value: 0,
                                             long: false,
+                                            spelling: None,
                                             span: 51335..51336,
                                         },
                                     ),

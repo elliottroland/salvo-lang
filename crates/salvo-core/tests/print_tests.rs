@@ -129,9 +129,13 @@ fn shape_of(node: &impl std::fmt::Debug) -> String {
     let mut out = String::with_capacity(text.len());
     for line in text.lines() {
         let t = line.trim_start();
-        // A span's debug form, `12..15` or `12..15#3`, alone or after a key.
+        // A span's debug form, `12..15` or `12..15#3`, alone or after a key,
+        // inside the parentheses written around its node, `((12..15))`
+        // [expr-group], which the tree comparison leaves aside.
         let value = t.strip_prefix("span: ").or_else(|| t.split_once(": ").map(|(_, v)| v)).unwrap_or(t);
         let v = value.trim_end_matches(',');
+        let depth = v.len() - v.trim_start_matches('(').len();
+        let v = if depth > 0 && v.len() > 2 * depth && v[v.len() - depth..].bytes().all(|c| c == b')') { &v[depth..v.len() - depth] } else { v };
         let is_span = v.split_once("..").is_some_and(|(a, b)| {
             let b = b.split('#').next().unwrap_or("");
             !a.is_empty() && a.bytes().all(|c| c.is_ascii_digit()) && !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit())
@@ -402,20 +406,23 @@ fn every_source_file_as_written_prints_to_its_own_tree() {
 /// statements and heads (ROADMAP §0av).
 const NOT_YET_PRINTED: &[&str] = &[];
 
-/// [ast-print] [syntax-lowered] The sugar fixture, written in the printer's
-/// layout, prints back to its own text: each piece of sugar as it was
-/// written, not as what it stands for.
+/// [ast-print] [syntax-lowered] [expr-group] [lit-spelling] Each print
+/// fixture, written in the printer's layout, prints back byte for byte:
+/// `sugar.sv` each piece of sugar as it was written, not as what it stands
+/// for; `spellings.sv` the parentheses and the literals as written.
 #[test]
-fn the_sugar_fixture_prints_as_written() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print/sugar.sv");
-    let text = std::fs::read_to_string(&path).unwrap();
-    let code = &text;
-    let (module, diags) = salvo_syntax::parse_module(&text);
-    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
-    let printed = print_module(&module).text;
-    let (a, b): (Vec<&str>, Vec<&str>) = (code.lines().collect(), printed.lines().collect());
-    let at = a.iter().zip(&b).position(|(x, y)| x != y);
-    assert!(at.is_none() && a.len() == b.len(), "line {}:\n  written: {}\n  printed: {}\n\n{printed}", at.unwrap_or(a.len().min(b.len())) + 1, a.get(at.unwrap_or(0)).unwrap_or(&"<end>"), b.get(at.unwrap_or(0)).unwrap_or(&"<end>"));
+fn every_print_fixture_prints_as_written() {
+    for name in ["sugar.sv", "spellings.sv"] {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print").join(name);
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (module, diags) = salvo_syntax::parse_module(&text);
+        assert!(!diags.iter().any(|d| d.is_error()), "{name}: {diags:?}");
+        let printed = print_module(&module).text;
+        let (a, b): (Vec<&str>, Vec<&str>) = (text.lines().collect(), printed.lines().collect());
+        let at = a.iter().zip(&b).position(|(x, y)| x != y);
+        assert!(at.is_none() && a.len() == b.len(), "{name}, line {}:\n  written: {}\n  printed: {}\n\n{printed}", at.unwrap_or(a.len().min(b.len())) + 1, a.get(at.unwrap_or(0)).unwrap_or(&"<end>"), b.get(at.unwrap_or(0)).unwrap_or(&"<end>"));
+        assert_eq!(printed, text, "{name}: the printing is not the file byte for byte");
+    }
 }
 
 /// [ast-print] [syntax-lowered] [actor-use-addr] A dump marks the spawn a

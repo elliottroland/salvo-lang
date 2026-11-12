@@ -638,6 +638,7 @@ Module {
                                                     rhs: Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 338..339,
                                                     },
                                                     span: 332..339,
@@ -786,6 +787,7 @@ Module {
                                                     rhs: Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 440..441,
                                                     },
                                                     span: 433..441,
@@ -1186,6 +1188,7 @@ Module {
                                         rhs: Int {
                                             value: 0,
                                             long: false,
+                                            spelling: None,
                                             span: 880..881,
                                         },
                                         span: 873..881,
@@ -1464,9 +1467,10 @@ Module {
                                                             args: [
                                                                 Str {
                                                                     parts: [
-                                                                        Text(
-                                                                            "has surname",
-                                                                        ),
+                                                                        Text {
+                                                                            text: "has surname",
+                                                                            spelling: None,
+                                                                        },
                                                                     ],
                                                                     span: 1075..1088,
                                                                 },
@@ -1521,9 +1525,10 @@ Module {
                                                             args: [
                                                                 Str {
                                                                     parts: [
-                                                                        Text(
-                                                                            "plain person",
-                                                                        ),
+                                                                        Text {
+                                                                            text: "plain person",
+                                                                            spelling: None,
+                                                                        },
                                                                     ],
                                                                     span: 1131..1145,
                                                                 },
@@ -1553,9 +1558,10 @@ Module {
                                                         args: [
                                                             Str {
                                                                 parts: [
-                                                                    Text(
-                                                                        "nothing",
-                                                                    ),
+                                                                    Text {
+                                                                        text: "nothing",
+                                                                        spelling: None,
+                                                                    },
                                                                 ],
                                                                 span: 1176..1185,
                                                             },
@@ -1666,7 +1672,7 @@ Module {
                                                             },
                                                         },
                                                     ],
-                                                    span: 1213..1229,
+                                                    span: (1213..1229),
                                                 },
                                                 span: 1209..1229,
                                             },
@@ -1887,7 +1893,7 @@ Module {
                                                 },
                                             },
                                         ],
-                                        span: 1487..1503,
+                                        span: (1487..1503),
                                     },
                                     span: 1483..1503,
                                 },
@@ -2084,9 +2090,10 @@ Module {
                                                                                     args: [
                                                                                         Str {
                                                                                             parts: [
-                                                                                                Text(
-                                                                                                    "value ",
-                                                                                                ),
+                                                                                                Text {
+                                                                                                    text: "value ",
+                                                                                                    spelling: None,
+                                                                                                },
                                                                                                 Interp(
                                                                                                     Ident(
                                                                                                         Ident {
@@ -2143,9 +2150,10 @@ Module {
                                                                                     args: [
                                                                                         Str {
                                                                                             parts: [
-                                                                                                Text(
-                                                                                                    "inner error ",
-                                                                                                ),
+                                                                                                Text {
+                                                                                                    text: "inner error ",
+                                                                                                    spelling: None,
+                                                                                                },
                                                                                                 Interp(
                                                                                                     Ident(
                                                                                                         Ident {
@@ -2213,9 +2221,10 @@ Module {
                                                             args: [
                                                                 Str {
                                                                     parts: [
-                                                                        Text(
-                                                                            "outer error ",
-                                                                        ),
+                                                                        Text {
+                                                                            text: "outer error ",
+                                                                            spelling: None,
+                                                                        },
                                                                         Interp(
                                                                             Ident(
                                                                                 Ident {
@@ -2457,9 +2466,10 @@ Module {
                                     args: [
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "size ",
-                                                ),
+                                                Text {
+                                                    text: "size ",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Call {
                                                         callee: Ident(
@@ -2682,6 +2692,7 @@ Module {
                                                     rhs: Int {
                                                         value: 0,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 2415..2416,
                                                     },
                                                     span: 2402..2416,

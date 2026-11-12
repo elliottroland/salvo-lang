@@ -847,6 +847,26 @@ impl CompExpr {
             | CompExpr::Is { span, .. } => *span,
         }
     }
+
+    /// [expr-group] The expression inside one more pair of parentheses.
+    pub fn group(&mut self) {
+        let span = match self {
+            CompExpr::Bool(_, span)
+            | CompExpr::Char(_, span)
+            | CompExpr::Str(_, span)
+            | CompExpr::None(span)
+            | CompExpr::Not(_, span)
+            | CompExpr::Neg(_, span)
+            | CompExpr::Int { span, .. }
+            | CompExpr::Name { span, .. }
+            | CompExpr::Proj { span, .. }
+            | CompExpr::Call { span, .. }
+            | CompExpr::Lambda { span, .. }
+            | CompExpr::Binary { span, .. }
+            | CompExpr::Is { span, .. } => span,
+        };
+        *span = span.grouped();
+    }
 }
 
 /// [comptime-inline] One arm of a `[when X.kind]`.
@@ -1679,6 +1699,37 @@ impl Type {
             | Type::QualifiedGroup { span, .. } => *span,
         }
     }
+
+    /// [expr-group] The span a type's written parentheses are counted on:
+    /// its own, or a named type's base's, since it has none of its own.
+    fn group_span_mut(&mut self) -> &mut Span {
+        match self {
+            Type::Named { base, .. } => &mut base.span,
+            Type::Union { span, .. }
+            | Type::Literal { span, .. }
+            | Type::Tuple { span, .. }
+            | Type::Array { span, .. }
+            | Type::Nullable { span, .. }
+            | Type::Fn { span, .. }
+            | Type::Spread { span, .. }
+            | Type::QualifiedGroup { span, .. } => span,
+        }
+    }
+
+    /// [expr-group] How many pairs of grouping parentheses were written
+    /// around the type (`(A | B)`, `(Idx(s) Int)` in `(Idx(s) Int)?`).
+    pub fn parens(&self) -> u8 {
+        match self {
+            Type::Named { base, .. } => base.span.parens,
+            other => other.span().parens,
+        }
+    }
+
+    /// [expr-group] The type inside one more pair of parentheses.
+    pub fn group(&mut self) {
+        let span = self.group_span_mut();
+        *span = span.grouped();
+    }
 }
 
 /// [cmp-carry] Whether a written type argument is a function **identity** rather
@@ -2078,15 +2129,16 @@ pub struct StructPatternField {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     /// Integer literal [type-lit-numeric]: `Int`, or `Long` with the `L`
-    /// suffix (`long: true`).
-    Int { value: i64, long: bool, span: Span },
+    /// suffix (`long: true`). `spelling` is the literal as written where it
+    /// is not the printer's spelling of the value (`1_000`) [lit-spelling].
+    Int { value: i64, long: bool, spelling: Option<Box<str>>, span: Span },
     /// Floating-point literal [type-lit-numeric]: `Double`, or `Float` with
-    /// the `f` suffix (`single: true`).
-    Float { value: f64, single: bool, span: Span },
+    /// the `f` suffix (`single: true`). `spelling` as for `Int`.
+    Float { value: f64, single: bool, spelling: Option<Box<str>>, span: Span },
     /// Boolean literal.
     Bool { value: bool, span: Span },
-    /// Character literal.
-    Char { value: char, span: Span },
+    /// Character literal; `spelling` as for `Int` (`'\"'`).
+    Char { value: char, spelling: Option<Box<str>>, span: Span },
     /// String literal with interpolation parts.
     Str { parts: Vec<StrExprPart>, span: Span },
     /// A variable or type-name reference.
@@ -2598,12 +2650,29 @@ impl Sugar {
             Sugar::AsQual { span, .. } | Sugar::Is { span, .. } | Sugar::Pair { span, .. } | Sugar::UseOn { span, .. } | Sugar::TrailingReply { span, .. } => *span,
         }
     }
+
+    fn span_mut(&mut self) -> &mut Span {
+        match self {
+            Sugar::AsQual { span, .. } | Sugar::Is { span, .. } | Sugar::Pair { span, .. } | Sugar::UseOn { span, .. } | Sugar::TrailingReply { span, .. } => span,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum StrExprPart {
-    Text(String),
+    /// A run of text, its escapes read. `spelling` is the run as written
+    /// where it is not the printer's escaping of `text` (`\$` before
+    /// anything but `{`, `\'`) [lit-spelling]; a part made by a rewrite
+    /// has none, and one whose text a rewrite changes must drop it.
+    Text { text: String, spelling: Option<Box<str>> },
     Interp(Box<Expr>),
+}
+
+impl StrExprPart {
+    /// A run of text with no written spelling: what a rewrite makes.
+    pub fn text(text: impl Into<String>) -> StrExprPart {
+        StrExprPart::Text { text: text.into(), spelling: None }
+    }
 }
 
 /// A call argument (possibly spread).
@@ -2826,5 +2895,76 @@ impl Expr {
             Expr::Ident(ident) => ident.span,
             Expr::Sugar(s) => s.span(),
         }
+    }
+
+    /// [expr-group] The node's own span, where its written parentheses are
+    /// counted.
+    fn span_mut(&mut self) -> &mut Span {
+        match self {
+            Expr::Int { span, .. }
+            | Expr::Float { span, .. }
+            | Expr::Bool { span, .. }
+            | Expr::Char { span, .. }
+            | Expr::Str { span, .. }
+            | Expr::Field { span, .. }
+            | Expr::TupleIndex { span, .. }
+            | Expr::Scoped { span, .. }
+            | Expr::EffectScoped { span, .. }
+            | Expr::Call { span, .. }
+            | Expr::Index { span, .. }
+            | Expr::Tuple { span, .. }
+            | Expr::StructLit { span, .. }
+            | Expr::Unary { span, .. }
+            | Expr::Binary { span, .. }
+            | Expr::Is { span, .. }
+            | Expr::Retype { span, .. }
+            | Expr::SafeNav { span, .. }
+            | Expr::Assert { span, .. }
+            | Expr::Unreachable { span, .. }
+            | Expr::Todo { span, .. }
+            | Expr::WhyNot { span, .. }
+            | Expr::TypeQuery { span, .. }
+            | Expr::TypeAssert { span, .. }
+            | Expr::IncDec { span, .. }
+            | Expr::If { span, .. }
+            | Expr::When { span, .. }
+            | Expr::WhenCond { span, .. }
+            | Expr::While { span, .. }
+            | Expr::For { span, .. }
+            | Expr::Lambda { span, .. }
+            | Expr::Try { span, .. }
+            | Expr::Return { span, .. }
+            | Expr::Break { span, .. }
+            | Expr::Continue { span, .. }
+            | Expr::Elvis { span, .. }
+            | Expr::Pipe { span, .. }
+            | Expr::SafePipe { span, .. }
+            | Expr::Placeholder { span }
+            | Expr::SelfScoped { span, .. }
+            | Expr::SelfAddr { span, .. }
+            | Expr::Spawn { span, .. }
+            | Expr::Use { span, .. }
+            | Expr::Project { span, .. }
+            | Expr::Merge { span, .. }
+            | Expr::ReplyTo { span, .. }
+            | Expr::WaitFor { span, .. }
+            | Expr::Spread { span, .. }
+            | Expr::FieldDefault { span, .. }
+            | Expr::Error { span } => span,
+            Expr::Ident(ident) => &mut ident.span,
+            Expr::Sugar(s) => s.span_mut(),
+        }
+    }
+
+    /// [expr-group] How many pairs of grouping parentheses were written
+    /// around the expression.
+    pub fn parens(&self) -> u8 {
+        self.span().parens
+    }
+
+    /// [expr-group] The expression inside one more pair of parentheses.
+    pub fn group(&mut self) {
+        let span = self.span_mut();
+        *span = span.grouped();
     }
 }

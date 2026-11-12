@@ -27,6 +27,13 @@ use std::fmt;
 /// file before numbering it): with it a node — a copy of one included, which
 /// keeps both — names itself in its program without the tree it was copied
 /// from. Identity too, so no part of `==` either.
+///
+/// [expr-group] `parens` is spelling: how many pairs of grouping
+/// parentheses the source wrote around the node (`(x)`, `((a + b))`), which
+/// the printer writes back [ast-print]. The range is the node's own, inside
+/// them. No part of `==`, `Hash` or `Ord` either, so a phase after the parse
+/// cannot tell `(x)` from `x`, and a tree compared with its printing is the
+/// same tree whatever parentheses it was written with.
 #[derive(Clone, Copy)]
 pub struct Span {
     pub start: u32,
@@ -40,6 +47,8 @@ pub struct Span {
     /// [node-file] The tag of the file whose tree holds the node
     /// ([`NO_FILE`] where no program tagged it: a bare parse, or no node).
     pub file: u32,
+    /// [expr-group] The grouping parentheses written around the node.
+    pub parens: u8,
 }
 
 /// [node-id] The `node` of a span no numbered node holds.
@@ -67,7 +76,7 @@ impl Default for Span {
 
 impl Span {
     pub fn new(start: u32, end: u32) -> Self {
-        Span { start, end, expn: 0, node: NO_NODE, file: NO_FILE }
+        Span { start, end, expn: 0, node: NO_NODE, file: NO_FILE, parens: 0 }
     }
 
     /// [node-id] Whether a numbered node holds this span.
@@ -84,18 +93,29 @@ impl Span {
             expn: self.expn,
             node: NO_NODE,
             file: NO_FILE,
+            parens: 0,
         }
     }
 
     /// Another range of the code `self` is in: the same expansion. Not a
     /// node's.
     pub fn at(self, start: u32, end: u32) -> Span {
-        Span { start, end, expn: self.expn, node: NO_NODE, file: NO_FILE }
+        Span { start, end, expn: self.expn, node: NO_NODE, file: NO_FILE, parens: 0 }
     }
 
     /// [node-origin] The same range, copied by expansion `expn` (0: as written).
     pub fn in_expansion(self, expn: u32) -> Span {
         Span { expn, ..self }
+    }
+
+    /// [expr-group] The same span inside one more pair of parentheses.
+    pub fn grouped(self) -> Span {
+        Span { parens: self.parens.saturating_add(1), ..self }
+    }
+
+    /// [expr-group] The same span with no parentheses written around it.
+    pub fn ungrouped(self) -> Span {
+        Span { parens: 0, ..self }
     }
 
     /// [node-origin] Whether this is a node as written in its own file.
@@ -150,13 +170,22 @@ impl Ord for Span {
     }
 }
 
+/// `12..15`, `12..15#3` when an expansion copied it, and inside the
+/// parentheses written around the node, `((12..15))` [expr-group].
 impl fmt::Debug for Span {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.expn == 0 {
-            write!(f, "{}..{}", self.start, self.end)
-        } else {
-            write!(f, "{}..{}#{}", self.start, self.end, self.expn)
+        for _ in 0..self.parens {
+            f.write_str("(")?;
         }
+        if self.expn == 0 {
+            write!(f, "{}..{}", self.start, self.end)?;
+        } else {
+            write!(f, "{}..{}#{}", self.start, self.end, self.expn)?;
+        }
+        for _ in 0..self.parens {
+            f.write_str(")")?;
+        }
+        Ok(())
     }
 }
 

@@ -1641,7 +1641,7 @@ fn first_param_type_text(f: &FnDecl) -> String {
 fn kind_const_arg(e: &Expr) -> Option<Expr> {
     match e {
         Expr::Int { .. } | Expr::Float { .. } | Expr::Bool { .. } | Expr::Char { .. } => Some(e.clone()),
-        Expr::Str { parts, .. } if parts.iter().all(|p| matches!(p, StrExprPart::Text(_))) => Some(e.clone()),
+        Expr::Str { parts, .. } if parts.iter().all(|p| matches!(p, StrExprPart::Text { .. })) => Some(e.clone()),
         Expr::Unary { op: UnaryOp::Neg, operand, .. } if matches!(**operand, Expr::Int { .. } | Expr::Float { .. }) => Some(e.clone()),
         Expr::Ident(id) if id.name == "None" => Some(e.clone()),
         _ => None,
@@ -1660,9 +1660,9 @@ fn widen_to(ty: &Type, value: Expr) -> Expr {
         return value;
     }
     match value {
-        Expr::Int { value, span, .. } => Expr::Int { value, long: true, span },
+        Expr::Int { value, span, .. } => Expr::Int { value, long: true, span, spelling: None },
         Expr::Unary { op, operand, span } => match *operand {
-            Expr::Int { value, span: s2, .. } => Expr::Unary { op, operand: Box::new(Expr::Int { value, long: true, span: s2 }), span },
+            Expr::Int { value, span: s2, .. } => Expr::Unary { op, operand: Box::new(Expr::Int { value, long: true, span: s2, spelling: None }), span },
             other => Expr::Unary { op, operand: Box::new(other), span },
         },
         other => other,
@@ -1770,8 +1770,8 @@ fn stamp_test<'w>(
         let value = widen_to(&p.ty, value);
         if p.name.name == "runtime" {
             match &value {
-                Expr::Str { parts, .. } if matches!(parts.as_slice(), [StrExprPart::Text(r)] if r == "threaded" || r == "virtual") => {
-                    if let [StrExprPart::Text(r)] = parts.as_slice() {
+                Expr::Str { parts, .. } if matches!(parts.as_slice(), [StrExprPart::Text { text: r, .. }] if r == "threaded" || r == "virtual") => {
+                    if let [StrExprPart::Text { text: r, .. }] = parts.as_slice() {
                         runtime = r.clone();
                     }
                 }
@@ -1789,7 +1789,7 @@ fn stamp_test<'w>(
             type_args: Vec::new(),
             args: vec![
                 Expr::Ident(Ident { name: config.clone(), span: site }),
-                Expr::Str { parts: vec![StrExprPart::Text(p.name.name.clone())], span: site },
+                Expr::Str { parts: vec![StrExprPart::text(p.name.name.clone())], span: site },
                 value,
             ],
             named: Vec::new(),
@@ -5365,7 +5365,7 @@ impl<'w> Expander<'w> {
                                 let mut none = Vec::new();
                                 let Some(v) = self.eval(&ce, &mut none, false) else { return };
                                 match v.text() {
-                                    Some(t) => *part = StrExprPart::Text(t),
+                                    Some(t) => *part = StrExprPart::text(t),
                                     None => {
                                         self.error(ce.span(), messages::comptime_eval_type(&"a value with a text", &v.describe()));
                                         return;
@@ -5376,10 +5376,7 @@ impl<'w> Expander<'w> {
                     }
                     let folded: Vec<StrExprPart> = std::mem::take(parts);
                     for p in folded {
-                        match p {
-                            StrExprPart::Text(t) => push_text(parts, &t),
-                            other => parts.push(other),
-                        }
+                        push_part(parts, p);
                     }
                 }
                 visit_mut::walk_expr(self, &mut message);
@@ -5426,7 +5423,7 @@ impl<'w> Expander<'w> {
 
     fn str_lit(&self, text: &str, span: Span) -> Expr {
         Expr::Str {
-            parts: vec![StrExprPart::Text(text.to_string())],
+            parts: vec![StrExprPart::text(text.to_string())],
             span,
         }
     }
@@ -5561,8 +5558,8 @@ impl MutVisitor for Expander<'_> {
                     Some(bd) => match bd.slot {
                         Some(SlotVal::Const(c)) => {
                             *expr = match c {
-                                crate::types::Const::Int(value) => Expr::Int { value, long: false, span },
-                                crate::types::Const::Char(value) => Expr::Char { value, span },
+                                crate::types::Const::Int(value) => Expr::Int { value, long: false, span, spelling: None },
+                                crate::types::Const::Char(value) => Expr::Char { value, spelling: None, span },
                                 crate::types::Const::Str(text) => self.str_lit(&text, span),
                             }
                         }
@@ -5593,9 +5590,9 @@ impl MutVisitor for Expander<'_> {
                 let span = id.span;
                 *expr = match v {
                     CVal::Bool(value) => Expr::Bool { value, span },
-                    CVal::Int(value) => Expr::Int { value, long: false, span },
-                    CVal::Long(value) => Expr::Int { value, long: true, span },
-                    CVal::Char(value) => Expr::Char { value, span },
+                    CVal::Int(value) => Expr::Int { value, long: false, span, spelling: None },
+                    CVal::Long(value) => Expr::Int { value, long: true, span, spelling: None },
+                    CVal::Char(value) => Expr::Char { value, spelling: None, span },
                     CVal::Str(t) => self.str_lit(&t, span),
                     CVal::Name(b) => self.str_lit(&b.name, span),
                     CVal::None => Expr::Ident(Ident { name: "None".to_string(), span }),
@@ -5614,8 +5611,8 @@ impl MutVisitor for Expander<'_> {
                 self.value_binders[i].3 += 1;
                 let span = id.span;
                 *expr = match self.value_binders[i].1.clone() {
-                    crate::types::Const::Int(value) => Expr::Int { value, long: false, span },
-                    crate::types::Const::Char(value) => Expr::Char { value, span },
+                    crate::types::Const::Int(value) => Expr::Int { value, long: false, span, spelling: None },
+                    crate::types::Const::Char(value) => Expr::Char { value, spelling: None, span },
                     crate::types::Const::Str(text) => self.str_lit(&text, span),
                 };
                 return;
@@ -5741,6 +5738,7 @@ impl MutVisitor for Expander<'_> {
                             *expr = Expr::Int {
                                 value: bd.index as i64,
                                 long: false,
+                                spelling: None,
                                 span,
                             }
                         }
@@ -5748,8 +5746,8 @@ impl MutVisitor for Expander<'_> {
                         // [comptime-literals] The member itself, as a literal.
                         "value" => match &bd.literal {
                             Some(salvo_syntax::ast::TypeLit::Str(s)) => *expr = self.str_lit(s, span),
-                            Some(salvo_syntax::ast::TypeLit::Int(v)) => *expr = Expr::Int { value: *v, long: false, span },
-                            Some(salvo_syntax::ast::TypeLit::Long(v)) => *expr = Expr::Int { value: *v, long: true, span },
+                            Some(salvo_syntax::ast::TypeLit::Int(v)) => *expr = Expr::Int { value: *v, long: false, span, spelling: None },
+                            Some(salvo_syntax::ast::TypeLit::Long(v)) => *expr = Expr::Int { value: *v, long: true, span, spelling: None },
                             Some(salvo_syntax::ast::TypeLit::Bool(v)) => *expr = Expr::Bool { value: *v, span },
                             None => self.error(span, messages::comptime_literals_value_outside_literals(&root.name)),
                         },
@@ -5840,11 +5838,9 @@ impl MutVisitor for Expander<'_> {
                         StrExprPart::Interp(mut inner) => {
                             visit_mut::walk_expr(self, &mut inner);
                             match *inner {
-                                Expr::Str { parts: ref ps, .. } if ps.iter().all(|p| matches!(p, StrExprPart::Text(_))) => {
+                                Expr::Str { parts: ref ps, .. } if ps.iter().all(|p| matches!(p, StrExprPart::Text { .. })) => {
                                     for p in ps {
-                                        if let StrExprPart::Text(t) = p {
-                                            push_text(&mut folded, t);
-                                        }
+                                        push_part(&mut folded, p.clone());
                                     }
                                 }
                                 // [comptime-qualifier] A constant binder's
@@ -5855,7 +5851,7 @@ impl MutVisitor for Expander<'_> {
                                 other => folded.push(StrExprPart::Interp(Box::new(other))),
                             }
                         }
-                        StrExprPart::Text(t) => push_text(&mut folded, &t),
+                        text @ StrExprPart::Text { .. } => push_part(&mut folded, text),
                     }
                 }
                 *parts = folded;
@@ -6284,11 +6280,23 @@ fn subst_generics(ty: &Type, map: &HashMap<String, Type>) -> Type {
     }
 }
 
+/// Appends text to a string's parts, joining it to a run of text before it,
+/// whose written spelling then no longer says what it holds [lit-spelling].
 fn push_text(parts: &mut Vec<StrExprPart>, t: &str) {
-    if let Some(StrExprPart::Text(last)) = parts.last_mut() {
+    if let Some(StrExprPart::Text { text: last, spelling }) = parts.last_mut() {
         last.push_str(t);
+        *spelling = None;
     } else {
-        parts.push(StrExprPart::Text(t.to_string()));
+        parts.push(StrExprPart::text(t.to_string()));
+    }
+}
+
+/// [`push_text`] for a part: a run of text keeps its spelling unless it is
+/// joined to the one before it.
+fn push_part(parts: &mut Vec<StrExprPart>, part: StrExprPart) {
+    match part {
+        StrExprPart::Text { text, .. } if matches!(parts.last(), Some(StrExprPart::Text { .. })) => push_text(parts, &text),
+        other => parts.push(other),
     }
 }
 
@@ -6297,7 +6305,7 @@ fn literal_text(e: &Expr) -> Option<String> {
     let mut out = String::new();
     for p in parts {
         match p {
-            StrExprPart::Text(t) => out.push_str(t),
+            StrExprPart::Text { text: t, .. } => out.push_str(t),
             StrExprPart::Interp(inner) => out.push_str(&literal_text(inner)?),
         }
     }
@@ -6332,9 +6340,9 @@ fn expr_binds(c: &CompExpr) -> bool {
 fn comp_of_expr(e: &Expr) -> Option<CompExpr> {
     Some(match e {
         Expr::Ident(id) => CompExpr::Name { id: id.clone(), args: Vec::new(), span: id.span },
-        Expr::Int { value, long, span } => CompExpr::Int { value: *value, long: *long, span: *span },
+        Expr::Int { value, long, span, .. } => CompExpr::Int { value: *value, long: *long, span: *span },
         Expr::Bool { value, span } => CompExpr::Bool(*value, *span),
-        Expr::Char { value, span } => CompExpr::Char(*value, *span),
+        Expr::Char { value, span, .. } => CompExpr::Char(*value, *span),
         Expr::Field { base, field, span, .. } if !field.name.starts_with('[') => {
             CompExpr::Proj { base: Box::new(comp_of_expr(base)?), field: field.clone(), span: *span }
         }

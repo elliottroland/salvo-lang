@@ -8400,6 +8400,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 13723..13724,
                                                 },
                                                 span: 13713..13724,
@@ -8469,6 +8470,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 13781..13782,
                                     },
                                     span: 13772..13782,
@@ -11940,6 +11942,7 @@ Module {
                                         rhs: Int {
                                             value: 0,
                                             long: false,
+                                            spelling: None,
                                             span: 17458..17459,
                                         },
                                         span: 17449..17459,
@@ -11980,6 +11983,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 17488..17489,
                                                     },
                                                     span: 17479..17489,
@@ -15597,6 +15601,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 21810..21811,
                                 },
                                 span: 21802..21811,
@@ -15635,6 +15640,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 21847..21848,
                                                     },
                                                     span: 21843..21848,

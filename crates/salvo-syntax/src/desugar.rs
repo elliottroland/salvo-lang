@@ -895,7 +895,7 @@ impl Rewrite {
             Expr::Str { parts, .. } => {
                 for part in parts {
                     match part {
-                        StrExprPart::Text(_) => {}
+                        StrExprPart::Text { .. } => {}
                         StrExprPart::Interp(inner) => self.expr(inner),
                     }
                 }

@@ -13201,8 +13201,8 @@ replaced the working document TESTING.md).
   desugared as a program holds it — as source that parses back to the same
   tree, and records where it printed every numbered node [node-id]
   (`Printed::nodes`, by file tag and ordinal, with an expression's range
-  inside and outside the parentheses precedence made it add), so a dump
-  places what it says about a node by the node. The layout is the
+  inside and outside its parentheses, written [expr-group] or added for
+  precedence), so a dump places what it says about a node by the node. The layout is the
   printer's (four-space indentation, one paragraph per declaration, the
   items in their order with the imports the file opens with as one
   paragraph, a struct's attached fns back in its body [fn-attached], a
@@ -13244,7 +13244,48 @@ replaced the working document TESTING.md).
   module (expanded), every example's and every source file print back to
   their own trees and print stably, as written and as lowered, and that
   `tests/print/sugar.sv` (each piece of sugar in each position, the
-  comptime forms) prints back to its own text.
+  comptime forms) and `tests/print/spellings.sv` (parentheses and literals
+  as written) print back to their own text, byte for byte.
+* [expr-group] **Grouping parentheses are kept as written, as spelling**
+  (user decision 2026-11-11, for `salvo fmt`: "KEEP what was written").
+  `(x)`, `((a + b))`, `(a && b) || c`, a parenthesized condition, a grouped
+  type (`(A | B)`, `(Idx(s) Int)?`, `((Int))`) and a grouped compile-time
+  expression (`[if (a) || b]`) are the expression or type itself, with the
+  number of pairs written around it counted on its span (`Span::parens`;
+  a named type's on its base's span, since it has none of its own). The
+  count is no part of a span's `==`, `Hash` or `Ord`, so no phase after the
+  parser can tell `(x)` from `x`: a place, a callee, a narrowing condition,
+  a re-typing argument `(x: -Q)` and every lowering read through it as they
+  did before (agent's call, to confirm: not an `Expr::Paren` node, which
+  every one of salvo-core's ~1,500 matches on `Expr` would have had to see
+  through, and a `_ =>` arm that missed it would have changed what a program
+  means). It rides with the span: an expansion's copy keeps it, `Span::to`
+  and `Span::at` make spans without it, and a span's debug form writes it,
+  `((12..15))`, so a parser snapshot records it. `(a, b)` is a tuple, not a
+  group; `(a,)` is the group `(a)`. The printer [ast-print] writes the
+  parentheses counted, and adds one pair only where none were written and
+  precedence or a condition's struct literal needs it, so a written group
+  also shields a struct literal in a condition (`if p == (Point { x }) {`).
+  `(x.f)` keeps its meaning as a callee [fn-member-call] (`Expr::Field`'s
+  `grouped`, set beside the count). The same-tree comparisons of the print
+  tests leave the count aside, with the spans; the fixtures' text test is
+  what holds the printer to it.
+* [lit-spelling] **A literal keeps its spelling** (user decision
+  2026-11-11, for `salvo fmt`: "KEEP as written"). An `Int`, `Float` or
+  `Char` literal (`Expr::*::spelling`) and each run of text in a string
+  (`StrExprPart::Text::spelling`) carry their source text where it is not
+  the printer's spelling of the value — `1_000`, `0.500_5`, `1.50`, `007`,
+  `'\"'`, a string's `\'` or a `\$` before anything but `{` — and nothing
+  where it is, so a literal a rewrite makes has none and prints in the
+  printer's spelling. The lexer decides it, against the printer's own
+  spellings (`print::float_text`, `quote_char`, `escape_str`); the value is
+  read as before, and only the printer reads the spelling. A rewrite that
+  changes a run's text drops the run's spelling (comptime's `push_text`
+  joining runs). It takes part in the tree's `==` and debug form. Not kept
+  yet: a literal type's spelling (`InRange(-1_000, 5)`, `is "a\'b"`) and a
+  compile-time expression's literals (`[if n == 1_000]`), which print in
+  the printer's spelling (ROADMAP §0av). Salvo has no hex, `\u{…}` or raw
+  string literals.
 * [round-trip] **Every choice survives being written out** (the pipeline record B4
   and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
   P24). `salvo_core::round_trip` prints a checked file's expanded tree back

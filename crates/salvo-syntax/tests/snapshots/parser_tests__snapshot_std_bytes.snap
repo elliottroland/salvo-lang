@@ -2682,6 +2682,7 @@ Module {
                                                         value: Int {
                                                             value: 0,
                                                             long: false,
+                                                            spelling: None,
                                                             span: 8285..8286,
                                                         },
                                                     },
@@ -3195,6 +3196,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 8913..8914,
                                     },
                                     span: 8906..8914,

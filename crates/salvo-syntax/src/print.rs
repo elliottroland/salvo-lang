@@ -180,6 +180,14 @@ pub fn quote_str(text: &str) -> String {
     out
 }
 
+/// [ast-print] A string literal's text, escaped as the printer writes it
+/// (without the quotes).
+pub fn escape_str(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    escape_str_into(text, &mut out);
+    out
+}
+
 fn escape_str_into(text: &str, out: &mut String) {
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
@@ -318,7 +326,18 @@ impl Printer<'_> {
 
     fn record(&mut self, span: Span, start: u32, end: u32, outer_start: u32, outer_end: u32) {
         if let Some(k) = node_key(span) {
-            self.nodes.entry(k).or_insert(Placed { start, end, outer_start, outer_end });
+            // The first printing of a node places it; one around it (an
+            // identifier's, inside the expression's parentheses) reaches out
+            // to those parentheses [expr-group].
+            self.nodes
+                .entry(k)
+                .and_modify(|p| {
+                    if outer_start <= p.outer_start && p.outer_end <= outer_end {
+                        p.outer_start = outer_start;
+                        p.outer_end = outer_end;
+                    }
+                })
+                .or_insert(Placed { start, end, outer_start, outer_end });
         }
     }
 
@@ -1505,7 +1524,19 @@ impl Printer<'_> {
 
     // --- Types ---
 
+    /// `t` inside the parentheses written around it [expr-group].
     fn ty(&mut self, t: &Type) {
+        let parens = t.parens();
+        for _ in 0..parens {
+            self.push("(");
+        }
+        self.ty_inner(t);
+        for _ in 0..parens {
+            self.push(")");
+        }
+    }
+
+    fn ty_inner(&mut self, t: &Type) {
         let s = self.at();
         match t {
             Type::Named { qualifiers, base } => {
@@ -1521,7 +1552,7 @@ impl Printer<'_> {
                     self.type_ref(q);
                     self.push(" ");
                 }
-                if matches!(**base, Type::Literal { .. }) {
+                if matches!(**base, Type::Literal { .. }) || base.parens() > 0 {
                     self.ty(base);
                 } else {
                     self.push("(");
@@ -1543,7 +1574,7 @@ impl Printer<'_> {
                     self.push("]");
                 } else {
                     self.list(arms, " | ", |p, a| {
-                        let paren = matches!(a, Type::Fn { .. } | Type::Union { .. });
+                        let paren = matches!(a, Type::Fn { .. } | Type::Union { .. }) && a.parens() == 0;
                         if paren {
                             p.push("(");
                         }
@@ -1565,9 +1596,10 @@ impl Printer<'_> {
                 self.push(")");
             }
             Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => {
-                let paren = matches!(**elem, Type::Fn { .. } | Type::Union { .. })
-                    || matches!(&**elem, Type::Named { qualifiers, .. } if !qualifiers.is_empty())
-                    || matches!(**elem, Type::QualifiedGroup { .. });
+                let paren = elem.parens() == 0
+                    && (matches!(**elem, Type::Fn { .. } | Type::Union { .. })
+                        || matches!(&**elem, Type::Named { qualifiers, .. } if !qualifiers.is_empty())
+                        || matches!(**elem, Type::QualifiedGroup { .. }));
                 if paren {
                     self.push("(");
                 }
@@ -1848,13 +1880,25 @@ impl Printer<'_> {
 
     // --- Expressions ---
 
-    /// `e` in a context accepting precedence `min` and tighter.
+    /// `e` in a context accepting precedence `min` and tighter: inside the
+    /// parentheses written around it [expr-group], or, where none were and
+    /// the context needs them, one pair of the printer's.
     fn expr(&mut self, e: &Expr, min: u8) {
-        let level = self.level(e);
-        let paren = level < min || (self.no_struct && self.holds_struct_lit(e));
+        let written = match e {
+            // [fn-member-call] A grouped field read is written in parentheses
+            // even where no parse counted them.
+            Expr::Field { grouped: true, .. } => e.parens().max(1),
+            _ => e.parens(),
+        };
+        let parens = if written > 0 {
+            written
+        } else {
+            let level = self.level(e);
+            u8::from(level < min || (self.no_struct && self.holds_struct_lit(e)))
+        };
         let outer_start = self.at();
         let saved = self.no_struct;
-        if paren {
+        for _ in 0..parens {
             self.push("(");
             self.no_struct = false;
         }
@@ -1870,7 +1914,7 @@ impl Printer<'_> {
         self.expr_inner(e);
         self.quiet_origin = was_quiet;
         let end = self.at();
-        if paren {
+        for _ in 0..parens {
             self.push(")");
         }
         self.no_struct = saved;
@@ -1891,6 +1935,10 @@ impl Printer<'_> {
     /// would read as its block: the literal itself, or a binary or postfix
     /// expression over one.
     fn holds_struct_lit(&self, e: &Expr) -> bool {
+        if e.parens() > 0 {
+            // [expr-group] Written in parentheses: no `{` of it is the block's.
+            return false;
+        }
         match e {
             Expr::StructLit { .. } => true,
             Expr::Binary { lhs, rhs, .. } => self.holds_struct_lit(lhs) || self.holds_struct_lit(rhs),
@@ -1989,6 +2037,9 @@ impl Printer<'_> {
 
     fn expr_inner(&mut self, e: &Expr) {
         match e {
+            // [lit-spelling] A literal as written, where it was spelled
+            // otherwise than the printer spells its value.
+            Expr::Int { spelling: Some(text), .. } | Expr::Float { spelling: Some(text), .. } | Expr::Char { spelling: Some(text), .. } => self.push(text),
             Expr::Int { value, long, .. } => {
                 let _ = write!(self.out, "{value}{}", if *long { "L" } else { "" });
             }
@@ -2000,9 +2051,10 @@ impl Printer<'_> {
                 let saved = std::mem::replace(&mut self.no_struct, false);
                 for part in parts {
                     match part {
-                        StrExprPart::Text(t) => {
+                        StrExprPart::Text { spelling: Some(written), .. } => self.push(written),
+                        StrExprPart::Text { text, spelling: None } => {
                             let mut s = String::new();
-                            escape_str_into(t, &mut s);
+                            escape_str_into(text, &mut s);
                             self.push(&s);
                         }
                         StrExprPart::Interp(inner) => {
@@ -2027,16 +2079,10 @@ impl Printer<'_> {
                     self.ident(id);
                 }
             }
-            Expr::Field { base, field, grouped, .. } => {
-                if *grouped {
-                    self.push("(");
-                }
+            Expr::Field { base, field, .. } => {
                 self.expr(base, POSTFIX);
                 self.push(".");
                 self.ident(field);
-                if *grouped {
-                    self.push(")");
-                }
             }
             Expr::TupleIndex { base, index, .. } => {
                 self.expr(base, POSTFIX);
@@ -2653,8 +2699,13 @@ impl Printer<'_> {
             CompExpr::Int { value, .. } if *value < 0 => 18,
             _ => 20,
         };
-        let paren = level < min;
-        if paren {
+        // [expr-group] The parentheses written, or one pair where the
+        // context needs it.
+        let parens = match e.span().parens {
+            0 => u8::from(level < min),
+            written => written,
+        };
+        for _ in 0..parens {
             self.push("(");
         }
         let s = self.at();
@@ -2719,7 +2770,7 @@ impl Printer<'_> {
             CompExpr::Is { .. } => self.comp_is(e, false),
         }
         let end = self.at();
-        if paren {
+        for _ in 0..parens {
             self.push(")");
         }
         self.record(e.span(), s, end, s, end);
@@ -3073,6 +3124,9 @@ fn type_splice_text(name: &str) -> Option<String> {
 }
 
 fn starts_with_minus(e: &Expr) -> bool {
+    if e.parens() > 0 {
+        return false;
+    }
     match e {
         Expr::Unary { op: UnaryOp::Neg, .. } => true,
         Expr::Int { value, .. } => *value < 0,

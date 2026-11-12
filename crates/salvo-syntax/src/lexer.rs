@@ -126,7 +126,32 @@ impl<'s> Lexer<'s> {
             kind,
             span,
             newline_before,
+            spelling: None,
         });
+    }
+
+    /// [lit-spelling] A literal token, keeping its text where the printer
+    /// would spell the value differently.
+    fn push_literal(&mut self, kind: TokenKind, span: Span) {
+        let written = &self.source[span.start as usize..span.end as usize];
+        let printed = match &kind {
+            TokenKind::Int { value, long } => format!("{value}{}", if *long { "L" } else { "" }),
+            TokenKind::Float { value, single } => crate::print::float_text(*value, *single),
+            TokenKind::Char(c) => crate::print::quote_char(*c),
+            _ => written.to_string(),
+        };
+        let spelling = (printed != written).then(|| written.into());
+        self.push(kind, span);
+        self.tokens.last_mut().expect("just pushed").spelling = spelling;
+    }
+
+    /// [lit-spelling] A string literal's run of text, ending here: its
+    /// source from `start` is kept where the printer would escape `text`
+    /// differently.
+    fn text_part(&self, text: String, start: u32, end: u32) -> StrPart {
+        let written = &self.source[start as usize..end as usize];
+        let spelling = (crate::print::escape_str(&text) != written).then(|| written.into());
+        StrPart::Text { text, spelling }
     }
 
     fn push_here(&mut self, kind: TokenKind, start: u32) {
@@ -255,19 +280,19 @@ impl<'s> Lexer<'s> {
                 self.error(messages::type_lit_numeric_long_suffix_on_float(&text), span);
             }
             Some('f') => match text.parse::<f64>() {
-                Ok(value) => self.push(TokenKind::Float { value, single: true }, span),
+                Ok(value) => self.push_literal(TokenKind::Float { value, single: true }, span),
                 Err(_) => self.error(messages::type_lit_numeric_invalid_float(&text), span),
             },
             Some('L') => match text.parse::<i64>() {
-                Ok(value) => self.push(TokenKind::Int { value, long: true }, span),
+                Ok(value) => self.push_literal(TokenKind::Int { value, long: true }, span),
                 Err(_) => self.error(messages::type_lit_numeric_invalid_integer(&text), span),
             },
             _ if is_float => match text.parse::<f64>() {
-                Ok(value) => self.push(TokenKind::Float { value, single: false }, span),
+                Ok(value) => self.push_literal(TokenKind::Float { value, single: false }, span),
                 Err(_) => self.error(messages::type_lit_numeric_invalid_float(&text), span),
             },
             _ => match text.parse::<i64>() {
-                Ok(value) => self.push(TokenKind::Int { value, long: false }, span),
+                Ok(value) => self.push_literal(TokenKind::Int { value, long: false }, span),
                 Err(_) => self.error(messages::type_lit_numeric_invalid_integer(&text), span),
             },
         }
@@ -278,7 +303,10 @@ impl<'s> Lexer<'s> {
         self.bump(); // consume opening quote
         let mut parts: Vec<StrPart> = Vec::new();
         let mut text = String::new();
+        let mut run_start = self.offset();
+        let mut run_end;
         loop {
+            run_end = self.offset();
             let Some(c) = self.peek() else {
                 let span = Span::new(start, self.offset());
                 self.error(messages::type_str_unterminated_string(), span);
@@ -319,7 +347,8 @@ impl<'s> Lexer<'s> {
                 }
                 '$' if self.peek_at(1) == Some('{') => {
                     if !text.is_empty() {
-                        parts.push(StrPart::Text(std::mem::take(&mut text)));
+                        let part = self.text_part(std::mem::take(&mut text), run_start, self.offset());
+                        parts.push(part);
                     }
                     self.bump(); // $
                     self.bump(); // {
@@ -365,6 +394,7 @@ impl<'s> Lexer<'s> {
                         source,
                         offset: expr_start,
                     });
+                    run_start = self.offset();
                 }
                 _ => {
                     text.push(c);
@@ -373,7 +403,8 @@ impl<'s> Lexer<'s> {
             }
         }
         if !text.is_empty() || parts.is_empty() {
-            parts.push(StrPart::Text(text));
+            let part = self.text_part(text, run_start, run_end);
+            parts.push(part);
         }
         self.push_here(TokenKind::Str(parts), start);
     }
@@ -456,7 +487,7 @@ impl<'s> Lexer<'s> {
         }
         let span = Span::new(start, self.offset());
         match (c, closed) {
-            (Some(c), true) => self.push(TokenKind::Char(c), span),
+            (Some(c), true) => self.push_literal(TokenKind::Char(c), span),
             _ => self.error(messages::type_basic_invalid_char_literal(), span),
         }
     }

@@ -447,3 +447,39 @@ fn the_type_check_dump_shows_a_lowered_pick_as_its_when() {
     let rechecked = salvo_testkit::front::check_with("kt", &again, &resolution, &symbols);
     assert!(!rechecked.errors.iter().any(|d| d.is_error()), "{source}");
 }
+
+const SPELLINGS: &str = "fn f(a: Bool, b: Bool, x: Int) -> Int {
+    let y = ((x))
+    let z = (a && b) || a
+    if (z) {
+        return (y + 1_000) * 2
+    }
+    let s = \"\\$a \\'q\\' ${(x)}\"
+    let c = '\\\"'
+    let d = 0.500_5
+    let t: (Int | Str)? = None
+    return y
+}
+";
+
+/// [dump-resolve] [dump-type-check] [expr-group] [lit-spelling] Both dumps
+/// print the program with the parentheses and the literal spellings it was
+/// written with: the expanded tree keeps them, and the printer writes them.
+#[test]
+fn the_dumps_show_written_parentheses_and_spellings() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", SPELLINGS)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let resolved = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    for want in ["let y = ((x#{1:", "let z = (a#{1:6} && b#{1:15}) || a#{1:6}", "if (z#{3:9}) {", "return (y#{2:9} + 1_000) * 2", "\"\\$a \\'q\\' ${(x#{1:", "let c = '\\\"'", "let d = 0.500_5", "let t: (Int | Str)? = None"] {
+        assert!(resolved.contains(want), "missing `{want}` in:\n{resolved}");
+    }
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
+    let errors: Vec<String> = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.render(&program.files)).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, false);
+    for want in ["let y: Int = ((x))", "let z: Bool = (a && b) || a", "if (z) {", "times@std.core.basic((plus@std.core.basic(y, 1_000)), 2)", "${to_str@std.core.basic((x))}", "let c: Char = '\\\"'", "let d: Double = 0.500_5"] {
+        assert!(typed.contains(want), "missing `{want}` in:\n{typed}");
+    }
+}

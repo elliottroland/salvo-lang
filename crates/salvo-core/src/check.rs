@@ -157,10 +157,11 @@ impl PartialOrd for Key {
     }
 }
 
-/// Printed as its origin, `(file, span)`.
+/// Printed as its origin, `(file, span)`, without the parentheses written
+/// around the node [expr-group]: they are its spelling, not its identity.
 impl std::fmt::Debug for Key {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "({}, {:?})", self.file, self.span)
+        write!(f, "({}, {:?})", self.file, self.span.ungrouped())
     }
 }
 
@@ -25461,12 +25462,12 @@ impl<'p, 'r> Checker<'p, 'r> {
             // type where the expected type lists it — contextual only, so
             // `let x = "a"` stays a `Str`.
             Expr::Str { parts, .. }
-                if parts.iter().all(|p| matches!(p, StrExprPart::Text(_)))
+                if parts.iter().all(|p| matches!(p, StrExprPart::Text { .. }))
                     && {
                         let text: String = parts
                             .iter()
                             .map(|p| match p {
-                                StrExprPart::Text(t) => t.as_str(),
+                                StrExprPart::Text { text: t, .. } => t.as_str(),
                                 StrExprPart::Interp(_) => "",
                             })
                             .collect();
@@ -25476,7 +25477,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                 let text: String = parts
                     .iter()
                     .map(|p| match p {
-                        StrExprPart::Text(t) => t.as_str(),
+                        StrExprPart::Text { text: t, .. } => t.as_str(),
                         StrExprPart::Interp(_) => "",
                     })
                     .collect();
@@ -30649,7 +30650,7 @@ fn expr_literal(e: &Expr) -> Option<TypeLit> {
             let mut text = String::new();
             for p in parts {
                 match p {
-                    StrExprPart::Text(t) => text.push_str(t),
+                    StrExprPart::Text { text: t, .. } => text.push_str(t),
                     StrExprPart::Interp(_) => return None,
                 }
             }
@@ -31471,7 +31472,7 @@ fn is_step_call_arg(e: &Expr) -> bool {
         Expr::Ident(_) | Expr::Int { .. } | Expr::Float { .. } | Expr::Bool { .. } | Expr::Char { .. } => {
             true
         }
-        Expr::Str { parts, .. } => parts.iter().all(|p| matches!(p, ast::StrExprPart::Text(_))),
+        Expr::Str { parts, .. } => parts.iter().all(|p| matches!(p, ast::StrExprPart::Text { .. })),
         Expr::Field { base, .. } => is_step_call_arg(base),
         _ => false,
     }
@@ -32816,7 +32817,7 @@ impl<'p, 'r> Checker<'p, 'r> {
                     let mut text = String::new();
                     for p in parts {
                         match p {
-                            ast::StrExprPart::Text(t) => text.push_str(t),
+                            ast::StrExprPart::Text { text: t, .. } => text.push_str(t),
                             ast::StrExprPart::Interp(_) => return None,
                         }
                     }

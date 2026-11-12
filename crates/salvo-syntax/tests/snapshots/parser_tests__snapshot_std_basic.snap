@@ -5782,9 +5782,10 @@ Module {
                                     value: Some(
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "(",
-                                                ),
+                                                Text {
+                                                    text: "(",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Call {
                                                         callee: Ident(
@@ -5810,9 +5811,10 @@ Module {
                                                         span: 11778..11793,
                                                     },
                                                 ),
-                                                Text(
-                                                    ", ",
-                                                ),
+                                                Text {
+                                                    text: ", ",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Call {
                                                         callee: Ident(
@@ -5838,9 +5840,10 @@ Module {
                                                         span: 11798..11813,
                                                     },
                                                 ),
-                                                Text(
-                                                    ")",
-                                                ),
+                                                Text {
+                                                    text: ")",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 11774..11816,
                                         },
@@ -6192,9 +6195,10 @@ Module {
                                     value: Some(
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "(",
-                                                ),
+                                                Text {
+                                                    text: "(",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Call {
                                                         callee: Ident(
@@ -6220,9 +6224,10 @@ Module {
                                                         span: 12067..12082,
                                                     },
                                                 ),
-                                                Text(
-                                                    ", ",
-                                                ),
+                                                Text {
+                                                    text: ", ",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Call {
                                                         callee: Ident(
@@ -6248,9 +6253,10 @@ Module {
                                                         span: 12087..12102,
                                                     },
                                                 ),
-                                                Text(
-                                                    ", ",
-                                                ),
+                                                Text {
+                                                    text: ", ",
+                                                    spelling: None,
+                                                },
                                                 Interp(
                                                     Call {
                                                         callee: Ident(
@@ -6276,9 +6282,10 @@ Module {
                                                         span: 12107..12122,
                                                     },
                                                 ),
-                                                Text(
-                                                    ")",
-                                                ),
+                                                Text {
+                                                    text: ")",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 12063..12125,
                                         },
@@ -12787,6 +12794,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 19592..19593,
                                                 },
                                                 span: 19587..19593,
@@ -14000,6 +14008,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 20220..20221,
                                                 },
                                                 span: 20215..20221,
@@ -14087,6 +14096,7 @@ Module {
                                                 rhs: Int {
                                                     value: 0,
                                                     long: false,
+                                                    spelling: None,
                                                     span: 20285..20286,
                                                 },
                                                 span: 20280..20286,

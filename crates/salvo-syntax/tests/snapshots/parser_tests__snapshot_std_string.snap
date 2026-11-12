@@ -1512,7 +1512,7 @@ Module {
                                                 ),
                                                 span: 6938..6941,
                                             },
-                                            span: 6931..6941,
+                                            span: (6931..6941),
                                         },
                                     ],
                                     named: [],
@@ -1755,6 +1755,7 @@ Module {
                                                         value: Int {
                                                             value: 0,
                                                             long: false,
+                                                            spelling: None,
                                                             span: 7369..7370,
                                                         },
                                                     },
@@ -2268,6 +2269,7 @@ Module {
                                     rhs: Int {
                                         value: 1,
                                         long: false,
+                                        spelling: None,
                                         span: 8002..8003,
                                     },
                                     span: 7995..8003,
@@ -4877,6 +4879,7 @@ Module {
                                                             rhs: Int {
                                                                 value: 0,
                                                                 long: false,
+                                                                spelling: None,
                                                                 span: 13171..13172,
                                                             },
                                                             span: 13157..13172,
@@ -6015,9 +6018,10 @@ Module {
                                                 ),
                                                 rhs: Str {
                                                     parts: [
-                                                        Text(
-                                                            "true",
-                                                        ),
+                                                        Text {
+                                                            text: "true",
+                                                            spelling: None,
+                                                        },
                                                     ],
                                                     span: 15354..15360,
                                                 },
@@ -6060,9 +6064,10 @@ Module {
                                                 ),
                                                 rhs: Str {
                                                     parts: [
-                                                        Text(
-                                                            "false",
-                                                        ),
+                                                        Text {
+                                                            text: "false",
+                                                            spelling: None,
+                                                        },
                                                     ],
                                                     span: 15403..15410,
                                                 },
@@ -7951,6 +7956,7 @@ Module {
                                             rhs: Int {
                                                 value: 0,
                                                 long: false,
+                                                spelling: None,
                                                 span: 19028..19029,
                                             },
                                             span: 19015..19029,
@@ -8142,6 +8148,7 @@ Module {
                                 value: Int {
                                     value: 0,
                                     long: false,
+                                    spelling: None,
                                     span: 19317..19318,
                                 },
                                 span: 19309..19318,
@@ -8211,6 +8218,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 19378..19379,
                                                     },
                                                     span: 19374..19379,
@@ -8411,9 +8419,10 @@ Module {
                                         ),
                                         Str {
                                             parts: [
-                                                Text(
-                                                    "\n",
-                                                ),
+                                                Text {
+                                                    text: "\n",
+                                                    spelling: None,
+                                                },
                                             ],
                                             span: 19901..19905,
                                         },
@@ -8453,6 +8462,7 @@ Module {
                                                     rhs: Int {
                                                         value: 1,
                                                         long: false,
+                                                        spelling: None,
                                                         span: 19928..19929,
                                                     },
                                                     span: 19914..19929,
@@ -8474,9 +8484,10 @@ Module {
                                                         ),
                                                         Str {
                                                             parts: [
-                                                                Text(
-                                                                    "\n",
-                                                                ),
+                                                                Text {
+                                                                    text: "\n",
+                                                                    spelling: None,
+                                                                },
                                                             ],
                                                             span: 19948..19952,
                                                         },
@@ -8514,6 +8525,7 @@ Module {
                                                                 Int {
                                                                     value: 1,
                                                                     long: false,
+                                                                    spelling: None,
                                                                     span: 19994..19995,
                                                                 },
                                                             ],
@@ -8621,9 +8633,10 @@ Module {
                                                                 ),
                                                                 Str {
                                                                     parts: [
-                                                                        Text(
-                                                                            "\r",
-                                                                        ),
+                                                                        Text {
+                                                                            text: "\r",
+                                                                            spelling: None,
+                                                                        },
                                                                     ],
                                                                     span: 20086..20090,
                                                                 },
@@ -8938,6 +8951,7 @@ Module {
                                                                     Int {
                                                                         value: 0,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 20684..20685,
                                                                     },
                                                                     Call {
@@ -8965,9 +8979,10 @@ Module {
                                                             },
                                                             rhs: Str {
                                                                 parts: [
-                                                                    Text(
-                                                                        "",
-                                                                    ),
+                                                                    Text {
+                                                                        text: "",
+                                                                        spelling: None,
+                                                                    },
                                                                 ],
                                                                 span: 20699..20701,
                                                             },
@@ -9053,9 +9068,10 @@ Module {
                                                             },
                                                             rhs: Str {
                                                                 parts: [
-                                                                    Text(
-                                                                        "",
-                                                                    ),
+                                                                    Text {
+                                                                        text: "",
+                                                                        spelling: None,
+                                                                    },
                                                                 ],
                                                                 span: 20763..20765,
                                                             },
@@ -9385,6 +9401,7 @@ Module {
                                                                     Int {
                                                                         value: 0,
                                                                         long: false,
+                                                                        spelling: None,
                                                                         span: 21231..21232,
                                                                     },
                                                                     Call {
@@ -9412,9 +9429,10 @@ Module {
                                                             },
                                                             rhs: Str {
                                                                 parts: [
-                                                                    Text(
-                                                                        "",
-                                                                    ),
+                                                                    Text {
+                                                                        text: "",
+                                                                        spelling: None,
+                                                                    },
                                                                 ],
                                                                 span: 21246..21248,
                                                             },
@@ -9500,9 +9518,10 @@ Module {
                                                             },
                                                             rhs: Str {
                                                                 parts: [
-                                                                    Text(
-                                                                        "",
-                                                                    ),
+                                                                    Text {
+                                                                        text: "",
+                                                                        spelling: None,
+                                                                    },
                                                                 ],
                                                                 span: 21310..21312,
                                                             },
