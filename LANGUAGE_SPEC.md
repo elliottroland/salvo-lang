@@ -13340,10 +13340,10 @@ replaced the working document TESTING.md).
   comments the printer writes of its own, over a stamped fn or a message
   arm, would read back as the author's); a declaration comptime removes
   takes its comments with it (`Trivia::forget_comments_in`).
-  `print_tests.rs`: `comments.sv` prints back byte for byte; every `.sv`
+  `print_tests.rs`: `comments.sv` formats back byte for byte; every `.sv`
   file of the repository that parses prints keeping each comment's text as
   often as it was written, parses to the same tree and prints the same
-  again (`every_file_prints_keeping_its_comments`); golden_tests.rs: both
+  again (`every_file_prints_to_its_own_tree`); golden_tests.rs: both
   dumps show a program's comments and none of a template's.
 * [fmt-blank-lines] **Blank lines: one or more written print as one**
   (user decision 2026-11-11), between two statements, declarations,

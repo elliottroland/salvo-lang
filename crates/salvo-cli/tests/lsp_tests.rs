@@ -975,61 +975,6 @@ export struct Square {
     assert_eq!(loc["range"]["start"]["line"], json!(10), "{loc}");
 }
 
-/// [type-query] [type-assert] A `type?` shows in the editor as a warning
-/// carrying its id, a `type!` that holds shows nothing, and hover and
-/// completion read the program as they would without them.
-#[test]
-fn a_type_query_is_a_warning_in_the_editor() {
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_type_query");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    // Line numbers matter below; keep this source in sync with them.
-    let source = "\
-fn main() {
-    let s = \"abc\"
-    let n = size(s)
-    type?(n)
-    type!(n: Int)
-    let _m = size(s) + n
-}
-";
-    std::fs::write(root.join("main.sv"), source).unwrap();
-    let mut lsp = start(&root);
-    let uri = format!("file://{}", root.join("main.sv").display());
-    send(
-        &mut lsp.stdin,
-        json!({
-            "jsonrpc": "2.0", "method": "textDocument/didOpen",
-            "params": {"textDocument": {"uri": uri, "languageId": "salvo", "version": 1, "text": source}}
-        }),
-    );
-    let params = expect_diagnostics(&lsp.rx);
-    let diags = params["diagnostics"].as_array().unwrap();
-    assert_eq!(diags.len(), 1, "{diags:?}");
-    assert_eq!(diags[0]["severity"], json!(2), "a warning: {diags:?}");
-    assert_eq!(diags[0]["code"], json!("type-query:type"), "{diags:?}");
-    assert_eq!(diags[0]["message"], json!("type of `n`: Int"), "{diags:?}");
-    assert_eq!(diags[0]["range"]["start"]["line"], json!(3), "{diags:?}");
-    // `n` inside `type?(n)` and inside `type!(n: Int)` hovers as the local.
-    let h = hover(&mut lsp, 2, &uri, 3, 10);
-    assert!(h.contains("Int"), "{h}");
-    let h = hover(&mut lsp, 3, &uri, 4, 10);
-    assert!(h.contains("Int"), "{h}");
-    // `size` below them hovers and completes as before.
-    let h = hover(&mut lsp, 4, &uri, 5, 15);
-    assert!(h.contains("fn size"), "{h}");
-    send(
-        &mut lsp.stdin,
-        json!({
-            "jsonrpc": "2.0", "id": 5, "method": "textDocument/completion",
-            "params": {"textDocument": {"uri": uri}, "position": {"line": 5, "character": 15}}
-        }),
-    );
-    let response = expect_response(&lsp.rx, 5);
-    let labels: Vec<&str> = response["result"].as_array().unwrap_or_else(|| panic!("no completion list: {response}")).iter().filter_map(|i| i["label"].as_str()).collect();
-    assert!(labels.contains(&"size"), "{labels:?}");
-}
-
 /// Doc comments in hover [doc-comment] [doc-markdown] [doc-symbol-ref]
 /// [doc-struct-fields] [doc-hover-narrowed]: fn docs, struct docs with a
 /// per-field section, `[symbol]` references, and a variable's type as
@@ -2594,142 +2539,6 @@ fn run() [Both] -> Int {
     assert!(labels.iter().any(|l| l == "ping"), "alias member's member offered: {labels:?}");
     let text = hover(&mut lsp, 3, &uri, 2, 4);
     assert!(text.contains("[Ping, Pong]"), "hover shows the expanded list: {text}");
-    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
-    expect_response(&lsp.rx, 99);
-    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
-    lsp.child.wait().expect("failed to wait for salvo lsp");
-}
-
-/// [qual-depend-field] The JSON-parser demo's cursor: a string and an index
-/// proven for it, with an optional and a total read ranked by the claim.
-/// Lines 0–13 of each source below.
-const SIBLING_CURSOR: &str = "\
-struct Cursor canbe Mut {
-    str: proj Str
-    pos: Idx(str) Int
-}
-
-fn read_char(str: Str, index: Int) [] -> Char? => str, index {
-    return char_at(str, index)
-}
-
-fn read_char(str: Str, index: Idx(str) Int) [] -> Char => str, index {
-    let c = read_char(str, (index: Int))
-    assert!(c is Char)
-    return c
-}
-";
-
-/// [qual-depend-field] The claim of a struct field about a sibling field
-/// shows once on hover, rooted at the sibling read beside it — in the demo's
-/// loop shape too, where the loop head joins the destructured claim with the
-/// one the body's `is` test gives back. Before, the field's unrooted
-/// template and the test's rooted claim showed side by side (`Idx(str)
-/// Idx(str) Int`).
-#[test]
-fn hover_shows_a_sibling_field_claim_once() {
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_sibling_claim_hover");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    let source = format!(
-        "{SIBLING_CURSOR}
-fn count(cursor: Mut Cursor) [] -> Int => cursor {{
-    let {{ str, pos }} = cursor
-    let n = 0
-    while pos < size(str) - 1 {{
-        let c: Char = cursor.str.read_char(pos)
-        if c == ' ' {{
-            n = n + 1
-        }}
-        pos++
-        assert!(pos is Idx(str))
-    }}
-    return n
-}}
-"
-    );
-    std::fs::write(root.join("main.sv"), &source).unwrap();
-    let mut lsp = start(&root);
-    let uri = format!("file://{}", root.join("main.sv").display());
-    send(
-        &mut lsp.stdin,
-        json!({
-            "jsonrpc": "2.0", "method": "textDocument/didOpen",
-            "params": {"textDocument": {
-                "uri": uri, "languageId": "salvo", "version": 1, "text": source
-            }}
-        }),
-    );
-    let diagnostics = expect_diagnostics(&lsp.rx);
-    // Clean: `cursor.str.read_char(pos)` went to the total overload.
-    assert_eq!(diagnostics["diagnostics"], json!([]), "the source checks clean");
-    // The destructured `pos`: an index of the `str` beside it.
-    let at_binding = hover(&mut lsp, 2, &uri, 16, 16);
-    assert!(at_binding.starts_with("```salvo\nIdx(str) Int\n```"), "{at_binding}");
-    // In the loop, read through the field's string, and at the step.
-    let at_read = hover(&mut lsp, 3, &uri, 19, 44);
-    assert!(at_read.starts_with("```salvo\nIdx(str) Int\n```"), "{at_read}");
-    let at_step = hover(&mut lsp, 4, &uri, 23, 9);
-    assert!(at_step.starts_with("```salvo\nIdx(str) Int\n```"), "{at_step}");
-    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
-    expect_response(&lsp.rx, 99);
-    send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
-    lsp.child.wait().expect("failed to wait for salvo lsp");
-}
-
-/// [lsp-completion] A block header still being typed — `while … && x.re`
-/// with no `{` yet — completes like any other position: the probe closes the
-/// header so the fn is still checked (before, the parse error dropped the
-/// fn and the receiver had no type, so only the generic fns were offered).
-#[test]
-fn completion_in_an_open_block_header() {
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_completion_open_header");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    let source = format!(
-        "{SIBLING_CURSOR}
-fn walk(cursor: Mut Cursor) [] -> None => cursor {{
-    let {{ str, pos }} = cursor
-    while pos < size(str) - 1 && cursor.str.re
-}}
-"
-    );
-    std::fs::write(root.join("main.sv"), &source).unwrap();
-    let mut lsp = start(&root);
-    let uri = format!("file://{}", root.join("main.sv").display());
-    send(
-        &mut lsp.stdin,
-        json!({
-            "jsonrpc": "2.0", "method": "textDocument/didOpen",
-            "params": {"textDocument": {
-                "uri": uri, "languageId": "salvo", "version": 1, "text": source
-            }}
-        }),
-    );
-    let _ = expect_diagnostics(&lsp.rx);
-    let complete = |lsp: &mut Lsp, id: i64, line: u32, character: u32| -> Vec<String> {
-        send(
-            &mut lsp.stdin,
-            json!({
-                "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
-                "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
-            }),
-        );
-        let response = expect_response(&lsp.rx, id);
-        response["result"]
-            .as_array()
-            .unwrap_or_else(|| panic!("no completion list: {response}"))
-            .iter()
-            .map(|i| i["label"].as_str().unwrap().to_string())
-            .collect()
-    };
-    // `while pos < size(str) - 1 && cursor.str.re|` with no `{`: Str's
-    // functions, both `read_char` overloads (the total one's first parameter
-    // takes the receiver too) and std's `char_at`.
-    let items = complete(&mut lsp, 2, 17, 46);
-    assert_eq!(items.iter().filter(|l| *l == "read_char").count(), 2, "both overloads: {items:?}");
-    assert!(items.contains(&"char_at".to_string()), "expected `char_at`: {items:?}");
-    assert!(items.contains(&"trim".to_string()), "expected Str's fns: {items:?}");
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "id": 99, "method": "shutdown", "params": null}));
     expect_response(&lsp.rx, 99);
     send(&mut lsp.stdin, json!({"jsonrpc": "2.0", "method": "exit", "params": null}));
@@ -4422,56 +4231,6 @@ fn organize_imports_sorts_the_imports_it_keeps() {
     assert!(fixed.starts_with("import extras.unit\nimport shapes.area\n\nfn main"), "{fixed}");
 }
 
-// [lsp-format] Formatting a document is one edit replacing it with what
-// `salvo fmt` writes; a formatted document gets none, and so does one that
-// does not parse, which is never rewritten.
-#[test]
-fn formatting_replaces_the_document_with_its_formatting() {
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_formatting");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    let mut lsp = start(&root);
-    let uri = format!("file://{}", root.join("main.sv").display());
-    let format = |lsp: &mut Lsp, id: i64| {
-        send(
-            &mut lsp.stdin,
-            json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/formatting",
-                   "params": {"textDocument": {"uri": uri}, "options": {"tabSize": 4, "insertSpaces": true}}}),
-        );
-        expect_response(&lsp.rx, id)["result"].clone()
-    };
-    let text = "import std.random.DefaultRandom\nimport std.heap.Heap\n\nfn main( ) -> Int {\n  return 1\n}\n";
-    set_text(&mut lsp, &uri, 1, text);
-    let edits = format(&mut lsp, 2).as_array().cloned().unwrap();
-    assert_eq!(edits.len(), 1, "{edits:?}");
-    assert_eq!(edits[0]["range"], json!({"start": {"line": 0, "character": 0}, "end": {"line": 6, "character": 0}}));
-    let formatted = apply_edits(text, &edits);
-    assert_eq!(formatted, "import std.heap.Heap\nimport std.random.DefaultRandom\n\nfn main() -> Int {\n    return 1\n}\n");
-    set_text(&mut lsp, &uri, 2, &formatted);
-    assert_eq!(format(&mut lsp, 3), json!([]));
-    set_text(&mut lsp, &uri, 3, "fn main( -> Int {\n  return 1\n}\n");
-    assert!(format(&mut lsp, 4).is_null());
-}
-
-// [lsp-organize-imports] [fmt-imports] The sort keeps a comment with the
-// import it is written above.
-#[test]
-fn organize_imports_moves_a_comment_with_its_import() {
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_organize_comment");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
-    std::fs::write(root.join("extras.sv"), "export fn unit() -> Int {\n    return 1\n}\n").unwrap();
-    let mut lsp = start(&root);
-    let uri = format!("file://{}", root.join("main.sv").display());
-    let text = "// The app.\n\nimport shapes.area\n// One.\nimport extras.unit\n\nfn main() -> Int {\n    return area(unit())\n}\n";
-    set_text(&mut lsp, &uri, 1, text);
-    let actions = code_actions(&mut lsp, 2, &uri, &[], Some(json!(["source.organizeImports"])));
-    let action = actions.iter().find(|a| a["title"] == json!("Organize imports")).unwrap_or_else(|| panic!("{actions:?}"));
-    let fixed = apply_edits(text, action["edit"]["changes"][&uri].as_array().unwrap());
-    assert!(fixed.starts_with("// The app.\n\n// One.\nimport extras.unit\nimport shapes.area\n\nfn main"), "{fixed}");
-}
-
 // [lsp-stub] A program that declares platform fns is offered the host
 // skeletons, as a command the server runs.
 #[test]
@@ -4577,47 +4336,6 @@ fn renaming_from_an_import_line_renames_the_declaration() {
     let main = apply_edits(text, changes[&uri].as_array().unwrap_or_else(|| panic!("{result}")));
     assert_eq!(main, "import shapes.square\n\nfn go() -> Int {\n    return square(2)\n}\n");
     assert!(changes[&shapes].is_array(), "the declaration moves too: {result}");
-}
-
-// [type-union-body] [fn-attached] A fn in a named union's body is reached
-// as a struct body's is: go-to-definition from a call lands on it, hover
-// shows it, and a rename moves the declaration, the calls and the
-// `name@Union` selector together.
-#[test]
-fn a_named_union_body_fn_is_reached_hovered_and_renamed() {
-    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_union_body");
-    let _ = std::fs::remove_dir_all(&root);
-    std::fs::create_dir_all(&root).unwrap();
-    let mut lsp = start(&root);
-    let uri = format!("file://{}", root.join("main.sv").display());
-    // Lines (0-based):
-    // 0 struct Dot {}
-    // 1 struct Line { len: Int }
-    // 2
-    // 3 type Mark = Dot | Line {
-    // 4     fn weight(m: proj Mark) -> Int {
-    // 5         return 1
-    // 6     }
-    // 7 }
-    // 8
-    // 9 fn total(m: Mark) -> Int => m {
-    // 10     return weight(m) + m.weight() + weight@Mark(m)
-    // 11 }
-    let text = "struct Dot {}\nstruct Line { len: Int }\n\ntype Mark = Dot | Line {\n    fn weight(m: proj Mark) -> Int {\n        return 1\n    }\n}\n\nfn total(m: Mark) -> Int => m {\n    return weight(m) + m.weight() + weight@Mark(m)\n}\n";
-    let diags = set_text(&mut lsp, &uri, 1, text);
-    assert!(diags.is_empty(), "{diags:?}");
-    let loc = definition(&mut lsp, 2, &uri, 10, 12);
-    assert_eq!(loc["range"]["start"], json!({"line": 4, "character": 7}), "{loc}");
-    let loc = definition(&mut lsp, 3, &uri, 10, 39);
-    assert_eq!(loc["range"]["start"], json!({"line": 4, "character": 7}), "the selector: {loc}");
-    let value = hover(&mut lsp, 4, &uri, 10, 12);
-    assert!(value.contains("fn weight(m: proj Mark) -> Int"), "{value}");
-    let result = rename_at(&mut lsp, 5, &uri, 4, 8, "heft");
-    let renamed = apply_edits(text, result["result"]["changes"][&uri].as_array().unwrap_or_else(|| panic!("{result}")));
-    assert!(renamed.contains("    fn heft(m: proj Mark) -> Int {"), "{renamed}");
-    assert!(renamed.contains("return heft(m) + m.heft() + heft@Mark(m)"), "{renamed}");
-    let diags = set_text(&mut lsp, &uri, 2, &renamed);
-    assert!(diags.is_empty(), "the renamed program checks: {diags:?}\n{renamed}");
 }
 
 // [lsp-rename-more] A test's name is renamed in place.
@@ -4873,4 +4591,216 @@ fn comptime_bodies_navigate_complete_and_fix() {
     version += 1;
     let after = set_text(&mut lsp, &uri, version, &fixed);
     assert!(after.iter().all(|d| d["code"] != json!("when-exhaustive:kind-arms-missing")), "{after:?}");
+}
+
+/// The labels a completion at `line:character` of `uri` offers.
+fn completion_labels(lsp: &mut Lsp, id: i64, uri: &str, line: u32, character: u32) -> Vec<String> {
+    send(
+        &mut lsp.stdin,
+        json!({
+            "jsonrpc": "2.0", "id": id, "method": "textDocument/completion",
+            "params": {"textDocument": {"uri": uri}, "position": {"line": line, "character": character}}
+        }),
+    );
+    let response = expect_response(&lsp.rx, id);
+    response["result"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no completion list: {response}"))
+        .iter()
+        .filter_map(|i| i["label"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// [qual-depend-field] The JSON-parser demo's cursor: a string and an index
+/// proven for it, with an optional and a total read ranked by the claim.
+/// Lines 0–13 of the sources that use it.
+const SIBLING_CURSOR: &str = "\
+struct Cursor canbe Mut {
+    str: proj Str
+    pos: Idx(str) Int
+}
+
+fn read_char(str: Str, index: Int) [] -> Char? => str, index {
+    return char_at(str, index)
+}
+
+fn read_char(str: Str, index: Idx(str) Int) [] -> Char => str, index {
+    let c = read_char(str, (index: Int))
+    assert!(c is Char)
+    return c
+}
+";
+
+/// One editor session over one document, each scenario a new text of it,
+/// each failure naming its scenario:
+///
+/// - `type query` [type-query] [type-assert]: a `type?` shows as a warning
+///   carrying its id, a `type!` that holds shows nothing, and hover and
+///   completion read the program as they would without them;
+/// - `sibling claim` [qual-depend-field]: the claim of a struct field about
+///   a sibling field shows once on hover, rooted at the sibling read beside
+///   it, in the demo's loop shape too, where the loop head joins the
+///   destructured claim with the one the body's `is` test gives back (before,
+///   the field's unrooted template and the test's rooted claim showed side
+///   by side, `Idx(str) Idx(str) Int`);
+/// - `open header` [lsp-completion]: a block header still being typed
+///   (`while … && x.re` with no `{` yet) completes like any other position:
+///   the probe closes the header so the fn is still checked;
+/// - `union body` [type-union-body] [fn-attached]: a fn in a named union's
+///   body is reached as a struct body's is: go-to-definition from a call and
+///   from the `name@Union` selector lands on it, hover shows it, and a rename
+///   moves the declaration, the calls and the selector together.
+#[test]
+fn the_editor_reads_type_queries_field_claims_and_union_bodies() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_reading_session");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+
+    // Line numbers matter below; keep each source in sync with them.
+    let source = "\
+fn main() {
+    let s = \"abc\"
+    let n = size(s)
+    type?(n)
+    type!(n: Int)
+    let _m = size(s) + n
+}
+";
+    let diags = set_text(&mut lsp, &uri, 1, source);
+    assert_eq!(diags.len(), 1, "[type query] one report: {diags:?}");
+    assert_eq!(diags[0]["severity"], json!(2), "[type query] a warning: {diags:?}");
+    assert_eq!(diags[0]["code"], json!("type-query:type"), "[type query] {diags:?}");
+    assert_eq!(diags[0]["range"]["start"]["line"], json!(3), "[type query] {diags:?}");
+    // `n` inside `type?(n)` and inside `type!(n: Int)` hovers as the local.
+    let h = hover(&mut lsp, 2, &uri, 3, 10);
+    assert!(h.contains("Int"), "[type query] `n` in `type?`: {h}");
+    let h = hover(&mut lsp, 3, &uri, 4, 10);
+    assert!(h.contains("Int"), "[type query] `n` in `type!`: {h}");
+    // `size` below them hovers and completes as before.
+    let h = hover(&mut lsp, 4, &uri, 5, 15);
+    assert!(h.contains("fn size"), "[type query] `size`: {h}");
+    let labels = completion_labels(&mut lsp, 5, &uri, 5, 15);
+    assert!(labels.iter().any(|l| l == "size"), "[type query] {labels:?}");
+
+    let source = format!(
+        "{SIBLING_CURSOR}
+fn count(cursor: Mut Cursor) [] -> Int => cursor {{
+    let {{ str, pos }} = cursor
+    let n = 0
+    while pos < size(str) - 1 {{
+        let c: Char = cursor.str.read_char(pos)
+        if c == ' ' {{
+            n = n + 1
+        }}
+        pos++
+        assert!(pos is Idx(str))
+    }}
+    return n
+}}
+"
+    );
+    // Clean: `cursor.str.read_char(pos)` went to the total overload.
+    let diags = set_text(&mut lsp, &uri, 2, &source);
+    assert!(diags.is_empty(), "[sibling claim] the source checks clean: {diags:?}");
+    // The destructured `pos`: an index of the `str` beside it; in the loop,
+    // read through the field's string, and at the step.
+    for (id, line, character, at) in [(6, 16, 16, "the binding"), (7, 19, 44, "the read"), (8, 23, 9, "the step")] {
+        let h = hover(&mut lsp, id, &uri, line, character);
+        assert!(h.starts_with("```salvo\nIdx(str) Int\n```"), "[sibling claim] at {at}: {h}");
+    }
+
+    let source = format!(
+        "{SIBLING_CURSOR}
+fn walk(cursor: Mut Cursor) [] -> None => cursor {{
+    let {{ str, pos }} = cursor
+    while pos < size(str) - 1 && cursor.str.re
+}}
+"
+    );
+    set_text(&mut lsp, &uri, 3, &source);
+    // `while pos < size(str) - 1 && cursor.str.re|` with no `{`: Str's
+    // functions, both `read_char` overloads (the total one's first parameter
+    // takes the receiver too) and std's `char_at`.
+    let items = completion_labels(&mut lsp, 9, &uri, 17, 46);
+    assert_eq!(items.iter().filter(|l| *l == "read_char").count(), 2, "[open header] both overloads: {items:?}");
+    assert!(items.iter().any(|l| l == "char_at"), "[open header] expected `char_at`: {items:?}");
+    assert!(items.iter().any(|l| l == "trim"), "[open header] expected Str's fns: {items:?}");
+
+    // Lines (0-based):
+    // 0 struct Dot {}
+    // 1 struct Line { len: Int }
+    // 2
+    // 3 type Mark = Dot | Line {
+    // 4     fn weight(m: proj Mark) -> Int {
+    // 5         return 1
+    // 6     }
+    // 7 }
+    // 8
+    // 9 fn total(m: Mark) -> Int => m {
+    // 10     return weight(m) + m.weight() + weight@Mark(m)
+    // 11 }
+    let text = "struct Dot {}\nstruct Line { len: Int }\n\ntype Mark = Dot | Line {\n    fn weight(m: proj Mark) -> Int {\n        return 1\n    }\n}\n\nfn total(m: Mark) -> Int => m {\n    return weight(m) + m.weight() + weight@Mark(m)\n}\n";
+    let diags = set_text(&mut lsp, &uri, 4, text);
+    assert!(diags.is_empty(), "[union body] {diags:?}");
+    let loc = definition(&mut lsp, 10, &uri, 10, 12);
+    assert_eq!(loc["range"]["start"], json!({"line": 4, "character": 7}), "[union body] the call: {loc}");
+    let loc = definition(&mut lsp, 11, &uri, 10, 39);
+    assert_eq!(loc["range"]["start"], json!({"line": 4, "character": 7}), "[union body] the selector: {loc}");
+    let value = hover(&mut lsp, 12, &uri, 10, 12);
+    assert!(value.contains("fn weight(m: proj Mark) -> Int"), "[union body] {value}");
+    let result = rename_at(&mut lsp, 13, &uri, 4, 8, "heft");
+    let renamed = apply_edits(text, result["result"]["changes"][&uri].as_array().unwrap_or_else(|| panic!("[union body] {result}")));
+    assert!(renamed.contains("    fn heft(m: proj Mark) -> Int {"), "[union body] {renamed}");
+    assert!(renamed.contains("return heft(m) + m.heft() + heft@Mark(m)"), "[union body] {renamed}");
+    let diags = set_text(&mut lsp, &uri, 5, &renamed);
+    assert!(diags.is_empty(), "[union body] the renamed program checks: {diags:?}\n{renamed}");
+}
+
+/// One editor session formatting a document and organizing its imports,
+/// each failure naming its scenario:
+///
+/// - `formatting` [lsp-format]: formatting a document is one edit replacing
+///   it with what `salvo fmt` writes (its imports sorted); a formatted
+///   document gets none, and so does one that does not parse, which is never
+///   rewritten;
+/// - `organize imports` [lsp-organize-imports] [fmt-imports]: the sort keeps
+///   a comment with the import it is written above.
+#[test]
+fn the_editor_formats_and_organizes_imports() {
+    let root = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("lsp_formatting_session");
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("shapes.sv"), "export fn area(side: Int) -> Int {\n    return side * side\n}\n").unwrap();
+    std::fs::write(root.join("extras.sv"), "export fn unit() -> Int {\n    return 1\n}\n").unwrap();
+    let mut lsp = start(&root);
+    let uri = format!("file://{}", root.join("main.sv").display());
+    let format = |lsp: &mut Lsp, id: i64| {
+        send(
+            &mut lsp.stdin,
+            json!({"jsonrpc": "2.0", "id": id, "method": "textDocument/formatting",
+                   "params": {"textDocument": {"uri": uri}, "options": {"tabSize": 4, "insertSpaces": true}}}),
+        );
+        expect_response(&lsp.rx, id)["result"].clone()
+    };
+
+    let text = "import std.random.DefaultRandom\nimport std.heap.Heap\n\nfn main( ) -> Int {\n  return 1\n}\n";
+    set_text(&mut lsp, &uri, 1, text);
+    let edits = format(&mut lsp, 2).as_array().cloned().unwrap_or_default();
+    assert_eq!(edits.len(), 1, "[formatting] one edit: {edits:?}");
+    assert_eq!(edits[0]["range"], json!({"start": {"line": 0, "character": 0}, "end": {"line": 6, "character": 0}}), "[formatting] the whole document");
+    let formatted = apply_edits(text, &edits);
+    assert_eq!(formatted, "import std.heap.Heap\nimport std.random.DefaultRandom\n\nfn main() -> Int {\n    return 1\n}\n", "[formatting]");
+    set_text(&mut lsp, &uri, 2, &formatted);
+    assert_eq!(format(&mut lsp, 3), json!([]), "[formatting] a formatted document");
+    set_text(&mut lsp, &uri, 3, "fn main( -> Int {\n  return 1\n}\n");
+    assert!(format(&mut lsp, 4).is_null(), "[formatting] a document that does not parse");
+
+    let text = "// The app.\n\nimport shapes.area\n// One.\nimport extras.unit\n\nfn main() -> Int {\n    return area(unit())\n}\n";
+    set_text(&mut lsp, &uri, 4, text);
+    let actions = code_actions(&mut lsp, 5, &uri, &[], Some(json!(["source.organizeImports"])));
+    let action = actions.iter().find(|a| a["title"] == json!("Organize imports")).unwrap_or_else(|| panic!("[organize imports] {actions:?}"));
+    let fixed = apply_edits(text, action["edit"]["changes"][&uri].as_array().unwrap());
+    assert!(fixed.starts_with("// The app.\n\n// One.\nimport extras.unit\nimport shapes.area\n\nfn main"), "[organize imports] {fixed}");
 }

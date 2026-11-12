@@ -118,60 +118,24 @@ fn snapshot_std_seq() {
 
 // --- docs/language/ example corpus ---
 
+/// Each `tests/corpus/<name>.sv` (examples as `docs/language/` writes them)
+/// parses without errors, and its tree is the snapshot
+/// `snapshot_corpus_<name>`: among them [type-query] [type-assert]
+/// `type?(place)` and `type!(place: T)` (`type_queries.sv`), and
+/// [type-union-body] a named union's body (`named_unions.sv`).
 #[test]
-fn snapshot_corpus_structs() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("structs.sv")));
-}
-
-#[test]
-fn snapshot_corpus_control_flow() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("control_flow.sv")));
-}
-
-#[test]
-fn snapshot_corpus_functions() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("functions.sv")));
-}
-
-#[test]
-fn snapshot_corpus_qualifiers() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("qualifiers.sv")));
-}
-
-#[test]
-fn snapshot_corpus_effects() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("effects.sv")));
-}
-
-#[test]
-fn snapshot_corpus_imports() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("imports.sv")));
-}
-
-/// [type-query] [type-assert] `type?(place)` and `type!(place: T)`.
-#[test]
-fn snapshot_corpus_type_queries() {
-    insta::assert_debug_snapshot!(parse_clean(&corpus("type_queries.sv")));
-}
-
-/// [type-assert] `type!(place: T)` is read as `type?(` is, and its type is a
-/// whole type; `assert!` is the runtime assertion, unchanged, so a re-typing
-/// right inside it is its condition (`assert!(x: Int)` asserts `x: Int`).
-#[test]
-fn type_bang_is_the_type_assertion() {
-    use salvo_syntax::ast::Expr;
-    let e = parse_expr_stmt("type!(p.pos: proj Idx(p.str) Int | None)");
-    let Expr::TypeAssert { place, ty: Some(ty), .. } = e else { panic!("expected a type assertion, got {e:?}") };
-    assert!(matches!(*place, Expr::Field { .. }));
-    assert_eq!(salvo_syntax::print::type_text(&ty), "proj Idx(p.str) Int | None");
-    assert!(matches!(parse_expr_stmt("assert!(x is Int)"), Expr::Assert { .. }));
-    let Expr::Assert { cond, .. } = parse_expr_stmt("assert!((x: -Ok) is Int)") else { panic!("expected an assertion") };
-    assert!(matches!(*cond, Expr::Is { .. }));
-    let Expr::Assert { cond, .. } = parse_expr_stmt("assert!(x: Int)") else { panic!("expected an assertion") };
-    assert!(matches!(*cond, Expr::Retype { .. }));
-    let Expr::TypeQuery { place, .. } = parse_expr_stmt("type?(a.b)") else { panic!("expected a type query") };
-    assert!(matches!(*place, Expr::Field { .. }));
-    assert!(!errors_of("fn f(x: Int) { type!(x) }\n").is_empty(), "`type!` needs its `: T`");
+fn every_corpus_file_parses_to_its_snapshot() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .filter_map(|e| e.file_name().to_string_lossy().strip_suffix(".sv").map(str::to_string))
+        .collect();
+    names.sort();
+    assert!(names.len() >= 8, "found only {names:?}");
+    for name in names {
+        insta::assert_debug_snapshot!(format!("snapshot_corpus_{name}"), parse_clean(&corpus(&format!("{name}.sv"))));
+    }
 }
 
 // --- Tuple indexing [expr-tuple-index] ---
@@ -371,48 +335,6 @@ fn a_struct_declares_obligations_before_canbe() {
     assert_eq!(g.fns.len(), 1);
 }
 
-// [type-union-body] [fn-attached] A named union's body holds fns and refns,
-// the obligation clause before it; lowering hoists the fns as a struct
-// body's are, declared on the union and taking its visibility.
-#[test]
-fn a_named_union_body_holds_fns_and_refns_and_hoists_them() {
-    let source = "export type Shape = Circle | Square : ToStr<self> {\n    \
-                  fn to_str(shape: Shape) -> Str {\n        return \"s\"\n    }\n    \
-                  fn area(shape: Shape) -> Int by measure\n    \
-                  refn grow(shape: Mut Shape) => shape: +Grown\n}\n";
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
-    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
-    let salvo_syntax::ast::Item::Type(t) = &module.items[0] else { panic!("expected a type") };
-    assert!(t.is_named_union());
-    assert_eq!(t.obligations.len(), 1);
-    let fns: Vec<&str> = t.fns.iter().map(|f| f.name.name.as_str()).collect();
-    assert_eq!(fns, ["to_str", "area"]);
-    assert!(t.fns[1].by.is_some(), "a `by` declaration is a body fn too [fn-by]");
-    assert_eq!(t.refns.len(), 1);
-    let (lowered, diagnostics) = common::lowered(source);
-    assert!(!diagnostics.iter().any(|d| d.is_error()), "{diagnostics:?}");
-    let salvo_syntax::ast::Item::Type(t) = &lowered.items[0] else { panic!("expected a type") };
-    assert!(t.fns.is_empty(), "hoisted out of the body");
-    let hoisted: Vec<(&str, Option<&str>, bool)> = lowered
-        .items
-        .iter()
-        .filter_map(|i| match i {
-            salvo_syntax::ast::Item::Fn(f) => Some((f.name.name.as_str(), f.scoped_to.as_ref().map(|s| s.name.as_str()), f.exported)),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(hoisted, [("to_str", Some("Shape"), true), ("area", Some("Shape"), true)]);
-    // Something a union body cannot hold is one error, and the members after
-    // it are still read.
-    let (module, diagnostics) = salvo_syntax::parse_module(
-        "type Mark = Dot | Line {\n    at: Int\n    { nested }\n    fn weight(m: Mark) -> Int => m {\n        return 1\n    }\n}\n",
-    );
-    let ids: Vec<&str> = diagnostics.iter().filter(|d| d.is_error()).filter_map(|d| d.id).collect();
-    assert_eq!(ids, ["type-union-body:only-fns"], "{diagnostics:?}");
-    let salvo_syntax::ast::Item::Type(t) = &module.items[0] else { panic!("expected a type") };
-    assert_eq!(t.fns.len(), 1, "{t:?}");
-}
-
 // [group-obligation] The clause is optional in both halves: obligations
 // without `canbe`, and neither.
 #[test]
@@ -466,14 +388,12 @@ fn canbe_linear_parses_on_a_struct_type_parameter() {
     assert_eq!(s.generic_canbe[0].1.name.name, "linear");
 }
 
-// [stmt-line] Two statements, or two declarations, on one line: one error
-// each, at the second's first token, and the second still parsed — the
-// printed module shows every statement kept, each on its own line. What the
-// grammar continues (`else`, `elif`, arms, a one-statement block) is not
-// refused. The snapshot holds the errors as `line:col id` and the module as
-// printed.
+// [stmt-line] Each slip is one error at the second statement's (or
+// declaration's) first token: the column, which the check data's line
+// annotations do not say. What is refused, and that every statement is kept,
+// is `salvo-core/tests/check/syntax/statement_lines.sv`.
 #[test]
-fn statements_sharing_a_line_are_refused_and_kept() {
+fn a_line_slip_is_reported_at_the_second_statements_first_token() {
     let source = "\
 struct A { x: Int } struct B { y: Int }
 
@@ -488,20 +408,27 @@ fn f(c: Bool, v: Int | Str) -> Int {
     return a
 }
 ";
-    let (module, diagnostics) = salvo_syntax::parse_module(source);
-    let line_col = |at: u32| {
-        let before = &source[..at as usize];
-        let line = before.matches('\n').count() + 1;
-        let col = before.len() - before.rfind('\n').map_or(0, |n| n + 1) + 1;
-        format!("{line}:{col}")
-    };
+    let (_module, diagnostics) = salvo_syntax::parse_module(source);
     let errors: Vec<String> = diagnostics
         .iter()
         .filter(|d| d.is_error())
-        .map(|d| format!("{} {}", line_col(d.span.start), d.id.unwrap_or("?")))
+        .map(|d| {
+            let (line, col) = salvo_syntax::span::line_col(source, d.span.start);
+            format!("{line}:{col} {}", d.id.unwrap_or("?"))
+        })
         .collect();
-    let printed = salvo_syntax::print::print_module(&module).text;
-    insta::assert_snapshot!(format!("{}\n\n{printed}", errors.join("\n")));
+    assert_eq!(
+        errors,
+        [
+            "10:14 stmt-line:semicolon",
+            "1:21 stmt-line:same-line",
+            "4:15 stmt-line:same-line",
+            "5:14 stmt-line:same-line",
+            "5:23 stmt-line:same-line",
+            "6:41 stmt-line:same-line",
+            "9:40 stmt-line:same-line",
+        ]
+    );
 }
 
 // --- Names: casing and dot-names [name-casing] [name-dot] ---

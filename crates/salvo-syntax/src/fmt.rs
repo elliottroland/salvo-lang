@@ -194,75 +194,39 @@ pub fn sort_imports(text: &str) -> String {
 mod tests {
     use super::*;
 
-    // [cli-fmt] A printing is refused when it does not parse, parses to
-    // another tree, or loses or repeats a comment; one that only moves the
-    // layout and the imports passes.
+    // [cli-fmt] The check a printing passes before it may replace a file:
+    // one that only moves the layout, the parentheses or the imports'
+    // order passes; one that does not parse, parses to another tree (a
+    // literal respelled, the docs changed: the docs are part of the tree),
+    // or loses or repeats a comment is refused, each for its reason. A span
+    // reads alike with any parentheses counted on it. What the formatter
+    // writes is the print fixtures' (`salvo-core/tests/print/`).
     #[test]
     fn a_printing_that_changes_the_file_is_refused() {
         let source = "import b\nimport a\n\n// f.\nfn f() -> Int {\n    return 1_000 // one thousand\n}\n";
-        let check = |printed: &str| verify(source, crate::parse_module(source).0, printed);
-        let refused = |printed: &str| match check(printed) {
-            Err(FormatError::Unsafe(why)) => why,
-            other => panic!("not refused: {other:?}"),
-        };
-        assert!(check("import a\nimport b\n\n// f.\nfn f() -> Int {\n  return (1_000) // one thousand\n}\n").is_ok());
-        assert!(refused("import a\nimport b\n\n// f.\nfn f() -> Int {\n    return 1_000 // one thousand\n").contains("does not parse"));
-        assert!(refused("import a\nimport b\n\n// f.\nfn f() -> Int {\n    return 1000 // one thousand\n}\n").contains("different tree"));
-        assert!(refused("import a\nimport b\n\n// f.\nfn f() -> Int {\n    return 1_000\n}\n").contains("comments"));
-        assert!(refused("import a\nimport b\n\n// f.\nfn f() -> Int {\n    // one thousand\n    // one thousand\n    return 1_000\n}\n").contains("comments"));
-        // The docs are part of the tree.
-        assert!(refused("import a\nimport b\n\n// f.\n\nfn f() -> Int {\n    return 1_000 // one thousand\n}\n").contains("different tree"));
-    }
-
-    // [cli-fmt] A span reads alike with any parentheses counted on it.
-    #[test]
-    fn spans_are_left_out_of_the_shape() {
-        assert_eq!(without_spans("Some(12..15), (3..4#2, x), ((7..9)), a1..2"), "Some~, (~, x), ~, a1..2");
-        assert_eq!(without_spans("Some(((12..15))), (((3..4#2)), x)"), "Some~, (~, x)");
-    }
-
-    // [cli-fmt] The shape sees the tree, docs included, and not the layout
-    // or the imports' order.
-    #[test]
-    fn the_shape_is_the_tree_without_its_layout() {
-        let shape_of = |text: &str| shape(crate::parse_module(text).0);
-        assert_eq!(shape_of("import b\nimport a\nfn f( ) -> Int {\n  return (1)\n}\n"), shape_of("import a\n\nimport b\n\nfn f() -> Int {\n    return 1\n}\n"));
-        assert_ne!(shape_of("// f.\nfn f() {}\n"), shape_of("// f.\n\nfn f() {}\n"));
-        assert_ne!(shape_of("fn f() -> Int {\n    return 1\n}\n"), shape_of("fn f() -> Int {\n    return 2\n}\n"));
-    }
-
-    // [fmt-imports] Sorted with their comments; blank lines between them go.
-    #[test]
-    fn imports_sort_with_the_comments_above_them() {
-        let text = "// The module.\n\nimport b.x\n// why c\nimport c.y // trailing\n\nimport a.z as w\n\nfn f() {}\n";
-        let sorted = sort_imports(text);
-        assert_eq!(sorted, "// The module.\n\nimport a.z as w\nimport b.x\n// why c\nimport c.y // trailing\n\nfn f() {}\n");
-        assert_eq!(sort_imports(&sorted), sorted);
-    }
-
-    // [fmt-imports] [doc-module] The module's docs stay first, apart from a
-    // comment that moved up.
-    #[test]
-    fn the_module_docs_stay_above_the_imports() {
-        let text = "// The module.\nimport b\n// why a\nimport a\n";
-        let sorted = sort_imports(text);
-        assert_eq!(sorted, "// The module.\n\n// why a\nimport a\nimport b\n");
-        assert_eq!(sort_imports(&sorted), sorted);
-        // Comments above the first import, after code, are that import's.
-        assert_eq!(sort_imports("fn f() {}\n// why b\nimport b\nimport a\n"), "fn f() {}\nimport a\n// why b\nimport b\n");
-    }
-
-    // [fmt-imports] A heading over a group, or a declaration among the
-    // imports, leaves them as written.
-    #[test]
-    fn a_heading_or_a_declaration_leaves_the_imports_as_written() {
-        let heading = "import b\n\n// Ours.\n\nimport a\n";
-        assert_eq!(sort_imports(heading), heading);
-        let declaration = "import b\ntype T = Int\nimport a\n";
-        assert_eq!(sort_imports(declaration), declaration);
-        // At the top of a file, a comment brought first would become the
-        // module's docs.
-        let top = "import b\n// why a\nimport a\n";
-        assert_eq!(sort_imports(top), top);
+        let cases: &[(&str, &str, Option<&str>)] = &[
+            ("layout, parentheses and imports moved", "import a\nimport b\n\n// f.\nfn f() -> Int {\n  return (1_000) // one thousand\n}\n", None),
+            ("blank lines between the imports", "import a\n\nimport b\n\n// f.\nfn f( ) -> Int {\n    return 1_000 // one thousand\n}\n", None),
+            ("does not parse", "import a\nimport b\n\n// f.\nfn f() -> Int {\n    return 1_000 // one thousand\n", Some("does not parse")),
+            ("a literal respelled", "import a\nimport b\n\n// f.\nfn f() -> Int {\n    return 1000 // one thousand\n}\n", Some("different tree")),
+            ("another value", "import a\nimport b\n\n// f.\nfn f() -> Int {\n    return 2_000 // one thousand\n}\n", Some("different tree")),
+            ("the docs changed", "import a\nimport b\n\n// f.\n\nfn f() -> Int {\n    return 1_000 // one thousand\n}\n", Some("different tree")),
+            ("a comment lost", "import a\nimport b\n\n// f.\nfn f() -> Int {\n    return 1_000\n}\n", Some("comments")),
+            ("a comment repeated", "import a\nimport b\n\n// f.\nfn f() -> Int {\n    // one thousand\n    // one thousand\n    return 1_000\n}\n", Some("comments")),
+        ];
+        let mut wrong = Vec::new();
+        for (case, printed, refused) in cases {
+            match (verify(source, crate::parse_module(source).0, printed), refused) {
+                (Ok(()), None) => {}
+                (Err(FormatError::Unsafe(why)), Some(want)) if why.contains(want) => {}
+                (got, _) => wrong.push(format!("{case}: expected {}, got {got:?}", refused.map_or("a pass".to_string(), |w| format!("a refusal for `{w}`")))),
+            }
+        }
+        for (written, without) in [("Some(12..15), (3..4#2, x), ((7..9)), a1..2", "Some~, (~, x), ~, a1..2"), ("Some(((12..15))), (((3..4#2)), x)", "Some~, (~, x)")] {
+            if without_spans(written) != without {
+                wrong.push(format!("spans of `{written}`: `{}`, expected `{without}`", without_spans(written)));
+            }
+        }
+        assert!(wrong.is_empty(), "{}", wrong.join("\n"));
     }
 }

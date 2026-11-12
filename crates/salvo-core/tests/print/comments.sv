@@ -4,9 +4,8 @@
 
 // A free-standing heading over the imports.
 import std.core.list
-import std.core.seq // the sequences
-
 import std.core.map
+import std.core.seq // the sequences
 
 // The aliases: this run documents `Small`, the next one `Name`.
 type Small = Int

@@ -448,7 +448,10 @@ fn the_type_check_dump_shows_a_lowered_pick_as_its_when() {
     assert!(!rechecked.errors.iter().any(|d| d.is_error()), "{source}");
 }
 
-const SPELLINGS: &str = "fn f(a: Bool, b: Bool, x: Int) -> Int {
+/// The program of [`the_dumps_show_what_was_written`]: parentheses and
+/// literal spellings in `f` (its bindings' positions are in the wants
+/// below), comments everywhere else.
+const WRITTEN: &str = "fn f(a: Bool, b: Bool, x: Int) -> Int {
     let y = ((x))
     let z = (a && b) || a
     if (z) {
@@ -460,31 +463,8 @@ const SPELLINGS: &str = "fn f(a: Bool, b: Bool, x: Int) -> Int {
     let t: (Int | Str)? = None
     return y
 }
-";
 
-/// [dump-resolve] [dump-type-check] [expr-group] [lit-spelling] Both dumps
-/// print the program with the parentheses and the literal spellings it was
-/// written with: the expanded tree keeps them, and the printer writes them.
-#[test]
-fn the_dumps_show_written_parentheses_and_spellings() {
-    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", SPELLINGS)]);
-    let symbols = salvo_core::Symbols::collect(&program);
-    let resolution = salvo_core::resolve(&program);
-    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
-    let resolved = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
-    for want in ["let y = ((x#{1:", "let z = (a#{1:6} && b#{1:15}) || a#{1:6}", "if (z#{3:9}) {", "return (y#{2:9} + 1_000) * 2", "\"\\$a \\'q\\' ${(x#{1:", "let c = '\\\"'", "let d = 0.500_5", "let t: (Int | Str)? = None"] {
-        assert!(resolved.contains(want), "missing `{want}` in:\n{resolved}");
-    }
-    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
-    let errors: Vec<String> = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.render(&program.files)).collect();
-    assert!(errors.is_empty(), "{errors:?}");
-    let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, false);
-    for want in ["let y: Int = ((x))", "let z: Bool = (a && b) || a", "if (z) {", "times@std.core.basic((plus@std.core.basic(y, 1_000)), 2)", "${to_str@std.core.basic((x))}", "let c: Char = '\\\"'", "let d: Double = 0.500_5"] {
-        assert!(typed.contains(want), "missing `{want}` in:\n{typed}");
-    }
-}
-
-const COMMENTED: &str = "struct Point {
+struct Point {
     x: Int // the x
     y: Int
 }
@@ -509,25 +489,34 @@ fn show(p: Point) [Console] {
 }
 ";
 
-/// [dump-resolve] [dump-type-check] [fmt-comments] Both dumps print the
-/// comments the program was written with, where they were written; the code
-/// a comptime fn stamps has none of its template's, and a template the
-/// stamping removed takes its comments with it.
+/// [dump-resolve] [dump-type-check] [expr-group] [lit-spelling]
+/// [fmt-comments] Both dumps print the program as it was written: with the
+/// parentheses and the literal spellings it was written with (the expanded
+/// tree keeps them, and the printer writes them), and with its comments,
+/// where they were written; the code a comptime fn stamps has none of its
+/// template's, and a template the stamping removed takes its comments with
+/// it.
 #[test]
-fn the_dumps_show_the_comments_written() {
-    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", COMMENTED)]);
+fn the_dumps_show_what_was_written() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", WRITTEN)]);
     let symbols = salvo_core::Symbols::collect(&program);
     let resolution = salvo_core::resolve(&program);
     let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
     let resolved = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    for want in ["let y = ((x#{1:", "let z = (a#{1:6} && b#{1:15}) || a#{1:6}", "if (z#{3:9}) {", "return (y#{2:9} + 1_000) * 2", "\"\\$a \\'q\\' ${(x#{1:", "let c = '\\\"'", "let d = 0.500_5", "let t: (Int | Str)? = None"] {
+        assert!(resolved.contains(want), "resolve dump, spellings: missing `{want}` in:\n{resolved}");
+    }
     let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
     let errors: Vec<String> = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.render(&program.files)).collect();
     assert!(errors.is_empty(), "{errors:?}");
     let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, false);
-    for dump in [&resolved, &typed] {
+    for want in ["let y: Int = ((x))", "let z: Bool = (a && b) || a", "if (z) {", "times@std.core.basic((plus@std.core.basic(y, 1_000)), 2)", "${to_str@std.core.basic((x))}", "let c: Char = '\\\"'", "let d: Double = 0.500_5"] {
+        assert!(typed.contains(want), "type-check dump, spellings: missing `{want}` in:\n{typed}");
+    }
+    for (name, dump) in [("resolve", &resolved), ("type-check", &typed)] {
         for want in ["    x: Int // the x\n    y: Int\n}", "{\n    // a leading comment\n    let q", "} // trailing\n\n    println", "\n    // closing show\n}"] {
-            assert!(dump.contains(want), "missing `{want}` in:\n{dump}");
+            assert!(dump.contains(want), "{name} dump, comments: missing `{want}` in:\n{dump}");
         }
-        assert!(!dump.contains("in the template"), "{dump}");
+        assert!(!dump.contains("in the template"), "{name} dump, comments: the template's comment:\n{dump}");
     }
 }

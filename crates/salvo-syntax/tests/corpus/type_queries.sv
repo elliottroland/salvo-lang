@@ -30,3 +30,14 @@ fn arms(v: Ok Int | Str) [] -> None => v {
 }
 
 fn main() {}
+
+// `type!(place: T)` takes a whole type, a union and a `proj` included, and a
+// field for its place; `assert!` is the runtime assertion, so a re-typing
+// right inside it is its condition.
+fn assertions(parsing: Parsing, x: Int, o: Int?, b: Bool, s: proj Str | None) [] -> None => parsing, s {
+    type!(parsing.pos: Idx(parsing.str) Int)
+    type!(o: Int | None)
+    type!(s: proj Str | None)
+    assert!(x is Int)
+    assert!(b: Bool)
+}

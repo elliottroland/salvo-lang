@@ -2,14 +2,16 @@
 // line: Salvo has no separator, so the end of a line is what ends one (user
 // decision 2026-11-11). Each slip is one error, at the second statement's
 // first token, and the statement is still parsed, so what follows it is
-// checked as if it had been on its own line.
+// checked as if it had been on its own line: a `type?` after a slip is
+// reported, and a declaration after one is found.
 
 //--- two_statements_on_one_line_are_refused
 fn run() [Console] {
     //~ error[stmt-line:same-line]
     let a = 1 let b = 2
     //~ error[stmt-line:same-line]
-    println("${a}") println("${b}")
+    //~ type[Int]
+    println("${a}") type?(b)
     //~ error[stmt-line:same-line]
     let c = a + b c = c + 1
     println("${c}")
@@ -23,6 +25,9 @@ fn run(n: Int) [Console] {
     if n > 0 { println("pos") } println("after")
     //~ error[stmt-line:same-line]
     for i in List(1, 2) { println("${i}") } println("done")
+    //~ error[stmt-line:same-line]
+    //~ type[Int]
+    if n > 0 { println("pos") } else { println("neg") } type?(n)
 }
 
 //--- inside_a_one_line_block_too
@@ -61,6 +66,10 @@ fn run() [Console] {
     //~ error[stmt-line:same-line]
     //~ error[stmt-line:same-line]
     println("a") println("b") println("c")
+    //~ error[stmt-line:same-line]
+    //~ error[stmt-line:same-line]
+    //~ type[Int]
+    let a = 1 let _b = a type?(_b)
 }
 
 //--- a_stray_token_reports_what_it_is_only
@@ -118,6 +127,10 @@ fn one() -> Int { return 1 } fn two() -> Int { return 2 }
 namespace N {
     //~ error[stmt-line:same-line]
     fn three() -> Int { return 3 } fn four() -> Int { return 4 }
+}
+
+fn found(b: B) -> Int {
+    return b.y + two() + N.four()
 }
 
 //--- what_shares_a_line_legitimately

@@ -152,6 +152,97 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — The formatter's and the flow work's tests folded into data and shared walks
+
+User decision 2026-11-12: the Rust `#[test]`s the formatter and flow work
+added are merged, as TESTS.md did before (fewer tests; the fresh run is what
+counts; data files shared by default; CLI tests keep only the CLI side; ids,
+not message text). No assertion was dropped; where each went:
+
+- **`print_tests.rs` (15 → 5)**: one walk, `every_file_prints_to_its_own_tree`,
+  parses each `.sv` of the repository once (on a pool of threads) and makes
+  every check, each failure named by file and check (`parse`, `comments`,
+  `tree`, `width breaks`, `width`): it replaces `every_file_prints_keeping_its_comments`,
+  `width_breaks_read_back_as_written`, `no_printed_line_is_wider_than_the_width`,
+  `every_source_file_prints_to_its_own_tree`, `every_source_file_as_written_prints_to_its_own_tree`
+  and `every_corpus_file_prints_stably` (std's, the corpus's, the fixtures'
+  and the examples' own files must parse; elsewhere a file that does not is
+  skipped). `every_expanded_module_prints_to_its_own_tree` is the three
+  program walks (`every_std_module_prints_stably`, `every_expanded_std_module_prints_to_its_own_tree`,
+  `every_expanded_example_prints_to_its_own_tree`). `every_print_fixture_formats_as_expected`
+  runs the whole formatter (`fmt::format`: print, import sort, the output
+  check) over `tests/print/*.sv` (identity), `tests/print/canonical/*.in.sv`
+  → `.out.sv` and `docs/language/Formatting.md`'s example, and formats each
+  result again: it replaces `every_print_fixture_prints_as_written`,
+  `every_canonical_fixture_prints_as_expected`, and the pairs
+  `canonical/layout` (was `a_layout_prints_in_the_printers_blank_lines`) and
+  `canonical/moved_comments` (was `a_moved_comment_never_becomes_docs`; the
+  docs staying the declaration's is the output check's tree comparison).
+  `comments.sv`'s imports are now written sorted, since the fixtures go
+  through the sort.
+- **`salvo-syntax/src/fmt.rs` (6 → 1)**: the sort cases are fixtures
+  (`canonical/imports_sorted`, `imports_module_docs`, `imports_after_code`;
+  `imports_heading.sv`, `imports_declaration.sv`, `imports_top_comment.sv`
+  left as written); `a_printing_that_changes_the_file_is_refused` is one
+  table of the output check's passes and refusals, the span-shape cases
+  and the shape's cases (`spans_are_left_out_of_the_shape`,
+  `the_shape_is_the_tree_without_its_layout`) included.
+- **`fmt_tests.rs` (9 → 1)**: `fmt_reads_and_writes_the_files_it_should`
+  runs every CLI scenario in one scratch tree, each failure named by its
+  scenario; the parse error is asserted by its id under `-v`. The import
+  sort (`imports_sort_with_their_comments`) is `canonical/imports_sorted`,
+  the page example (`the_formatting_page_example_formats_as_shown`) the
+  fixture test's.
+- **`golden_tests.rs`**: `the_dumps_show_what_was_written`, one program,
+  replaces `the_dumps_show_written_parentheses_and_spellings` and
+  `the_dumps_show_the_comments_written`.
+- **`parser_tests.rs` (149 → 141)**: `every_corpus_file_parses_to_its_snapshot`
+  snapshots each corpus file under its old name (`snapshot_corpus_<name>`),
+  replacing the seven `snapshot_corpus_*`; `type_bang_is_the_type_assertion`
+  is `corpus/type_queries.sv` (a field place, a union and a `proj` type,
+  `assert!` with `is` and with a re-typing) and a check-data case
+  (`syntax/expressions.sv`, `type!` without `: T`);
+  `a_named_union_body_holds_fns_and_refns_and_hoists_them` is
+  `corpus/named_unions.sv` (new; fns, a `by`, a refinement), the hoist being
+  the run data's (`types/named_union_bodies.sv`, the fns exported and
+  reached as `area@Shape` from another module) and the refusal the check
+  data's (`refinements/type_body.sv`). `statements_sharing_a_line_are_refused_and_kept`
+  is `check/syntax/statement_lines.sv` (now also a `type?` after each kind
+  of slip, and a declaration after one found) with its snapshot deleted;
+  its errors' columns, which a line annotation cannot say, stay as
+  `a_line_slip_is_reported_at_the_second_statements_first_token` (no
+  snapshot).
+- **`lsp_tests.rs` (64 → 60)**: `the_editor_reads_type_queries_field_claims_and_union_bodies`
+  (one session, one document per scenario) replaces
+  `a_type_query_is_a_warning_in_the_editor` (now by id and severity, not its
+  message), `hover_shows_a_sibling_field_claim_once`,
+  `completion_in_an_open_block_header` and
+  `a_named_union_body_fn_is_reached_hovered_and_renamed`;
+  `the_editor_formats_and_organizes_imports` replaces
+  `formatting_replaces_the_document_with_its_formatting` and
+  `organize_imports_moves_a_comment_with_its_import`.
+- **`salvo-testkit/src/data.rs` (4 → 2)**: the `//~ type[T]` parse cases
+  joined `annotations_name_the_line_below_them`;
+  `a_type_annotation_is_judged_by_the_value_it_is_about` replaces
+  `a_type_annotation_compares_claims_by_identity` and
+  `a_type_annotation_spelled_alike_but_about_another_value_fails`.
+- **`analyze_tests.rs` (29 → 28)**: `type_queries_are_warnings_and_print_in_the_dumps`
+  folded into `dump_prints_the_type_check_phase` (the warning by id and
+  exit code; the dumps). Its failed-`type!` exit is any error's exit, and
+  the error is the check data's (`type-assert:mismatch`).
+- **Left**: `place_tests.rs`'s `a_join_spells_its_claims_where_it_is`
+  asserts how a join *spells* a claim, which is message text by nature and
+  which an annotation, judging a claim by its value, cannot see; its file's
+  other test runs over a hand-written prelude, not std, so there is no test
+  to fold it into. `print_tests.rs`'s two lowered-dump tests were not part
+  of this work and stay.
+- **Counts and time** (`SALVO_E2E_FRESH=1 cargo nextest run` over the
+  affected binaries, `tmp/filter.txt`): 355 tests, 379s summed, 41.0s wall
+  at HEAD; 316 tests, 284s summed, 29.6s wall after (load averages ~40–60
+  and noisy: `check_data`, unchanged, measured 145s then 109s). The real
+  saving is `print_tests`, 24.9s → 6.4s summed: the repo is parsed once, not
+  four times, and on every core.
+
 ### 2026-11-12 — std, the examples and the modules formatted with `salvo fmt`
 
 Stage H of the formatter record below (scope confirmed with the user: std,
@@ -42005,6 +42096,16 @@ backends unless it says otherwise, plus every example; [test-run-data]):
 describe programs by the codegen test that once ran them; those programs are
 now cases of the run data, and the codegen files keep the emitted-text and
 refusal tests only.
+
+**Since 2026-11-12 the formatter's tests are data too**: `print_tests.rs`
+holds 5 tests (one walk over every `.sv` of the repository, one over the
+expanded programs, one over the print fixtures `tests/print/` with the whole
+formatter, two lowered-dump tests), `fmt_tests.rs` 1 (every CLI scenario),
+`salvo-syntax`'s `fmt.rs` 1 (the output check's table), `parser_tests.rs`
+141 (the corpus is one test, a snapshot per file), `lsp_tests.rs` 60,
+`analyze_tests.rs` 28, `golden_tests.rs` 13 and `salvo-testkit`'s
+`data.rs` 2; 316 tests over those binaries and `check_data`/`place_tests`,
+where there were 355 (the decision log, 2026-11-12, says where each went).
 
 The IR corpus tests (`salvo-core/tests/corpus_tests.rs` [ir-build]: every
 inline program of both backends' codegen tests, ~410, must build to IR with

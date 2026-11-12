@@ -542,6 +542,9 @@ mod tests {
 
     /// [test-data] Annotations name the next line that is not one, stack,
     /// and count; `// FILE:` and `//---` split files and programs.
+    /// [type-query] `//~ type[T]` holds a type, brackets and all, kept as
+    /// written with where it is written, for the checker to judge at the
+    /// `type?`.
     #[test]
     fn annotations_name_the_line_below_them() {
         let cases = parse(
@@ -564,13 +567,6 @@ mod tests {
         assert_eq!((e[1].path.as_deref(), e[1].absent), (Some("main.rs"), true));
         assert_eq!((e[2].text.as_str(), e[2].count), ("z ", Some(2)));
         assert_eq!(emits[0].refused, ["rs-x:y"]);
-    }
-
-    /// [test-data] [type-query] `//~ type[T]` holds a type, brackets and
-    /// all, kept as written with where it is written, for the checker to
-    /// judge at the `type?`.
-    #[test]
-    fn a_type_annotation_is_kept_with_where_it_is() {
         let cases = parse("fn a() {}\n//~ type[ (Int) [Log, Console] -> Mut  Ok Str ]\ntype?(x)\n").unwrap();
         assert_eq!(cases[0].expected[0].severity, "type");
         assert_eq!(cases[0].expected[0].id, "(Int) [Log, Console] -> Mut  Ok Str");
@@ -594,25 +590,20 @@ mod tests {
     /// [test-data] [type-query] An annotation is judged as `type!(place: T)`
     /// is, at the `type?`: a destructured `str` and the read `cursor.str`
     /// are one value whichever spelling the annotation uses, and qualifier
-    /// order does not matter.
+    /// order does not matter. Two cursors each destructured into a local
+    /// `str`: an annotation `Idx(str)` on the first's index, where `str` is
+    /// the second's, is about the wrong value there, and fails (the report
+    /// printed `Idx(str)` there until the join respelled it `Idx(a.str)`,
+    /// [qual-depend-field]); one naming a local that is not in scope at the
+    /// `type?` fails saying so; a `type?` with no annotation fails.
     #[test]
-    fn a_type_annotation_compares_claims_by_identity() {
+    fn a_type_annotation_is_judged_by_the_value_it_is_about() {
         let body = "fn f(cursor: Mut Cursor) [] -> None => cursor {\n    let { str, pos } = cursor\n    \
                     //~ type[Idx(cursor.str) Int]\n    type?(pos)\n    \
                     //~ type[Idx(str) Int]\n    type?(cursor.pos)\n    \
                     //~ type[Mut Cursor]\n    type?(cursor)\n    \
                     let _n = str.char_at(pos)\n}\n";
         assert_eq!(checked(body), None);
-    }
-
-    /// [test-data] [type-query] Two cursors each destructured into a local
-    /// `str`: an annotation `Idx(str)` on the first's index, where `str` is
-    /// the second's, is about the wrong value there, and fails (the report
-    /// printed `Idx(str)` there until the join respelled it `Idx(a.str)`,
-    /// [qual-depend-field]); one naming a local that is not in scope at the
-    /// `type?` fails saying so.
-    #[test]
-    fn a_type_annotation_spelled_alike_but_about_another_value_fails() {
         let head = "fn f(a: Cursor, b: Cursor) [] -> None => a, b {\n    \
                     let _p = if size(a.str) > 0 {\n        let { str, pos } = a\n        let _c = size(str)\n        pos\n    \
                     } else {\n        let { str, pos } = a\n        let _c = size(str)\n        pos\n    }\n";

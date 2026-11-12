@@ -1,8 +1,10 @@
 //! [ast-print] The AST printer (`salvo_syntax::print`) writes source that
 //! parses back to a tree it prints identically: over every std module after
-//! the expansions, and over the parser corpus. A printer that writes
-//! something the parser reads differently shows up as a difference between
-//! the two printings, or as a parse error.
+//! the expansions, and over every `.sv` file of the repository as written.
+//! A printer that writes something the parser reads differently shows up as
+//! a difference between the two printings, or as a parse error. The
+//! formatter's results are data: `tests/print/` (see
+//! [`every_print_fixture_formats_as_expected`]).
 
 use std::path::Path;
 
@@ -10,14 +12,12 @@ use salvo_syntax::print::print_module;
 
 /// Prints `module`, parses the text back and prints that: the first
 /// difference, or the parse errors, or `None` when the printing is stable.
-/// `expanded`: `module` is a program's, so the text is parsed back lowered
-/// [syntax-lowered], as `module` was; otherwise it is the tree as written.
-fn unstable(name: &str, module: &salvo_syntax::ast::Module, expanded: bool) -> Option<String> {
+/// `module` is a program's, so the text is parsed back lowered
+/// [syntax-lowered], as `module` was.
+fn unstable_expanded(name: &str, module: &salvo_syntax::ast::Module) -> Option<String> {
     let first = print_module(module).text;
-    let (mut again, diags) = if expanded { salvo_testkit::lowered(&first) } else { salvo_syntax::parse_module(&first) };
-    if expanded {
-        salvo_core::message::declare_arms(&mut again);
-    }
+    let (mut again, diags) = salvo_testkit::lowered(&first);
+    salvo_core::message::declare_arms(&mut again);
     let errors: Vec<String> = diags
         .iter()
         .filter(|d| d.is_error())
@@ -42,47 +42,6 @@ fn unstable(name: &str, module: &salvo_syntax::ast::Module, expanded: bool) -> O
         a.get(at).unwrap_or(&"<end>"),
         b.get(at).unwrap_or(&"<end>")
     ))
-}
-
-/// [ast-print] Every std module, as the program sees it (expanded and
-/// stamped), prints to source that parses and prints the same again.
-#[test]
-fn every_std_module_prints_stably() {
-    let built = salvo_testkit::front::std("kt").program(Vec::new(), Vec::new());
-    let program = built.program;
-    let mut failures = Vec::new();
-    for (i, f) in program.files.iter().enumerate() {
-        if let Some(why) = unstable(&f.name, &program.modules[i], true) {
-            failures.push(why);
-        }
-    }
-    assert!(failures.is_empty(), "{} of {} std modules:\n{}", failures.len(), program.files.len(), failures.join("\n\n"));
-}
-
-/// [ast-print] Every corpus file that parses, as parsed, prints stably.
-#[test]
-fn every_corpus_file_prints_stably() {
-    let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../salvo-syntax/tests/corpus");
-    let mut paths: Vec<_> = std::fs::read_dir(&corpus).unwrap().filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "sv")).collect();
-    paths.sort();
-    let mut failures = Vec::new();
-    for path in paths {
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (module, diags) = salvo_syntax::parse_module(&text);
-        if diags.iter().any(|d| d.is_error()) {
-            continue;
-        }
-        let name = path.file_name().unwrap().to_string_lossy().to_string();
-        if let Some(why) = unstable(&name, &module, false) {
-            failures.push(why);
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
-}
-
-/// The tree's debug form without its spans.
-fn shape(module: &salvo_syntax::ast::Module) -> String {
-    shape_of(module)
 }
 
 /// [comptime-hygiene] `name@[site]` as the printer writes it, a bare name.
@@ -149,29 +108,6 @@ fn shape_of(node: &impl std::fmt::Debug) -> String {
     out
 }
 
-/// The source files a tree comparison runs over: the corpus, std's own
-/// files and the examples'.
-fn source_files() -> Vec<std::path::PathBuf> {
-    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.is_dir() {
-                walk(&p, out);
-            } else if p.extension().is_some_and(|x| x == "sv") {
-                out.push(p);
-            }
-        }
-    }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut out = Vec::new();
-    for dir in ["crates/salvo-syntax/tests/corpus", "lib/std", "examples"] {
-        walk(&root.join(dir), &mut out);
-    }
-    out.sort();
-    out
-}
-
 /// What a re-parse cannot know: the state name an `iter fn`'s expansion
 /// keeps on the fns it writes, and the empty deduction list it gives the
 /// `next` (which has no spelling: a written clause has an entry).
@@ -184,44 +120,6 @@ fn forget_expansion_marks(module: &mut salvo_syntax::ast::Module) {
             }
         }
     }
-}
-
-/// [ast-print] Every source file that parses prints to source that parses
-/// to the same tree (spans aside): the corpus, std's files and the
-/// examples'.
-#[test]
-fn every_source_file_prints_to_its_own_tree() {
-    let mut failures = Vec::new();
-    let paths = source_files();
-    for path in &paths {
-        let text = std::fs::read_to_string(path).unwrap();
-        let (mut module, diags) = salvo_syntax::parse_module(&text);
-        if diags.iter().any(|d| d.is_error()) {
-            continue;
-        }
-        let printed = print_module(&module).text;
-        let (mut again, diags) = salvo_syntax::parse_module(&printed);
-        if let Some(d) = diags.iter().find(|d| d.is_error()) {
-            let (line, _) = salvo_syntax::span::line_col(&printed, d.span.start);
-            failures.push(format!("{}: printed, it does not parse: {} at\n    {}", path.display(), d.message, printed.lines().nth(line as usize - 1).unwrap_or("")));
-            continue;
-        }
-        forget_expansion_marks(&mut module);
-        forget_expansion_marks(&mut again);
-        let (a, b) = (shape(&module), shape(&again));
-        if a != b {
-            let (la, lb): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
-            let at = la.iter().zip(&lb).position(|(x, y)| x != y).unwrap_or(la.len().min(lb.len()));
-            let from = at.saturating_sub(8);
-            failures.push(format!(
-                "{}: the tree differs at line {at}:\n--- written\n{}\n--- printed\n{}",
-                path.display(),
-                la[from..(at + 3).min(la.len())].join("\n"),
-                lb[from..(at + 3).min(lb.len())].join("\n")
-            ));
-        }
-    }
-    assert!(failures.is_empty(), "{} of {} files:\n{}", failures.len(), paths.len(), failures.join("\n\n"));
 }
 
 /// What differs between each wanted module of `program` (expanded) and its
@@ -277,18 +175,21 @@ fn expanded_tree_differences(program: &salvo_core::Program, wanted: impl Fn(&sal
     failures
 }
 
-/// [ast-print] Every std module after the expansions prints to source that
-/// parses to the same tree ([`expanded_tree_differences`]).
+/// [ast-print] Every module after the expansions: std's, as the program
+/// sees it (expanded and stamped), prints to source that parses and prints
+/// the same again; and std's and every example's own modules print to
+/// source that parses to the same tree ([`expanded_tree_differences`]).
 #[test]
-fn every_expanded_std_module_prints_to_its_own_tree() {
+fn every_expanded_module_prints_to_its_own_tree() {
     let built = salvo_testkit::front::std("kt").program(Vec::new(), Vec::new());
-    let failures = expanded_tree_differences(&built.program, |_| true);
-    assert!(failures.is_empty(), "{} files:\n{}", failures.len(), failures.join("\n\n"));
-}
-
-/// [ast-print] And every example's own modules.
-#[test]
-fn every_expanded_example_prints_to_its_own_tree() {
+    let program = built.program;
+    let mut failures = Vec::new();
+    for (i, f) in program.files.iter().enumerate() {
+        if let Some(why) = unstable_expanded(&f.name, &program.modules[i]) {
+            failures.push(format!("[stable] {why}"));
+        }
+    }
+    failures.extend(expanded_tree_differences(&program, |_| true).into_iter().map(|f| format!("[std tree] {f}")));
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples");
     let mut dirs: Vec<_> = std::fs::read_dir(&examples)
         .unwrap()
@@ -297,12 +198,12 @@ fn every_expanded_example_prints_to_its_own_tree() {
         .filter(|p| p.join("salvo.toml").exists() && !std::fs::read_to_string(p.join("salvo.toml")).unwrap_or_default().contains("[dependencies]"))
         .collect();
     dirs.sort();
-    let mut failures = Vec::new();
+    assert!(dirs.len() > 5, "found only {} examples", dirs.len());
     for dir in dirs {
         let built = salvo_testkit::front::project("kt", &dir);
-        failures.extend(expanded_tree_differences(&built.program, |f| !f.is_std));
+        failures.extend(expanded_tree_differences(&built.program, |f| !f.is_std).into_iter().map(|f| format!("[example tree] {f}")));
     }
-    assert!(failures.is_empty(), "{} files:\n{}", failures.len(), failures.join("\n\n"));
+    assert!(failures.is_empty(), "{} failures over {} std modules and the examples:\n{}", failures.len(), program.files.len(), failures.join("\n\n"));
 }
 
 /// Every `.sv` file under `dir` (recursively), sorted.
@@ -324,36 +225,33 @@ fn sv_files(dir: &Path) -> Vec<std::path::PathBuf> {
     out
 }
 
-/// What differs between `text` parsed as written and its printing parsed
-/// as written, or between the printing and its own printing; `None` when
-/// both hold.
-fn written_difference(name: &str, text: &str) -> Option<String> {
-    let parse = |t: &str| {
-        let (m, diags) = salvo_syntax::parse_module(t);
-        match diags.iter().find(|d| d.is_error()) {
-            Some(d) => {
-                let (line, _) = salvo_syntax::span::line_col(t, d.span.start);
-                Err(format!("{} at\n    {}", d.message, t.lines().nth(line as usize - 1).unwrap_or("")))
-            }
-            None => Ok(m),
+/// `text` parsed as written, or its first parse error with its line.
+fn parse_written(text: &str) -> Result<salvo_syntax::ast::Module, String> {
+    let (m, diags) = salvo_syntax::parse_module(text);
+    match diags.iter().find(|d| d.is_error()) {
+        Some(d) => {
+            let (line, _) = salvo_syntax::span::line_col(text, d.span.start);
+            Err(format!("{} at\n    {}", d.message, text.lines().nth(line as usize - 1).unwrap_or("")))
         }
-    };
-    let written = match parse(text) {
+        None => Ok(m),
+    }
+}
+
+/// What differs between `written` (a tree as parsed) and its printing
+/// `printed` parsed as written, or between the printing and its own
+/// printing; `None` when both hold.
+fn tree_difference(written: &salvo_syntax::ast::Module, printed: &str) -> Option<String> {
+    let again = match parse_written(printed) {
         Ok(m) => m,
-        Err(why) => return Some(format!("{name}: does not parse: {why}")),
+        Err(why) => return Some(format!("printed, it does not parse: {why}")),
     };
-    let printed = print_module(&written).text;
-    let again = match parse(&printed) {
-        Ok(m) => m,
-        Err(why) => return Some(format!("{name}: printed, it does not parse: {why}")),
-    };
-    let (a, b) = (shape(&written), shape(&again));
+    let (a, b) = (shape_of(written), shape_of(&again));
     if a != b {
         let (la, lb): (Vec<&str>, Vec<&str>) = (a.lines().collect(), b.lines().collect());
         let at = la.iter().zip(&lb).position(|(x, y)| x != y).unwrap_or(la.len().min(lb.len()));
         let from = at.saturating_sub(8);
         return Some(format!(
-            "{name}: the tree differs at line {at}:\n--- written\n{}\n--- printed\n{}",
+            "the tree differs at line {at}:\n--- written\n{}\n--- printed\n{}",
             la[from..(at + 3).min(la.len())].join("\n"),
             lb[from..(at + 3).min(lb.len())].join("\n")
         ));
@@ -362,170 +260,253 @@ fn written_difference(name: &str, text: &str) -> Option<String> {
     if twice != printed {
         let (pa, pb): (Vec<&str>, Vec<&str>) = (printed.lines().collect(), twice.lines().collect());
         let at = pa.iter().zip(&pb).position(|(x, y)| x != y).unwrap_or(pa.len().min(pb.len()));
-        return Some(format!("{name}: printed again, line {} differs:\n  first:  {}\n  second: {}", at + 1, pa.get(at).unwrap_or(&"<end>"), pb.get(at).unwrap_or(&"<end>")));
+        return Some(format!("printed again, line {} differs:\n  first:  {}\n  second: {}", at + 1, pa.get(at).unwrap_or(&"<end>"), pb.get(at).unwrap_or(&"<end>")));
     }
     None
 }
 
-/// [ast-print] [syntax-lowered] Every source file **as written** — the tree
-/// the parser returns, its sugar kept, nothing expanded — prints to source
-/// that parses to the same tree (spans aside) and prints the same again:
-/// what a formatter needs. Over std's sources, every example's, the
-/// language-docs corpus and a fixture holding each piece of sugar in each
-/// position. A file that does not parse is a failure, not a skip.
+/// Every `.sv` file of the repository: its sources, examples, benchmarks,
+/// modules and test data, but not what a build or a tool wrote (`target/`,
+/// `tmp/`, `wiki/`, `build/` and hidden directories).
+fn every_sv_file() -> Vec<std::path::PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if p.is_dir() {
+                if !(name.starts_with('.') || ["target", "tmp", "wiki", "build", "node_modules"].contains(&name.as_str())) {
+                    walk(&p, out);
+                }
+            } else if p.extension().is_some_and(|x| x == "sv") {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."), &mut out);
+    out.sort();
+    out
+}
+
+/// Whether `name` (relative to the repository) is a file that must parse:
+/// std's sources, the language-docs corpus, the print fixtures, and every
+/// example's own sources. Elsewhere a file may be test data meant not to.
+fn must_parse(name: &str) -> bool {
+    ["lib/std/", "crates/salvo-syntax/tests/corpus/", "crates/salvo-core/tests/print/"].iter().any(|d| name.starts_with(d))
+        || (name.starts_with("examples/") && name.split('/').any(|c| c == "salvo"))
+}
+
+/// [fmt-comments] Each comment's text, as written, counted.
+fn comment_texts(source: &str) -> std::collections::BTreeMap<String, usize> {
+    let mut out = std::collections::BTreeMap::new();
+    for c in salvo_syntax::lexer::lex(source).comments {
+        *out.entry(source[c.span.start as usize..c.span.end as usize].to_string()).or_insert(0) += 1;
+    }
+    out
+}
+
+/// [fmt-width] The lines of `printed` wider than the width where something
+/// could make them fit: a line that would not fit even with each string
+/// literal on it written `""` and its comment left out (neither is ever
+/// broken, and a break around a string is made only where it lets the line
+/// fit), or that is one token, is not one.
+fn too_wide(printed: &str) -> Vec<String> {
+    let lexed = salvo_syntax::lexer::lex(printed);
+    let strings: Vec<(usize, usize)> = lexed
+        .tokens
+        .iter()
+        .filter(|t| matches!(t.kind, salvo_syntax::token::TokenKind::Str(_)))
+        .map(|t| (t.span.start as usize, t.span.end as usize))
+        .collect();
+    let comments: Vec<usize> = lexed.comments.iter().map(|c| c.span.start as usize).collect();
+    let mut out = Vec::new();
+    let mut start = 0;
+    for line in printed.split_inclusive('\n') {
+        let (ls, le) = (start, start + line.trim_end_matches('\n').len());
+        start += line.len();
+        let cut = comments.iter().copied().find(|&c| ls <= c && c < le).unwrap_or(le);
+        let mut width = printed[ls..cut].trim_end().chars().count();
+        for &(s, e) in strings.iter().filter(|&&(s, e)| s < cut && e > ls) {
+            width -= printed[s.max(ls)..e.min(cut)].chars().count().saturating_sub(2);
+        }
+        let one_token = !printed[ls..le].trim().contains(' ');
+        if printed[ls..le].chars().count() > salvo_syntax::print::WIDTH && width > salvo_syntax::print::WIDTH && !one_token {
+            out.push(printed[ls..le].to_string());
+        }
+    }
+    out
+}
+
+/// [ast-print] [syntax-lowered] [fmt-comments] [fmt-blank-lines] [fmt-width]
+/// [fmt-author-breaks] The printer's guarantees over every `.sv` file of the
+/// repository, each parsed once as written (the tree the parser returns, its
+/// sugar kept, nothing expanded). A file that does not parse is skipped as
+/// test data meant not to, but for std's, the corpus's, the print
+/// fixtures' and the examples' own ([`must_parse`]), where it is a failure.
+/// Each failure names its file and its check:
+///
+/// - `comments`: the printing keeps every comment, as written, as often as
+///   it was written;
+/// - `tree`: it parses to the same tree (spans aside) and prints the same
+///   again: what a formatter needs;
+/// - `width breaks`: printed with no trivia (so no break is the author's
+///   and every one is the width's), it parses to the same tree and prints
+///   the same again with its trivia, where each of those breaks is now
+///   written: the breaks the width makes read back as the author's;
+/// - `width`: no printed line is wider than the width, but where nothing
+///   can make it fit ([`too_wide`]).
 #[test]
-fn every_source_file_as_written_prints_to_its_own_tree() {
+fn every_file_prints_to_its_own_tree() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut paths = Vec::new();
-    for dir in ["lib/std", "crates/salvo-syntax/tests/corpus", "crates/salvo-core/tests/print"] {
-        paths.extend(sv_files(&root.join(dir)));
-    }
-    for example in sv_files(&root.join("examples")) {
-        if example.components().any(|c| c.as_os_str() == "salvo") {
-            paths.push(example);
+    let paths = every_sv_file();
+    assert!(paths.len() > 500, "found only {} files", paths.len());
+    let names: Vec<String> = paths.iter().map(|p| p.strip_prefix(&root).unwrap_or(p).display().to_string()).collect();
+    let required = names.iter().filter(|n| must_parse(n)).count();
+    // Each file on a pool of threads; the failures in the files' order.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results = std::sync::Mutex::new(Vec::new());
+    let workers = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| loop {
+                let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let (Some(path), Some(name)) = (paths.get(i), names.get(i)) else { return };
+                let text = std::fs::read_to_string(path).unwrap();
+                let checked = file_failures(name, &text);
+                results.lock().unwrap().push((i, checked));
+            });
         }
-    }
-    assert!(paths.len() > 80, "found only {} files", paths.len());
+    });
+    let mut results = results.into_inner().unwrap();
+    results.sort_by_key(|(i, _)| *i);
+    let checked = results.iter().filter(|(_, r)| r.is_some()).count();
+    let failures: Vec<String> = results.into_iter().flat_map(|(_, r)| r.unwrap_or_default()).collect();
+    assert!(checked > 400, "only {checked} files parse");
+    assert!(required > 80, "found only {required} files that must parse");
+    assert!(failures.is_empty(), "{} failures over {checked} files:\n{}", failures.len(), failures.join("\n\n"));
+}
+
+/// The checks of [`every_file_prints_to_its_own_tree`] over the file `name`
+/// holding `text`: its failures, or `None` when it is skipped.
+fn file_failures(name: &str, text: &str) -> Option<Vec<String>> {
+    let module = match parse_written(text) {
+        Ok(m) => m,
+        Err(why) if must_parse(name) => return Some(vec![format!("{name} [parse]: does not parse: {why}")]),
+        Err(_) => return None,
+    };
     let mut failures = Vec::new();
-    for path in &paths {
-        let text = std::fs::read_to_string(path).unwrap();
-        let name = path.strip_prefix(&root).unwrap_or(path).display().to_string();
-        let why = written_difference(&name, &text);
-        // The files the printer cannot write yet are named, and must still
-        // fail: one it can write is taken off the list.
-        match (why, NOT_YET_PRINTED.contains(&name.as_str())) {
-            (Some(why), false) => failures.push(why),
-            (None, true) => failures.push(format!("{name}: prints to its own tree now: take it off `NOT_YET_PRINTED`")),
-            _ => {}
+    let printed = print_module(&module).text;
+
+    let (before, after) = (comment_texts(text), comment_texts(&printed));
+    // A container's docs the parser also gives the member written on its
+    // line (ROADMAP §0av, members on one line) print above both.
+    let duplicated = DOCS_ON_A_SHARED_LINE.contains(&name);
+    if duplicated && before == after {
+        failures.push(format!("{name} [comments]: keeps its comments now: take it off `DOCS_ON_A_SHARED_LINE`"));
+    }
+    if before != after && !duplicated {
+        let lost: Vec<String> = before.iter().filter(|(t, n)| after.get(*t) != Some(n)).map(|(t, n)| format!("{n} x {t}")).collect();
+        let gained: Vec<String> = after.iter().filter(|(t, n)| before.get(*t) != Some(n)).map(|(t, n)| format!("{n} x {t}")).collect();
+        failures.push(format!("{name} [comments]: comments differ\n  written: {}\n  printed: {}", lost.join("\n           "), gained.join("\n           ")));
+    }
+
+    // The files the printer cannot write yet are named, and must still fail:
+    // one it can write is taken off the list.
+    match (tree_difference(&module, &printed), NOT_YET_PRINTED.contains(&name)) {
+        (Some(why), false) => failures.push(format!("{name} [tree]: {why}")),
+        (None, true) => failures.push(format!("{name} [tree]: prints to its own tree now: take it off `NOT_YET_PRINTED`")),
+        _ => {}
+    }
+
+    let mut bare = module;
+    bare.trivia = Default::default();
+    let unbroken = print_module(&bare).text;
+    match parse_written(&unbroken) {
+        Err(why) => failures.push(format!("{name} [width breaks]: printed with no trivia, it does not parse: {why}")),
+        Ok(m) => {
+            if let Some(why) = tree_difference(&m, &print_module(&m).text) {
+                failures.push(format!("{name} [width breaks]: {why}"));
+            }
         }
     }
-    assert!(failures.is_empty(), "{} of {} files:\n{}", failures.len(), paths.len(), failures.join("\n\n"));
+
+    for line in too_wide(&printed) {
+        failures.push(format!("{name} [width]: {line}"));
+    }
+    Some(failures)
 }
 
 /// The files holding what the printer cannot write as written yet: comptime
 /// statements and heads (ROADMAP §0av).
 const NOT_YET_PRINTED: &[&str] = &[];
 
+/// The files whose first member is written on its container's line under the
+/// container's docs, which the parser gives both (ROADMAP §0av): printed,
+/// the docs are above each.
+const DOCS_ON_A_SHARED_LINE: &[&str] = &[
+    "crates/salvo-backend-rust/tests/emit/effects/effect_generics_erased.sv",
+    "crates/salvo-cli/tests/run/network/the_network_sequence_step_actor_groups.sv",
+    "crates/salvo-core/tests/check/actors/self_send.sv",
+    "crates/salvo-core/tests/check/eff_handle/handles.sv",
+];
+
 /// [ast-print] [syntax-lowered] [expr-group] [lit-spelling] [fmt-comments]
-/// [fmt-blank-lines] [fmt-width] [fmt-author-breaks] Each print fixture,
-/// written in the printer's layout, prints back byte for byte: `sugar.sv`
-/// each piece of sugar as it was written, not as what it stands for;
-/// `spellings.sv` the parentheses and the literals as written;
-/// `comments.sv` a comment in every slot and the blank lines between
-/// statements, members and declarations; `breaks.sv` each breakable
-/// construct short on one line, short and broken by its author, and broken
-/// by the width, nested, and every chain's operator.
+/// [fmt-blank-lines] [fmt-width] [fmt-author-breaks] [fmt-imports] [cli-fmt]
+/// The formatter (`salvo_syntax::fmt::format`: the printing, the import
+/// sort, and the check that the result parses to the same tree with the
+/// same comments) over its data, and its result formats as itself:
+///
+/// - each `tests/print/<name>.sv`, written in the printer's layout, formats
+///   back byte for byte: `sugar.sv` each piece of sugar as it was written,
+///   not as what it stands for; `spellings.sv` the parentheses and the
+///   literals as written; `comments.sv` a comment in every slot and the
+///   blank lines between statements, members and declarations; `breaks.sv`
+///   each breakable construct short on one line, short and broken by its
+///   author, and broken by the width, nested, and every chain's operator;
+///   `imports_*.sv` the import runs the sort leaves as written;
+/// - each `tests/print/canonical/<name>.in.sv` formats as `<name>.out.sv`:
+///   a line too wide broken the canonical way, a layout's blank lines, a
+///   moved comment, sorted imports;
+/// - the example of `docs/language/Formatting.md` (its first two `salvo`
+///   fences) formats as the page shows.
 #[test]
-fn every_print_fixture_prints_as_written() {
-    for name in ["sugar.sv", "spellings.sv", "comments.sv", "breaks.sv"] {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print").join(name);
+fn every_print_fixture_formats_as_expected() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print");
+    let mut cases: Vec<(String, String, String)> = Vec::new();
+    for path in sv_files(&dir) {
+        let name = path.strip_prefix(&dir).unwrap().display().to_string();
         let text = std::fs::read_to_string(&path).unwrap();
-        let (module, diags) = salvo_syntax::parse_module(&text);
-        assert!(!diags.iter().any(|d| d.is_error()), "{name}: {diags:?}");
-        let printed = print_module(&module).text;
-        let (a, b): (Vec<&str>, Vec<&str>) = (text.lines().collect(), printed.lines().collect());
-        let at = a.iter().zip(&b).position(|(x, y)| x != y);
-        assert!(at.is_none() && a.len() == b.len(), "{name}, line {}:\n  written: {}\n  printed: {}\n\n{printed}", at.unwrap_or(a.len().min(b.len())) + 1, a.get(at.unwrap_or(0)).unwrap_or(&"<end>"), b.get(at.unwrap_or(0)).unwrap_or(&"<end>"));
-        assert_eq!(printed, text, "{name}: the printing is not the file byte for byte");
+        if path.parent() == Some(dir.as_path()) {
+            cases.push((name, text.clone(), text));
+        } else if name.ends_with(".in.sv") {
+            let output = path.with_file_name(path.file_name().unwrap().to_string_lossy().replace(".in.sv", ".out.sv"));
+            let want = std::fs::read_to_string(&output).unwrap_or_else(|e| panic!("{name}: no {}: {e}", output.display()));
+            cases.push((name, text, want));
+        } else if !name.ends_with(".out.sv") {
+            panic!("{name}: a canonical fixture is `<name>.in.sv` with its `<name>.out.sv`");
+        }
     }
-}
-
-/// [fmt-width] [fmt-author-breaks] Each `tests/print/canonical/<name>.in.sv`
-/// prints as `<name>.out.sv`, byte for byte: a line too wide broken the
-/// canonical way, which is not the identity the other fixtures are. The
-/// output prints as itself (the breaks the width made read back as the
-/// author's) and parses to the input's tree.
-#[test]
-fn every_canonical_fixture_prints_as_expected() {
-    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print/canonical");
-    let inputs: Vec<_> = sv_files(&dir).into_iter().filter(|p| p.to_string_lossy().ends_with(".in.sv")).collect();
-    assert!(!inputs.is_empty(), "no fixtures in {}", dir.display());
-    for input in inputs {
-        let name = input.file_name().unwrap().to_string_lossy().to_string();
-        let output = input.with_file_name(name.replace(".in.sv", ".out.sv"));
-        let (text, want) = (std::fs::read_to_string(&input).unwrap(), std::fs::read_to_string(&output).unwrap());
-        let (module, diags) = salvo_syntax::parse_module(&text);
-        assert!(!diags.iter().any(|d| d.is_error()), "{name}: {diags:?}");
-        let printed = print_module(&module).text;
-        let (a, b): (Vec<&str>, Vec<&str>) = (want.lines().collect(), printed.lines().collect());
-        let at = a.iter().zip(&b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
-        assert_eq!(printed, want, "{name}, line {}:\n  expected: {}\n  printed:  {}\n\n{printed}", at + 1, a.get(at).unwrap_or(&"<end>"), b.get(at).unwrap_or(&"<end>"));
-        let (again, diags) = salvo_syntax::parse_module(&printed);
-        assert!(!diags.iter().any(|d| d.is_error()), "{name}, printed: {diags:?}");
-        assert_eq!(shape(&module), shape(&again), "{name}: the printing parses to another tree");
-        assert_eq!(print_module(&again).text, want, "{name}: the printing printed again differs");
-    }
-}
-
-/// [fmt-width] [fmt-author-breaks] The breaks the width makes read back as
-/// the author's: every `.sv` file of the repository that parses, printed
-/// with no trivia (so no break is the author's and every one is the
-/// width's), parses to the same tree and prints the same again with its
-/// trivia — where each of those breaks is now written.
-#[test]
-fn width_breaks_read_back_as_written() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let page = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/language/Formatting.md")).unwrap();
+    let fences: Vec<&str> = page.split("```salvo\n").skip(1).map(|f| f.split("```").next().unwrap()).collect();
+    assert!(fences.len() >= 2, "Formatting.md: no example and its formatting");
+    cases.push(("docs/language/Formatting.md".to_string(), fences[0].to_string(), fences[1].to_string()));
+    assert!(cases.len() > 10, "found only {} fixtures", cases.len());
     let mut failures = Vec::new();
-    let mut checked = 0;
-    for path in every_sv_file() {
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (mut module, diags) = salvo_syntax::parse_module(&text);
-        if diags.iter().any(|d| d.is_error()) {
-            continue;
-        }
-        checked += 1;
-        module.trivia = Default::default();
-        let name = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
-        let printed = print_module(&module).text;
-        if let Some(why) = written_difference(&name, &printed) {
-            failures.push(why);
-        }
-    }
-    assert!(checked > 400, "only {checked} files parse");
-    assert!(failures.is_empty(), "{} of {checked} files:\n{}", failures.len(), failures.join("\n\n"));
-}
-
-/// [fmt-width] No printed line of any `.sv` file of the repository that
-/// parses is wider than the width, but where nothing can make it fit: a
-/// line that would fit with each string literal on it written `""` and
-/// its comment left out (neither is ever broken, and a break around a
-/// string is made only where it lets the line fit), or one token.
-#[test]
-fn no_printed_line_is_wider_than_the_width() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let mut failures = Vec::new();
-    for path in every_sv_file() {
-        let text = std::fs::read_to_string(&path).unwrap();
-        let (module, diags) = salvo_syntax::parse_module(&text);
-        if diags.iter().any(|d| d.is_error()) {
-            continue;
-        }
-        let name = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
-        let printed = print_module(&module).text;
-        let lexed = salvo_syntax::lexer::lex(&printed);
-        let strings: Vec<(usize, usize)> = lexed
-            .tokens
-            .iter()
-            .filter(|t| matches!(t.kind, salvo_syntax::token::TokenKind::Str(_)))
-            .map(|t| (t.span.start as usize, t.span.end as usize))
-            .collect();
-        let comments: Vec<usize> = lexed.comments.iter().map(|c| c.span.start as usize).collect();
-        let mut start = 0;
-        for line in printed.split_inclusive('\n') {
-            let (ls, le) = (start, start + line.trim_end_matches('\n').len());
-            start += line.len();
-            let cut = comments.iter().copied().find(|&c| ls <= c && c < le).unwrap_or(le);
-            let mut width = printed[ls..cut].trim_end().chars().count();
-            for &(s, e) in strings.iter().filter(|&&(s, e)| s < cut && e > ls) {
-                width -= printed[s.max(ls)..e.min(cut)].chars().count().saturating_sub(2);
-            }
-            let one_token = !printed[ls..le].trim().contains(' ');
-            if printed[ls..le].chars().count() > salvo_syntax::print::WIDTH && width > salvo_syntax::print::WIDTH && !one_token {
-                failures.push(format!("{name}: {}", &printed[ls..le]));
+    for (name, input, want) in &cases {
+        for (what, from) in [("formatted", input), ("formatted again", want)] {
+            match salvo_syntax::fmt::format(from) {
+                Err(e) => failures.push(format!("{name}: {what}, it is refused: {e:?}")),
+                Ok(got) if &got != want => {
+                    let (a, b): (Vec<&str>, Vec<&str>) = (want.lines().collect(), got.lines().collect());
+                    let at = a.iter().zip(&b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+                    failures.push(format!("{name}: {what}, line {}:\n  expected: {}\n  got:      {}\n\n{got}", at + 1, a.get(at).unwrap_or(&"<end>"), b.get(at).unwrap_or(&"<end>")));
+                }
+                Ok(_) => {}
             }
         }
     }
-    assert!(failures.is_empty(), "{} lines:\n{}", failures.len(), failures.join("\n"));
+    assert!(failures.is_empty(), "{} of {} fixtures:\n{}", failures.len(), cases.len(), failures.join("\n\n"));
 }
 
 /// [ast-print] [syntax-lowered] [actor-use-addr] A dump marks the spawn a
@@ -556,210 +537,4 @@ fn a_lowered_trailing_replyto_is_marked_in_a_dump() {
     let want = "    total(n, replyto got(n, replyto done()))#{desugared from `total(n) replyto got(n) replyto done()`}\n    total(n, replyto got(n))\n";
     assert!(dump.contains(want), "missing `{want}` in:\n{dump}");
     assert_eq!(dump.matches("desugared").count(), 1, "{dump}");
-}
-
-/// Every `.sv` file of the repository: its sources, examples, benchmarks,
-/// modules and test data, but not what a build or a tool wrote (`target/`,
-/// `tmp/`, `wiki/`, `build/` and hidden directories).
-fn every_sv_file() -> Vec<std::path::PathBuf> {
-    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for e in entries.flatten() {
-            let p = e.path();
-            let name = e.file_name().to_string_lossy().to_string();
-            if p.is_dir() {
-                if !(name.starts_with('.') || ["target", "tmp", "wiki", "build", "node_modules"].contains(&name.as_str())) {
-                    walk(&p, out);
-                }
-            } else if p.extension().is_some_and(|x| x == "sv") {
-                out.push(p);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."), &mut out);
-    out.sort();
-    out
-}
-
-/// [fmt-comments] Each comment's text, as written, counted.
-fn comment_texts(source: &str) -> std::collections::BTreeMap<String, usize> {
-    let mut out = std::collections::BTreeMap::new();
-    for c in salvo_syntax::lexer::lex(source).comments {
-        *out.entry(source[c.span.start as usize..c.span.end as usize].to_string()).or_insert(0) += 1;
-    }
-    out
-}
-
-/// [fmt-comments] [fmt-blank-lines] [ast-print] The formatter's guarantees
-/// over every `.sv` file of the repository that parses (test data that is
-/// meant not to parse is skipped): its printing keeps every comment, as
-/// written, as often as it was written; parses to the same tree; and prints
-/// the same again.
-#[test]
-fn every_file_prints_keeping_its_comments() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let paths = every_sv_file();
-    assert!(paths.len() > 500, "found only {} files", paths.len());
-    let mut failures = Vec::new();
-    let mut checked = 0;
-    for path in &paths {
-        let text = std::fs::read_to_string(path).unwrap();
-        let (module, diags) = salvo_syntax::parse_module(&text);
-        if diags.iter().any(|d| d.is_error()) {
-            continue;
-        }
-        checked += 1;
-        let name = path.strip_prefix(&root).unwrap_or(path).display().to_string();
-        let printed = print_module(&module).text;
-        let (before, after) = (comment_texts(&text), comment_texts(&printed));
-        // A container's docs the parser also gives the member written on
-        // its line (ROADMAP §0av, members on one line) print above both.
-        let duplicated = DOCS_ON_A_SHARED_LINE.contains(&name.as_str());
-        if duplicated && before == after {
-            failures.push(format!("{name}: keeps its comments now: take it off `DOCS_ON_A_SHARED_LINE`"));
-        }
-        if before != after && !duplicated {
-            let lost: Vec<String> = before.iter().filter(|(t, n)| after.get(*t) != Some(n)).map(|(t, n)| format!("{n} x {t}")).collect();
-            let gained: Vec<String> = after.iter().filter(|(t, n)| before.get(*t) != Some(n)).map(|(t, n)| format!("{n} x {t}")).collect();
-            failures.push(format!("{name}: comments differ\n  written: {}\n  printed: {}", lost.join("\n           "), gained.join("\n           ")));
-            continue;
-        }
-        if let Some(why) = written_difference(&name, &text) {
-            failures.push(why);
-        }
-    }
-    assert!(checked > 400, "only {checked} files parse");
-    assert!(failures.is_empty(), "{} of {checked} files:\n{}", failures.len(), failures.join("\n\n"));
-}
-
-/// The files whose first member is written on its container's line under the
-/// container's docs, which the parser gives both (ROADMAP §0av): printed,
-/// the docs are above each.
-const DOCS_ON_A_SHARED_LINE: &[&str] = &[
-    "crates/salvo-backend-rust/tests/emit/effects/effect_generics_erased.sv",
-    "crates/salvo-cli/tests/run/network/the_network_sequence_step_actor_groups.sv",
-    "crates/salvo-core/tests/check/actors/self_send.sv",
-    "crates/salvo-core/tests/check/eff_handle/handles.sv",
-];
-
-/// [fmt-blank-lines] [fmt-comments] What the printer changes of a layout:
-/// blank lines written in a run print as one, and none at a body's start or
-/// end; consecutive one-line declarations stay together, and any other two
-/// get one blank line; a comment between a branch's `}` and its `elif`
-/// closes the branch; one inside a list that has no slot for it stays on the
-/// line it was written on.
-#[test]
-fn a_layout_prints_in_the_printers_blank_lines() {
-    let written = "import a
-import b
-type A = Int
-fn f() {}
-type B = Int
-
-
-type C = Int
-fn g(x: Int) -> Int {
-
-
-    let a = 1
-
-
-
-    let b = 2
-
-    // a free-standing comment
-
-
-    return a
-
-}
-fn h(x: Int) -> Int {
-    if x > 0 {
-        return 1
-    }
-    // before the elif
-    elif x < 0 {
-        return 2
-    }
-    return 3
-}
-";
-    let want = "import a
-import b
-type A = Int
-fn f() {}
-type B = Int
-
-type C = Int
-
-fn g(x: Int) -> Int {
-    let a = 1
-
-    let b = 2
-
-    // a free-standing comment
-
-    return a
-}
-
-fn h(x: Int) -> Int {
-    if x > 0 {
-        return 1
-        // before the elif
-    } elif x < 0 {
-        return 2
-    }
-    return 3
-}
-";
-    let (module, diags) = salvo_syntax::parse_module(written);
-    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
-    let printed = print_module(&module).text;
-    assert_eq!(printed, want);
-    let (again, _) = salvo_syntax::parse_module(&printed);
-    assert_eq!(print_module(&again).text, want, "printed again");
-}
-
-/// [fmt-comments] [doc-comment] A comment the printer has to move never
-/// lands directly above a declaration, where it would read back as its docs:
-/// one written inside a declaration's header goes to the next slot, and the
-/// docs stay the declaration's.
-#[test]
-fn a_moved_comment_never_becomes_docs() {
-    let written = "fn f(x: Int) -> Int
-// inside the header
-=> x {
-    return x
-}
-// the docs of g
-fn g() {}
-";
-    let (module, diags) = salvo_syntax::parse_module(written);
-    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
-    let printed = print_module(&module).text;
-    let (again, _) = salvo_syntax::parse_module(&printed);
-    let docs = |m: &salvo_syntax::ast::Module| -> Vec<Vec<String>> { m.items.iter().filter_map(|i| if let salvo_syntax::ast::Item::Fn(f) = i { Some(f.docs.clone()) } else { None }).collect() };
-    assert_eq!(docs(&module), docs(&again), "{printed}");
-    assert_eq!(docs(&again), vec![Vec::<String>::new(), vec!["the docs of g".to_string()]], "{printed}");
-    assert!(printed.contains("// inside the header"), "{printed}");
-
-    // [deduce-syntax] Above a deduction clause on a line of its own, the
-    // comment keeps its line: the clause stays on its own (the author's
-    // break), and the comment above it.
-    let written = "effect E {\n    fn f(x: Int) -> Int\n    // inside the header\n    => x\n    fn g() -> None\n}\n";
-    let (module, _) = salvo_syntax::parse_module(written);
-    let printed = print_module(&module).text;
-    assert_eq!(printed, written);
-
-    // Inside a header with no slot for it (among the generics), printed
-    // after the member, a blank line between it and the next member, which
-    // keeps no docs.
-    let written = "effect E {\n    fn f<A,\n        // inside the header\n        B>(x: A) -> B\n    fn g() -> None\n}\n";
-    let (module, _) = salvo_syntax::parse_module(written);
-    let printed = print_module(&module).text;
-    assert_eq!(printed, "effect E {\n    fn f<A, B>(x: A) -> B\n    // inside the header\n\n    fn g() -> None\n}\n");
-    let (again, _) = salvo_syntax::parse_module(&printed);
-    let Some(salvo_syntax::ast::Item::Effect(e)) = again.items.first() else { panic!("{printed}") };
-    assert!(e.fns.iter().all(|f| f.docs.is_empty()), "{printed}");
 }

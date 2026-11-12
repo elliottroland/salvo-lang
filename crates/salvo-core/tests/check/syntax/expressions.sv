@@ -122,6 +122,14 @@ fn f(xs: List<Int>) -> None {
     let _x = first(xs)! + 1
 }
 
+//--- a_type_assertion_needs_its_type
+// [type-assert] `type!(place: T)` is read as `type?(` is, and asserts a
+// type: without its `: T` it is a parse error.
+fn f(x: Int) {
+    //~ error[syntax-expected:token]
+    type!(x)
+}
+
 //--- not_is_refuses_a_binding
 // [is-not] A negated test narrows nothing on the branch it guards, so there
 // is no value for a binding to name.
