@@ -16,13 +16,16 @@ platform fn fn_types_written(f: once (() -> Q), g: (once () -> Q)?) -> None
 // A spread's fn type is grouped too, before another arm, and a spread under `?`.
 platform fn spreads(a: ...(() -> R) | B, b: (...T)?) -> None
 
-// A qualifier over a tuple: `Ok(A,B)` is the tuple `(A, B)`, as `Ok (A, B)`
-// is. A tuple of literal types needs its own pair, or it reads as the
-// qualifier's value arguments: `Ok ((1, 2))` against `Ok(1, 2)`.
-platform fn tuples(a: Ok (A, B), b: Ok ((A, B)), c: InRange(0, 5) (A, B), d: Ok ((1, 2)), e: Ok(1, 2)) -> None
+// A qualifier is a space away from what it qualifies, so a tuple after one
+// needs no pair of its own: `Ok (1, 2)` is a tuple of literal types, and
+// `Ok(1, 2)`, touching, is `Ok` with two constants, qualifying the type after
+// it. Written pairs are kept.
+platform fn tuples(a: Ok (A, B), b: Ok ((A, B)), c: InRange(0, 5) (A, B)) -> None
 
-// After `ref(c)` a qualifier still reads value arguments; a fn type whose first
-// parameter is a literal type needs the pair as a tuple does.
-platform fn value_args(a: ref(c) ((1, 2)), b: Ok ((1) -> R), c: proj (A, B)) -> None
+platform fn literals(d: Ok (1, 2), e: Ok(1, 2) Int, f: Ok ((1, 2))) -> None
+
+// After `ref(c)` a qualifier still reads value arguments touching it; a fn type
+// whose first parameter is a literal type stands after the space as it is.
+platform fn value_args(a: ref(c) (1, 2), b: Ok (1) -> R, c: proj (A, B), d: Heap<T>(?cmp) Mut List<T>) -> None
 
 platform fn unions(a: Ok (Ok Str | Err Int), b: List<Ok A | Err B>, c: Map<Str, Int | Str>) -> Ok (A, B) | Errs E

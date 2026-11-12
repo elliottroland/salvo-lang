@@ -2614,7 +2614,7 @@ impl<'n> Printer<'n> {
                     self.type_ref(q);
                     self.push(" ");
                 }
-                let paren = group_base_needs_parens(qualifiers, base);
+                let paren = group_base_needs_parens(base);
                 if paren {
                     self.push("(");
                 }
@@ -4384,30 +4384,12 @@ fn ends_in_fn(t: &Type) -> bool {
 
 /// [ast-print] Whether a qualified group's base needs parentheses the tree
 /// does not record. A tuple, a fn type and a literal stand after qualifiers
-/// as they are (`Ok (A, B)`, `once () -> R`, `Short "port"`); anything else
-/// is grouped (`Ok (Ok Str | Err Int)`). One pair more where the base would
-/// read as the last qualifier's value arguments: `Ok ((1, 2))`, a tuple of
-/// literal types, against `Ok(1, 2)`, the qualifier `Ok` with two constants.
-fn group_base_needs_parens(qualifiers: &[TypeRef], base: &Type) -> bool {
-    let value_args = qualifiers.last().is_some_and(|q| q.name.name != "proj" && q.value_args.is_empty()) && opens_like_value_args(base);
-    value_args || (base.parens() == 0 && !matches!(base, Type::Tuple { .. } | Type::Fn { .. } | Type::Literal { .. }))
-}
-
-/// Whether `t` prints as `(` and a constant then `,` or `)`, which after a
-/// qualifier's name the parser reads as its value arguments ([qual-const]).
-fn opens_like_value_args(t: &Type) -> bool {
-    let constant = |t: &Type| t.parens() == 0 && matches!(t, Type::Literal { value: TypeLit::Int(_) | TypeLit::Long(_) | TypeLit::Str(_), .. });
-    match t.parens() {
-        0 => match t {
-            Type::Tuple { elems, .. } => elems.first().is_some_and(constant),
-            Type::Fn { params, param_names, .. } => params.first().is_some_and(constant) && !matches!(param_names.first(), Some(Some(_))),
-            _ => false,
-        },
-        // A literal grouped once by a lowering (a parse reads `Q (1)` as
-        // value arguments, so none writes one).
-        1 => matches!(t, Type::Literal { value: TypeLit::Int(_) | TypeLit::Long(_) | TypeLit::Str(_), .. }),
-        _ => false,
-    }
+/// as they are (`Ok (A, B)`, `once () -> R`, `Short "port"`, and `Ok (1, 2)`,
+/// a tuple of literal types, which the space tells from `Ok(1, 2)`, the
+/// qualifier `Ok` with two constants [syntax-space]); anything else is
+/// grouped (`Ok (Ok Str | Err Int)`).
+fn group_base_needs_parens(base: &Type) -> bool {
+    base.parens() == 0 && !matches!(base, Type::Tuple { .. } | Type::Fn { .. } | Type::Literal { .. })
 }
 
 /// [fmt-blank-lines] An element of a module's (or a namespace's) run.

@@ -527,6 +527,33 @@ how a qualifier nests over others: `Ok (Ok Str | Err Int)` is an `Ok` whose
 payload is itself an `Ok Str` or an `Err Int`. Such types are legal but rarely
 what you want.
 
+## Arguments and spacing
+
+Some qualifiers take arguments: constants (`InRange(0, 100) Int`), the
+value a claim is about (`KeyOf(m) Str`, `proj(xs) T`), or the function a
+claim was made with (`Heap<T>(?cmp) Mut List<T>`). The arguments are in
+parentheses that touch the qualifier's name, with nothing between, as a
+call's do; the type the qualifier applies to comes after a space. The
+space is what tells the two apart:
+
+```salvo
+// `Ok` over the tuple type `(1, 2)`: a space, then the qualified type.
+fn pair(p: Ok (1, 2)) -> None {
+}
+
+// `InRange` given `0` and `100`, qualifying `Int`.
+fn ranged(n: InRange(0, 100) Int) -> None {
+}
+```
+
+So a qualifier written against a type is an error naming the space:
+`Mut(Str)` reads as `Mut` given an argument, and `proj(xs)T` lacks the
+space before `T`. A space before a qualifier's arguments is an error too
+where the parentheses can only be arguments, as in `proj (xs) T` or
+`InRange (0, 100) Int`. The same rule holds for every name with an argument
+list, a function call or declaration among them, so a Rust or Kotlin reader
+writes these the way they already would.
+
 ## State and provenance
 
 The sections above answer *how* a value gained a claim: by predication or by

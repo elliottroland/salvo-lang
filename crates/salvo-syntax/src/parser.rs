@@ -86,6 +86,13 @@ pub struct Parser<'s> {
     /// [comptime-pattern] Inside the type after a comptime `is`: `*` is a
     /// wildcard type there, and nowhere else.
     in_comp_pattern: bool,
+    /// [syntax-space] Inside an `is` test's refs, where no qualified type
+    /// can stand: a spaced `(` of constants there is the arguments too.
+    refs_only: bool,
+    /// Where `source` starts in the file the spans count in: an
+    /// interpolation's text is parsed on its own, its spans moved to the
+    /// file's.
+    span_base: u32,
     /// [expr-terminal-scope] True while parsing a statement's own expression at the
     /// top of a block, where a body-taking construct (`if`/`while`/`for`/
     /// `try`/`waitfor`) may write its body as a terminal `...` that runs to the
@@ -306,6 +313,8 @@ impl<'s> Parser<'s> {
             pair_depth: None,
             in_compfn: false,
             in_comp_pattern: false,
+            refs_only: false,
+            span_base: 0,
             allow_terminal: false,
             in_stmt_expr: false,
             pending_terminal_lambda: None,
@@ -496,6 +505,91 @@ impl<'s> Parser<'s> {
     fn rollback(&mut self, snap: Snapshot) {
         self.pos = snap.pos;
         self.diagnostics.truncate(snap.diag_len);
+    }
+
+    /// The source text a span covers, where the parser holds it.
+    fn text_of(&self, span: Span) -> Option<&str> {
+        let start = span.start.checked_sub(self.span_base)? as usize;
+        let end = span.end.checked_sub(self.span_base)? as usize;
+        self.source.get(start..end)
+    }
+
+    /// [syntax-space] Whether the current token touches the one before it:
+    /// no space, tab or line break between them.
+    fn touches_prev(&self) -> bool {
+        self.pos > 0 && self.tokens[self.pos - 1].span.end == self.peek().span.start
+    }
+
+    /// [syntax-space] The source text before the current token that a fix
+    /// writes the `(` after: the token before it, with a form's name before
+    /// its `!` or `?` (`assert!`, `type?`) and a name before its generics'
+    /// `>` (`twice<Int>`).
+    fn prev_text(&self) -> String {
+        let Some(last) = self.pos.checked_sub(1) else { return String::new() };
+        let mut first = last;
+        match self.tokens[last].kind {
+            TokenKind::Bang | TokenKind::Question if last > 0 => first = last - 1,
+            TokenKind::Gt => {
+                let mut depth = 0usize;
+                for i in (0..=last).rev() {
+                    match self.tokens[i].kind {
+                        TokenKind::Gt => depth += 1,
+                        TokenKind::Lt => {
+                            depth -= 1;
+                            if depth == 0 {
+                                first = i.saturating_sub(1);
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
+        let span = self.tokens[first].span.to(self.tokens[last].span);
+        match self.text_of(span) {
+            Some(text) => text.to_string(),
+            None => match &self.tokens[last].kind {
+                TokenKind::Ident(n) => n.clone(),
+                other => other.describe(),
+            },
+        }
+    }
+
+    /// [syntax-space] At a `(`: whether a type starts on the same line right
+    /// after its `)`, as in `InRange (0, 100) Int`, where the parentheses
+    /// can only have been meant as the arguments.
+    fn paren_then_type(&self) -> bool {
+        let mut depth = 0usize;
+        for i in self.pos..self.tokens.len() {
+            match self.tokens[i].kind {
+                TokenKind::LParen => depth += 1,
+                TokenKind::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let next = &self.tokens[(i + 1).min(self.tokens.len() - 1)];
+                        return !next.newline_before
+                            && matches!(&next.kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_uppercase()));
+                    }
+                }
+                TokenKind::Eof => return false,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// [syntax-space] At the `(` of a name's argument list — a call's, a
+    /// declaration's parameters, a qualifier's or a type's value arguments —
+    /// which follows the name with nothing between: a space or a line break
+    /// there is refused, and the list read as the name's all the same.
+    fn args_touch(&mut self) {
+        if self.at(&TokenKind::LParen) && self.pos > 0 && !self.touches_prev() {
+            let span = self.peek().span;
+            let name = self.prev_text();
+            self.error(messages::syntax_space_before_args(&name), span);
+        }
     }
 
     /// True when the current token may continue an expression (it is not
@@ -1319,7 +1413,7 @@ impl<'s> Parser<'s> {
         let docs = self.docs_here();
         let start = self.peek().span;
         self.bump(); // `test`
-        // [test-kind] `test property(runs=200) "…" (params) { … }`: a kind
+        // [test-kind] `test property(runs=200) "…"(params) { … }`: a kind
         // (any name; a `comptime fn` whose first parameter is a `Test` is
         // looked up where the test is expanded), its arguments written as
         // named arguments are (user decision 2026-11-05), then the name, then
@@ -1329,7 +1423,9 @@ impl<'s> Parser<'s> {
         let mut args: Vec<(Ident, Expr)> = Vec::new();
         if matches!(self.kind(), TokenKind::Ident(_)) {
             kind = Some(self.ident()?);
-            if self.eat(&TokenKind::LParen).is_some() {
+            if self.at(&TokenKind::LParen) {
+                self.args_touch();
+                self.bump(); // (
                 self.group_depth += 1;
                 while !self.at(&TokenKind::RParen) && !self.at_eof() {
                     let Some(arg) = self.ident() else {
@@ -1726,6 +1822,7 @@ impl<'s> Parser<'s> {
         if !self.at(&TokenKind::LParen) || !self.same_line() {
             return (slots, values);
         }
+        self.args_touch();
         self.group_depth += 1;
         self.bump(); // (
         loop {
@@ -2332,6 +2429,7 @@ impl<'s> Parser<'s> {
         // [qual-refn-match] A refn's parameter list may end with `*`, which
         // matches all remaining parameters of a candidate. Parsed here (not
         // via `parse_params`) so the wildcard is allowed.
+        self.args_touch();
         self.expect(&TokenKind::LParen)?;
         self.group_depth += 1;
         let mut params = Vec::new();
@@ -3193,6 +3291,7 @@ impl<'s> Parser<'s> {
     /// a normal parameter is a parse error, since a caller could not then
     /// pass the normal one positionally.
     fn parse_params(&mut self) -> Option<(Vec<Param>, Vec<TypeRef>)> {
+        self.args_touch();
         self.expect(&TokenKind::LParen)?;
         self.group_depth += 1;
         let mut params = Vec::new();
@@ -3373,6 +3472,7 @@ impl<'s> Parser<'s> {
     fn parse_holds_proj(&mut self) -> Option<(Vec<Ident>, Span)> {
         let start = self.bump().span; // `holds`
         self.expect(&TokenKind::KwProj)?;
+        self.args_touch();
         self.expect(&TokenKind::LParen)?;
         let mut sources: Vec<Ident> = Vec::new();
         if !self.at(&TokenKind::RParen) {
@@ -4557,6 +4657,8 @@ impl<'s> Parser<'s> {
             && matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
             && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RParen)
         {
+            // [syntax-space] `proj (c)` is refused and read as `proj(c)`.
+            self.args_touch();
             self.bump(); // (
             loop {
                 from.push(self.ident()?);
@@ -4602,28 +4704,41 @@ impl<'s> Parser<'s> {
         // [qual-value-arg] The value-argument block: `Sorted(?cmp)`,
         // `Heap(min_by_age)`, `SortedSet<Str>(by_len)` — implicit binders and
         // fn identities, after the type generics, in round brackets (user
-        // decision 2026-09-23). Recognised by its first entry: `?`, or a
-        // value name (lowercase) followed by `,`, `)` or `@` — so a
-        // qualified group (`Ok (Ok Str | Err Int)`) and a fn type's named
-        // parameter (`(v: Int) -> R`) never match.
+        // decision 2026-09-23).
         let mut value_args = Vec::new();
-        if allow_value_args
-            && name.name != "proj"
-            && self.at(&TokenKind::LParen)
-            && self.same_line()
-            && (matches!(self.peek_at(1).kind, TokenKind::Question)
-                || (matches!(self.peek_at(1).kind, TokenKind::Int { .. } | TokenKind::Char(_) | TokenKind::Str(_))
-                    && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RParen))
-                // [qual-const] A negative constant: `InRange(-5, 5)`.
-                || (matches!(self.peek_at(1).kind, TokenKind::Minus)
-                    && matches!(self.peek_at(2).kind, TokenKind::Int { .. })
-                    && matches!(self.peek_at(3).kind, TokenKind::Comma | TokenKind::RParen))
-                || (matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
-                    && matches!(
-                        self.peek_at(2).kind,
-                        TokenKind::Comma | TokenKind::RParen | TokenKind::At | TokenKind::Dot
-                    )))
-        {
+        // [syntax-space] Which parentheses are the arguments is decided by
+        // spacing: a `(` touching the name (or its `>`) is its argument
+        // list, as `InRange(0, 100) Int`; one after a space or a line break is
+        // the type a qualifier qualifies, as `Ok (1, 2)`. A spaced list that
+        // can only be arguments (`?cmp`, a value name) is refused and read
+        // as the arguments, and so is a spaced one of constants where only
+        // refs can stand (an `is` test) or a type follows it (`InRange (0,
+        // 100) Int`). A touching one holding a type is refused and read as
+        // the qualified type.
+        let paren_here = allow_value_args && self.at(&TokenKind::LParen) && self.same_line();
+        let touching = paren_here && self.touches_prev();
+        let at_paren = paren_here && name.name != "proj";
+        let constant_first = matches!(self.peek_at(1).kind, TokenKind::Int { .. } | TokenKind::Char(_) | TokenKind::Str(_))
+            && matches!(self.peek_at(2).kind, TokenKind::Comma | TokenKind::RParen)
+            // [qual-const] A negative constant: `InRange(-5, 5)`.
+            || (matches!(self.peek_at(1).kind, TokenKind::Minus)
+                && matches!(self.peek_at(2).kind, TokenKind::Int { .. })
+                && matches!(self.peek_at(3).kind, TokenKind::Comma | TokenKind::RParen));
+        let value_first = matches!(self.peek_at(1).kind, TokenKind::Question)
+            || (matches!(&self.peek_at(1).kind, TokenKind::Ident(n) if n.starts_with(|c: char| c.is_lowercase()))
+                && matches!(
+                    self.peek_at(2).kind,
+                    TokenKind::Comma | TokenKind::RParen | TokenKind::At | TokenKind::Dot
+                ));
+        let read_args = at_paren
+            && (value_first
+                || ((touching || self.refs_only || self.paren_then_type()) && constant_first));
+        if touching && !read_args && from.is_empty() {
+            let span = self.peek().span;
+            self.error(messages::syntax_space_qualifier_touching(&name.name, true), span);
+        }
+        if read_args {
+            self.args_touch();
             self.group_depth += 1;
             self.bump(); // (
             loop {
@@ -4791,6 +4906,31 @@ impl<'s> Parser<'s> {
             }
             self.group_depth -= 1;
             end = self.expect(&TokenKind::RParen)?.span;
+        }
+        // [syntax-space] What a qualifier qualifies is a space away from its
+        // arguments' `)`: `proj(c)T` is refused, and read as `proj(c) T`.
+        if (!from.is_empty() || !value_args.is_empty())
+            && self.touches_prev()
+            && matches!(
+                self.kind(),
+                TokenKind::Ident(_)
+                    | TokenKind::KwProj
+                    | TokenKind::KwRef
+                    | TokenKind::KwOnce
+                    | TokenKind::KwLinear
+                    | TokenKind::LParen
+                    | TokenKind::Int { .. }
+                    | TokenKind::Str(_)
+                    | TokenKind::Char(_)
+            )
+        {
+            let span = self.peek().span;
+            let qual = self.text_of(name.span.to(end)).map_or_else(|| format!("{}(…)", name.name), str::to_string);
+            let next = match self.kind() {
+                TokenKind::Ident(n) => n.clone(),
+                _ => "…".to_string(),
+            };
+            self.error(messages::syntax_space_qualifier_touching(&format!("{qual} {next}"), false), span);
         }
         let span = name.span.to(end);
         Some(TypeRef {
@@ -5111,6 +5251,7 @@ impl<'s> Parser<'s> {
                 let start = self.bump().span;
                 self.bump();
                 self.require_compfn(start, "`refuse!`");
+                self.args_touch();
                 self.expect(&TokenKind::LParen)?;
                 self.group_depth += 1;
                 let message = self.parse_expr();
@@ -5697,6 +5838,7 @@ impl<'s> Parser<'s> {
                 }
                 let id = self.ident()?;
                 if self.at(&TokenKind::LParen) {
+                    self.args_touch();
                     self.bump();
                     self.group_depth += 1;
                     let mut args = Vec::new();
@@ -6572,6 +6714,13 @@ impl<'s> Parser<'s> {
     /// `across` reads its first ref from the next line, after an operator
     /// that ended its line (already refused), or after a `(`.
     fn parse_is_check_from(&mut self, across: bool) -> Option<(Vec<TypeRef>, Option<Ident>)> {
+        let saved = std::mem::replace(&mut self.refs_only, true);
+        let out = self.parse_is_check_refs(across);
+        self.refs_only = saved;
+        out
+    }
+
+    fn parse_is_check_refs(&mut self, across: bool) -> Option<(Vec<TypeRef>, Option<Ident>)> {
         let mut refs = Vec::new();
         let mut binding = None;
         loop {
@@ -7226,6 +7375,7 @@ impl<'s> Parser<'s> {
     }
 
     fn parse_call_args_inner(&mut self) -> Option<(Vec<Expr>, Vec<NamedArg>, Span)> {
+        self.args_touch();
         self.expect(&TokenKind::LParen)?;
         self.group_depth += 1;
         let mut args = Vec::new();
@@ -7653,6 +7803,7 @@ impl<'s> Parser<'s> {
                 let is_todo = name == TODO_FORM;
                 let start = self.bump().span;
                 self.bump(); // `!`
+                self.args_touch();
                 self.expect(&TokenKind::LParen)?;
                 let saved_depth = self.group_depth;
                 self.group_depth += 1;
@@ -7693,6 +7844,7 @@ impl<'s> Parser<'s> {
             {
                 let start = self.bump().span;
                 self.bump(); // `?`
+                self.args_touch();
                 self.expect(&TokenKind::LParen)?;
                 let saved_depth = self.group_depth;
                 self.group_depth += 1;
@@ -7714,6 +7866,7 @@ impl<'s> Parser<'s> {
             {
                 let start = self.bump().span;
                 self.bump(); // `?`
+                self.args_touch();
                 self.expect(&TokenKind::LParen)?;
                 let saved_depth = self.group_depth;
                 self.group_depth += 1;
@@ -7731,6 +7884,7 @@ impl<'s> Parser<'s> {
             {
                 let start = self.bump().span;
                 self.bump(); // `!`
+                self.args_touch();
                 self.expect(&TokenKind::LParen)?;
                 let saved_depth = self.group_depth;
                 self.group_depth += 1;
@@ -8739,6 +8893,7 @@ fn parse_interpolated_expr(source: &str, offset: u32, in_compfn: bool) -> (Expr,
     // Interpolations hold expressions, never declarations, so they carry
     // no docs.
     let mut parser = Parser::new(source, tokens, Vec::new());
+    parser.span_base = offset;
     // [comptime-inline] An interpolation inside a compfn body may read
     // `value.[field]` or `field.name` like the body around it.
     parser.in_compfn = in_compfn;

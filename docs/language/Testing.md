@@ -205,11 +205,11 @@ random. When one fails, it looks for the simplest values that still fail
 and reports those. It is QuickCheck's and Hypothesis's idea.
 
 ```salvo
-test property "reversing twice gives the list back" (xs: List<Int>) {
+test property "reversing twice gives the list back"(xs: List<Int>) {
     expect_eq(reverse(reverse(xs)), xs)
 }
 
-test property(runs=500) "an index finds an element" (xs: NonEmpty List<Int>, i: Idx(xs) Int) {
+test property(runs=500) "an index finds an element"(xs: NonEmpty List<Int>, i: Idx(xs) Int) {
     let v: Int = get(xs, i)
     expect(xs is NonEmpty, "${v} came from a list")
 }

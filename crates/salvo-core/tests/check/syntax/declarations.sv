@@ -241,14 +241,14 @@ test actor(speed=2) "x" {
 // FILE: main.test.sv
 // [test-property] A property test takes `runs` and `seed`.
 //~ error[test-kind:unknown-argument]
-test property(trials=2) "x" (n: Int) {
+test property(trials=2) "x"(n: Int) {
 }
 
 //--- a_property_test_takes_no_implicit_parameter
 // FILE: main.test.sv
 // [test-property] Its parameters are drawn: an implicit has nothing to fill it.
 //~ error[test-kind:implicit-param]
-test property "x" (n: Int, ?Field<Int>) {
+test property "x"(n: Int, ?Field<Int>) {
 }
 
 //--- a_test_kind_must_exist
@@ -262,7 +262,7 @@ test nosuchkind "x" {
 // FILE: main.test.sv
 // [test-kind] Kind arguments are comptime constants.
 //~ error[test-kind:argument-not-constant]
-test property(runs=len) "x" (n: Int) {
+test property(runs=len) "x"(n: Int) {
 }
 
 //--- a_test_name_may_not_interpolate

@@ -1,7 +1,7 @@
 // What runs a property test: the driver that hands out each run's
 // randomness, keeps the simplest failure found, and shrinks it.
 //
-// A `test property(runs=200) "…" (xs: List<Int>) { … }` block becomes a
+// A `test property(runs=200) "…"(xs: List<Int>) { … }` block becomes a
 // function of its parameters and a function that draws them and calls it;
 // the harness `salvo test` generates loops over this module's driver,
 // [PropertyRun], asking it for each run's [Rng] and telling it how the run

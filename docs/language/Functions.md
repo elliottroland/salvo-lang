@@ -62,6 +62,26 @@ The `generic_param`s declare generics, which can be used throughout the rest
 of the signature. The effect list and the deduction clause are both
 optional.
 
+The parameter list touches the function's name (or its generics' `>`), and
+a call's arguments touch what is called, as in most languages: `fn
+area(s: Shape)`, `area(s)`, `xs.size()`. Unlike most, a space there is an
+error rather than style, because in a type the space means something:
+`Ok (A, B)` is the qualifier `Ok` over a tuple, and `InRange(0, 100)` is a
+qualifier given its arguments ([Qualifiers](Qualifiers.md#arguments-and-spacing)).
+A `(` on the line after a name starts a new statement, never a call.
+Keywords are not names, so `if (ready)` and `return (a + b)` keep their
+space.
+
+```salvo
+fn twice(n: Int) -> Int {
+    return n * 2
+}
+
+fn four() -> Int {
+    return twice(2) // `twice (2)` is an error: no space before the arguments
+}
+```
+
 ## Returning
 
 There are no implicit returns from functions (unlike `if`, `while` and `for`

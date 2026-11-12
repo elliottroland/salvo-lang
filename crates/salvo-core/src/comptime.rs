@@ -1689,7 +1689,7 @@ fn mentions_name(block: &Block, name: &str) -> bool {
     f.1
 }
 
-/// [test-kind] The fns a `test KIND(ARGS) "name" (PARAMS) { body }` block
+/// [test-kind] The fns a `test KIND(ARGS) "name"(PARAMS) { body }` block
 /// becomes, stamped from the kind a `comptime fn KIND(test: Test, …)` declares:
 /// - the **body fn** `<fn_name>_body(PARAMS)`, performing the kind's powers and
 ///   `Throw<Failure>`, with the block's body;

@@ -94,7 +94,7 @@ const CONTEXTUAL_PATTERNS: &[(&str, &str, &str)] = &[
         "the messages type former",
     ),
     // [test-kind] `test "name" { … }`, `test actor(seed=3) "name" { … }`,
-    // `test property "name" (xs: List<Int>) { … }`: a contextual keyword,
+    // `test property "name"(xs: List<Int>) { … }`: a contextual keyword,
     // recognised only before a name string, or a kind name and then a
     // string or `(`, mirroring the parser's own lookahead; the kind is a
     // call to a comptime fn.

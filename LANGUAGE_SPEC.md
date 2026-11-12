@@ -2190,6 +2190,8 @@ Conventions:
     lowering — binder collection [cmp-binder], erasure, the backends — is
     unchanged; diagnostics render the block form.
   * A `?` entry inside `<…>` is a parse error naming the block.
+  * The block touches the name (or its `>`), and the qualified type is a
+    space after it: `Heap<T>(?cmp) Mut List<T>` [syntax-space].
 * [qual-depend] A qualifier may declare **value slots** — unprefixed
   `name: Type` entries in its block — making it a **dependent claim**: a
   fact about the subject's relationship to another value (user decisions
@@ -13348,10 +13350,10 @@ replaced the working document TESTING.md).
   `A | (() -> B)` does not read as `(A | ()) -> B`). After qualifiers a
   tuple, a fn type and a literal stand as they
   are (`Ok (A, B)`, `once () -> R`, `Short "port"`) and anything else is
-  grouped (`Ok (Ok Str | Err Int)`); a base that would read as the last
-  qualifier's value arguments [qual-value-arg] gets one pair more (`Ok ((1,
-  2))`, a tuple of literal types, where `Ok(1, 2)` is `Ok` with two
-  constants; `Ok(A, B)` with types in it is the tuple, as `Ok (A, B)` is). A
+  grouped (`Ok (Ok Str | Err Int)`); the space after a qualifier is what
+  tells the base from the qualifier's value arguments [syntax-space], so
+  `Ok (1, 2)`, a tuple of literal types, needs no pair of its own against
+  `Ok(1, 2)`, `Ok` with two constants. A
   **deduction entry** prints its established claims `+Q` before the ones it
   keeps, each list in its written order (the tree keeps the two lists, not
   how they interleaved: `list: Mut +Heap<T>(?cmp)` prints `list:
@@ -13749,7 +13751,7 @@ replaced the working document TESTING.md).
     a test answers `None` at once rather than waiting for a person who is not
     there [test-output].
 * [test-kind] **A test's kind is a comptime fn** (user decisions 2026-11-05,
-  see COMPLETED.md, test kinds): `test KIND(NAME=CONST, …) "name" (PARAMS) { body }` calls
+  see COMPLETED.md, test kinds): `test KIND(NAME=CONST, …) "name"(PARAMS) { body }` calls
   `comptime fn KIND(test: Test, ARGS…) [powers] -> Verdict`, found by name
   (a by-name pick over the kinds visible to the annex, `std.test.kinds` being
   implicit [test-implicit-import]); plain `test "…"` is the kind `plain`.
@@ -13778,7 +13780,7 @@ replaced the working document TESTING.md).
 * [test-property] **A property test** (user decisions 2026-11-05, the
   property-test record, rounds 1–4) runs its body over parameters drawn at
   random, written after the name as a fn's are: `test property(runs=200)
-  "reversing twice gives the list back" (xs: List<Int>) { … }`.
+  "reversing twice gives the list back"(xs: List<Int>) { … }`.
   * **Each parameter is drawn from its type's generator** [prop-gen], in
     order: `let g: Gen<P> = gen(…)` at the parameter's type `P`, with the
     slots of its qualifier as arguments — a constant as written, a place
@@ -15232,6 +15234,59 @@ replaced the working document TESTING.md).
 * [syntax-expected] **A token the grammar does not allow is an error saying
   what was expected there** (`expected …, found …`), at the token; the
   parser recovers at the next item, so one file can report several.
+* [syntax-space] **Spacing tells a name's arguments from what a qualifier
+  qualifies** (user decision 2026-11-12). One rule, everywhere: (1) the
+  `(` of a name's argument list touches the name, nothing between —
+  calls (`f(x)`, `x.f(a)`, `f@m(x)`, `[f@m(x)]`, `assert!(…)`, `type?(…)`,
+  `Mut List(…)`, `use H()`, `replyto k(…)`), declarations (`fn f(x: Int)`,
+  `fn f<T>(x: T)`, `handler H(dep: D) for E`, effect members, actor
+  messages, `qualifier Q<T>(?slot) for T`, `refn f(…)`, a test kind's
+  arguments and a test's parameters, `test property(runs=5) "x"(n: Int)`),
+  and a qualifier's or a type's value arguments (`InRange(0, 100)`,
+  `proj(c)`, `Heap<T>(?cmp)`); (2) a qualifier, with or without its
+  arguments, is a space away from what it qualifies (`Mut Str`,
+  `InRange(0, 100) Int`, `proj(c) T`, `Ok (A, B)`).
+  * **So** `Ok(1, 2)` is `Ok` given the constants `1` and `2`, qualifying the
+    type after it (`Ok(1, 2) Int`; `Ok` declares no slots, so the checker
+    refuses it, `qual-depend:no-value-args`, as it refuses `Mut(1) Str`),
+    and `Ok (1, 2)` is `Ok` over the tuple type of the literal types `1` and
+    `2`. The parser decides by the tokens' spans (`Parser::touches_prev`); the
+    lexer records nothing new.
+  * **A space or a line break before an argument list** is
+    `syntax-space:before-args` ("no space or line break may come between a
+    name and the `(` of its arguments or parameters: write `f(`"), at the
+    `(`, and the list is read as the name's all the same, so the slip is
+    reported once: `f (x)` and `x.f (a)` in an expression, `fn f (x: Int)`,
+    `fn f<T> (x: T)`, `handler H (d: D)`, `test property "x" (n: Int)`. In a
+    type, a spaced `(` is the qualified type unless it can only be the
+    arguments: one opening with `?` or a value name (`proj (xs) T`,
+    `Heap<T> (?cmp)`), or with a constant where a type follows its `)`
+    (`InRange (0, 100) Int`) or where only refs stand (an `is` test, `n is
+    InRange (0, 5)`); those are refused and read as the arguments.
+  * **A qualifier touching what it qualifies** is
+    `syntax-space:qualifier-touching`: a touching `(` that holds a type
+    rather than arguments (`Mut(Str)`, `Ok(Int, Str)`, `once(() -> R)`:
+    "`Mut(` reads as `Mut`'s arguments, but a type follows: a space
+    separates a qualifier from the type it qualifies, `Mut (…)`"), read as
+    the qualified type; or a type, a qualifier or a `(` touching the `)` of
+    a qualifier's arguments (`proj(c)T`, `InRange(0, 100)Int`: "… write
+    `proj(c) T`"), read on.
+  * **A newline is not a space here, it is more**: a `(` on the line after
+    a name, outside brackets, is never the name's argument list; it starts
+    the next statement (`let m = n` / `(m + 1)` is two statements), as
+    before. Inside brackets, where a newline ends nothing, it is refused as
+    a space is (`f(g` / `(1))`).
+  * **Keywords are not names**: `if (a)`, `while (c)`, `return (x)` and an
+    `is (A | B)` head take a group after a space, and the printer writes
+    one; `throw` is a fn, so `throw(e)` touches. A lambda's `(x) -> …`
+    follows a `,`, a `(` or an operator, never a name.
+  * **Not covered**: a generic list's `<`, which may stand after a space
+    (`List <Int>`, `f <Int>(x)`), and in a type even on the next line
+    outside brackets (`let xs: List` / `<Int> = …`: `parse_type_ref_opts`
+    reads `<` without a line check); the space between a form's name and
+    its `!` (`assert !(x)` is `assert!(x)`).
+  * The printer [ast-print] writes every argument list touching its name, a
+    space after each qualifier, and a space between a keyword and a group.
 * [fn-ref-table] The checker records every fn-*name* reference —
   declaration names, call-site callees (incl. dot-notation), and
   fn-by-name uses — as `Checked::fn_refs: Key -> DeclId`, keyed by the

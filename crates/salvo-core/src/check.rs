@@ -22141,6 +22141,18 @@ impl<'p, 'r> Checker<'p, 'r> {
         // `Short('p')` a `Char`, `Prefix("arn:")` a `Str`, `InRange(0, 9)` an
         // `Int`. A place's type is the `is` test's to check, where it has one.
         for (q, decl) in qualifiers.iter().zip(&decls) {
+            // [syntax-space] `Ok(1, 2) Int`, `Mut(1) Str`: the touching
+            // parentheses are arguments, which a qualifier with no slots
+            // cannot take.
+            let slotless = match decl {
+                Some(d) => d.fn_slots.is_empty() && d.value_slots.is_empty(),
+                // `proj(c)` and `ref(c)` carry their sources apart.
+                None => is_intrinsic_qualifier(&q.name.name) && !matches!(q.name.name.as_str(), "proj" | "ref"),
+            };
+            if slotless && !q.value_args.is_empty() {
+                self.error(q.span, messages::qual_depend_no_value_args(&q.name.name));
+                continue;
+            }
             let Some(decl) = decl else { continue };
             for (written, slot) in q.value_args.iter().zip(&decl.value_slots) {
                 let ast::Type::Named { qualifiers: wq, base: wb } = written else { continue };

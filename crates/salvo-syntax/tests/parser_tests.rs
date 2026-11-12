@@ -2491,7 +2491,7 @@ fn a_test_declaration_carries_its_name_as_a_string() {
     }
 }
 
-/// [test-kind] `test KIND(ARGS) "name" (PARAMS) { … }`: any name is a kind
+/// [test-kind] `test KIND(ARGS) "name"(PARAMS) { … }`: any name is a kind
 /// (looked up where the test is expanded), its arguments are written as named
 /// arguments are, the parameters follow the name, and a test with no kind
 /// written has none. The parentheses may be left off without arguments.
@@ -2499,7 +2499,7 @@ fn a_test_declaration_carries_its_name_as_a_string() {
 fn a_test_carries_its_kind_arguments_and_parameters() {
     use salvo_syntax::ast::Item;
     let (module, diagnostics) = salvo_syntax::parse_module(
-        "test actor \"a\" {\n}\n\ntest actor(seed=-7) \"b\" {\n}\n\ntest \"c\" {\n}\n\ntest property(runs=20, seed=3) \"d\" (xs: List<Int>, i: Idx(xs) Int) {\n}\n",
+        "test actor \"a\" {\n}\n\ntest actor(seed=-7) \"b\" {\n}\n\ntest \"c\" {\n}\n\ntest property(runs=20, seed=3) \"d\"(xs: List<Int>, i: Idx(xs) Int) {\n}\n",
     );
     let errors: Vec<_> = diagnostics.iter().filter(|d| d.is_error()).collect();
     assert!(errors.is_empty(), "{errors:?}");

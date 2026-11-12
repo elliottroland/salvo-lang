@@ -626,7 +626,7 @@ export fn short_sum(xs: List<Int>) -> Int {
         dir.join("sums.test.sv"),
         r#"fn gen() -> Gen<Pair> by random
 
-test property(runs=3) "the sum adds everything" (xs: List<Int>) {
+test property(runs=3) "the sum adds everything"(xs: List<Int>) {
     let s = 0
     for x in xs {
         s = s + x
@@ -634,12 +634,12 @@ test property(runs=3) "the sum adds everything" (xs: List<Int>) {
     expect_eq(short_sum(xs), s)
 }
 
-test property "an index is in bounds" (xs: NonEmpty List<Int>, i: Idx(xs) Int) {
+test property "an index is in bounds"(xs: NonEmpty List<Int>, i: Idx(xs) Int) {
     expect(i >= 0 && i < size(xs), "in bounds")
     let _v: Int = get(xs, i)
 }
 
-test property "pairs add both ways" (p: Pair) {
+test property "pairs add both ways"(p: Pair) {
     expect_eq(p.a + p.b, p.b + p.a)
 }
 "#,

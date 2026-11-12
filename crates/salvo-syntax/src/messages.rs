@@ -1151,6 +1151,25 @@ messages! {
     syntax_expected_token = "syntax-expected:token" (expected: &str, found: &str) => format!(
         "expected {expected}, found {found}"
     );
+    /// A space or a line break between a name and the `(` of its argument
+    /// list: a call's, a declaration's parameters, a qualifier's or a type's
+    /// value arguments.
+    syntax_space_before_args = "syntax-space:before-args" (name: &str) => format!(
+        "no space or line break may come between a name and the `(` of its arguments or \
+         parameters: write `{name}(`"
+    );
+    /// A qualifier written against what it qualifies: a `(` touching its
+    /// name that holds a type rather than its arguments (`Mut(Str)`), or the
+    /// type touching its arguments' `)` (`proj(c)T`): then `qual` is the fix,
+    /// `proj(c) T`.
+    syntax_space_qualifier_touching = "syntax-space:qualifier-touching" (qual: &str, paren: bool) => if paren {
+        format!(
+            "`{qual}(` reads as `{qual}`'s arguments, but a type follows: a space separates a \
+             qualifier from the type it qualifies, `{qual} (…)`"
+        )
+    } else {
+        format!("a space separates a qualifier from the type it qualifies: write `{qual}`")
+    };
     /// An identifier was required.
     syntax_expected_identifier = "syntax-expected:identifier" (found: &str) => format!(
         "expected identifier, found {found}"

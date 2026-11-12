@@ -152,6 +152,114 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — Spacing tells a name's arguments from what a qualifier qualifies ([syntax-space] [ast-print] [qual-value-arg])
+
+User decision 2026-11-12, one rule everywhere: (1) no space between a name
+and the `(` of its argument list — calls, declarations, and a qualifier's
+or a type's value arguments; (2) always a space between a qualifier, with
+or without its arguments, and what it qualifies. It replaces the reading
+the entry "A type's parentheses only where the parser needs them" below
+recorded, where a qualifier's value arguments were recognised by their
+first entry whatever the spacing, so `Ok(1, 2)` and `Ok (1, 2)` were both
+`Ok` with two constants and a tuple of literal types needed `Ok ((1, 2))`.
+
+- **As built** (`parser.rs`): `Parser::touches_prev` compares the spans of
+  the `(` and the token before it; the lexer is unchanged. `args_touch`
+  refuses a gap before every argument list the parser reads as a name's
+  (`parse_call_args_inner`, so every call form; `parse_params`, so `fn`,
+  effect members, actor messages, handlers, a test's parameters, a rename;
+  a refn's list; a qualifier's, a struct's or a type declaration's slot
+  block; a test kind's
+  arguments; `holds proj(…)`; `refuse!`, `assert!`, `unreachable!`,
+  `todo!`, `whynot?`, `type?`, `type!`; a comptime expression's call), as
+  `syntax-space:before-args`, and reads the list all the same. In a type
+  (`parse_type_ref_opts`) a touching `(` is the arguments when it opens with
+  `?`, a value name or a constant, and otherwise
+  `syntax-space:qualifier-touching`, read as the qualified type (`Mut(Str)`,
+  `Ok(Int, Str)`, `once(() -> Int)`); a spaced one is the qualified type,
+  except where it can only be arguments (`?`, a value name; constants with
+  a type after the `)`, `InRange (0, 100) Int`, `paren_then_type`; constants
+  in an `is` test, `refs_only`), refused as `before-args` and read as them.
+  A type touching a qualifier's `)` (`proj(c)T`) is `qualifier-touching`,
+  naming the fix from the source (`Parser::text_of`, which knows an
+  interpolation's offset, `span_base`; `prev_text` takes the name with a
+  form's `!`/`?` or before its generics, `assert!(`, `generic<T>(`, a
+  test's `"y"(`). Messages: "no space or line break may come between a name
+  and the `(` of its arguments or parameters: write `size(`"; "`Mut(` reads as `Mut`'s arguments, but a type follows: a space
+  separates a qualifier from the type it qualifies, `Mut (…)`"; "a space
+  separates a qualifier from the type it qualifies: write `proj(xs) Int`".
+- **The checker** (agent's call, found probing the rule): a qualifier given
+  value arguments it has no slot for was accepted silently in a type
+  (`Ok(1, 2) Int`, `Mut(1) Str`, `NonEmpty(x) List<Int>` checked clean);
+  `validate_quals` now refuses arguments to a qualifier with no slots, a
+  declared one or the compiler's own (`Mut`, `Linear`, `once`; `proj` and
+  `ref` carry sources, not arguments), `qual-depend:no-value-args`, as an
+  `is` test already did. A wrong count
+  for one with slots (`InRange(1) Int`) is still accepted in a type
+  (ROADMAP §0av).
+- **Decided under the rule** (agent's calls): a newline before a `(`
+  outside brackets is no call, as before (a new statement); inside
+  brackets, where a newline ends nothing, it is refused as a space is. A
+  test's parameters touch its name string (`test property "x"(n: Int)`),
+  which is what the printer already wrote in std. Keywords are not names
+  (`if (a)`, `return (x)`, `while (c)`, `is (A | B)`); `throw` is a fn,
+  so `throw(e)` touches. Not covered, for the user (ROADMAP §0av): a
+  generic list's `<` may follow a space (`List <Int>`, `f <Int>(x)`), and
+  in a type even a line break outside brackets (`let xs: List` / `<Int> =
+  …` checks); `assert !(x)` is `assert!(x)`.
+- **The printer** (`print.rs`): `group_base_needs_parens` no longer adds a
+  pair where the base would read as the qualifier's value arguments
+  (`opens_like_value_args` is gone): `Ok (1, 2)`, `ref(c) (1, 2)` and `Ok (1)
+  -> R` print with the space and nothing more; a written pair is kept. It
+  already wrote every argument list touching its name and a space after a
+  qualifier and a keyword.
+- **What changed meaning** (the sweep of b43c3027, in `tmp/sweep/`, HEAD's
+  `salvo-syntax` as a second crate: every `.sv` file, whole and again each
+  `//---` program and `// FILE:` file on its own, every `salvo`/untagged/
+  `no-check` fence of the Markdown files and of comments, and every Rust
+  string holding a `(` or Salvo-like text, each as a module and wrapped in a
+  `fn`: 11,827 parses from 837 files, trees and diagnostics compared). Salvo
+  sources that differed, all a test's parameters after a space, rewritten
+  touching: `check/syntax/declarations.sv` (3 cases), `test_command_tests.rs`
+  (3 tests), `parser_tests.rs`'s
+  `a_test_carries_its_kind_arguments_and_parameters`, `Testing.md` (2
+  fences), and the comments that spell the form (`parser.rs`, `lang.rs`,
+  `lib/std/test/property.sv`, this file); and the print fixture
+  `type_parens`, rewritten (below). Every other difference was text that is
+  not Salvo (Rust host code in `run/platform/boundary.sv` and
+  `platform_tests.rs`, emitter `format!`s, prose in messages, shell and
+  directory-tree fences), whose parse errors only grew. No source wrote
+  `Ok(A, B)`, `Mut(…)` or a spaced call. `demo/demo.sv` (the user's, read
+  only) parses to the same tree and diagnostics under both rules.
+- **Nothing to reformat or regenerate**: `salvo fmt --check` over stage H's
+  scope (92 files) reports nothing, no std code line moved (the one std
+  edit is a comment), and `modules/aws/check.sh` passes whole with nothing
+  to regenerate (its generator writes no spaced call).
+- **Tests**: check data `syntax/spacing.sv` (the accepted forms with their
+  types, `Ok (1, 2)` against `Ok(1, 2) Int`, `InRange(0, 100) Int`,
+  `proj(xs) T`, `Heap<T>(?cmp) Mut List<T>`, keywords before a group, a
+  `(` on the next line; `before-args` for a call, a dot call, a generic
+  call, a type-named call, `assert!`, `use H ()`, `type?`, `type!`,
+  `whynot?`, a `(` on the next line inside brackets, `refuse!`, a fn, a
+  generic fn, an effect member, a handler, a qualifier's slots, a refn,
+  `holds proj`, a test's kind arguments and parameters, a qualifier's
+  arguments; `qualifier-touching` both ways; `Mut(1) Str`, `NonEmpty(1)
+  List<Int>` and `once(1) () -> Int` refused by the checker); canonical fixtures
+  `type_parens` (rewritten: `Ok (1, 2)` with no extra pair, `Ok(1, 2) Int`,
+  `ref(c) (1, 2)`, `Ok (1) -> R`, `Heap<T>(?cmp) Mut List<T>`) and
+  `name_spacing` (spaces normalized: `Ok   (1, 2)`, `if(a)` → `if (a)`,
+  `return(true)`).
+- **Docs**: [syntax-space] (new), [ast-print], [qual-value-arg];
+  `Qualifiers.md` ("Arguments and spacing"), `Functions.md` (its syntax
+  section), `Formatting.md`.
+- **Checked**: 765 tests under `cargo nextest run --no-fail-fast`, all
+  green, twice (before and after the review's fixes): 2m56 and 2m55 wall
+  (nextest's own 150s and 149s; the `salvo-syntax` change relinks every
+  binary and misses every CLI stamp; `run_data` 62–67s, the std test runs
+  34–55s). `cargo build` is
+  warning-free; std analyzes clean; `modules/aws/check.sh` passes whole
+  (1m32).
+
 ### 2026-11-12 — The operators break lines by tier; the pick binds between the pipe and `||` ([expr-wrap] [expr-infix] [elvis-wrap] [type-union] [fmt-width])
 
 User decisions 2026-11-12, partly reversing the entry below (which let every
@@ -445,6 +553,11 @@ an id of its own, `stmt-line:after-terminal`.
   to `braces_form`, were also green (2m56 and 2m53 wall, nextest's 149s).
 
 ### 2026-11-12 — A type's parentheses only where the parser needs them; `+Q` first; handlers without `()` ([ast-print])
+
+(Its reading of a qualifier's value arguments, by their first entry, and
+the pair it added for `Ok ((1, 2))`, were replaced the same day by the
+spacing rule, the entry at the top: `Ok (1, 2)` is the tuple, `Ok(1, 2)`
+the arguments, and `Ok(A, B)` an error.)
 
 User decisions 2026-11-12, for what stage H found (ROADMAP §0av): (A1) the
 printer adds a type's parentheses only where the parser needs them, with
@@ -2750,7 +2863,7 @@ the final report.
 
 `actor` and `property` (and plain `test "x"`) are not special: each is a
 **comptime fn whose first parameter has the comptime-struct type `Test`**,
-written in Salvo in std. `test property(runs=200) "name" (xs: List<Int>) { … }`
+written in Salvo in std. `test property(runs=200) "name"(xs: List<Int>) { … }`
 looks the kind up like a `by` template, passes `runs=200` as the fn's own
 argument, and stamps the fn at the test block. A user writes more of them
 (simulation tests, setup and teardown) the same way.

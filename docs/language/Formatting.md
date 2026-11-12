@@ -135,6 +135,13 @@ The standard library is formatted like any project: run `salvo fmt` in
   handler with no parameters is written without brackets (`handler H for
   E`), and a deduction entry writes the claims it establishes first
   (`list: Mut +Heap<T>(?cmp)` becomes `list: +Heap<T>(?cmp) Mut`).
+- **Spacing around parentheses**: an argument or parameter list touches its
+  name (`f(x)`, `fn f(x: Int)`, `InRange(0, 100)`), a qualifier is one space
+  from what it qualifies (`Ok (1, 2)`, `proj(xs) T`), and a keyword is one
+  space from a group after it (`if(a)` prints `if (a)`). These spaces are
+  part of the language, not only of the layout: a space before an argument
+  list, or none after a qualifier, is an error, so the formatter only ever
+  meets them written this way.
 - **Imports**: a file's imports are sorted by the imported path, and
   nothing else is reordered or removed. A comment written directly above
   an import moves with it, and a comment at the end of an import's line is
