@@ -1115,12 +1115,25 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     them, file by file; the print fixtures
     (`crates/salvo-core/tests/print/**`) stay as written by design.
     `demo/` is the user's.
-  * **DECISION: a fn type as a union's last arm** (agent's call, built
-    2026-11-12, COMPLETED.md): the printer groups it, `A | (() -> B)`,
-    though the parser needs no pair there (only an earlier arm's fn type
-    takes the arms after it), because `A | () -> B` reads as `(A | ()) ->
-    B`. No parsed file reaches it (a written pair is kept); a lowered type
-    printed in a dump or a diagnostic does. Keep it, or drop the pair.
+  * **Open defect: a checked type's text groups no fn type arm** (found
+    2026-11-12 closing the fn-arm decision, COMPLETED.md): diagnostics and
+    hovers print a `Ty` through its `Display` (`types.rs`), not the printer,
+    and it writes a union's arms bare and an array's element bare, so
+    `y: (() -> Int) | Int` assigned to a `Str` reports "found `() -> Int |
+    Int`", which reads as a fn returning `Int | Int`, and `x: Int | () ->
+    Int` reports "found `Int | () -> Int`"; `(Int | Str)[]` reports `Int |
+    Str[]`, `(() -> Int)[]` reports `() -> Int[]`, and `(() -> Int)?`
+    reports `() -> Int?` (`T | None` prints as `T?`), a fn returning `Int?`.
+    Repro, under `salvo analyze`:
+    ```salvo
+    fn g(x: Int | () -> Int, y: (() -> Int) | Int) -> None {
+        let z: Str = x
+        let w: Str = y
+    }
+    ```
+    The printer's rule
+    ([ast-print]) is the fix: a fn type arm, and a union or a fn type under
+    `[]` or `?`, in parentheses.
   * **DECISION: an order the printer does not keep** (found by stage H; the
     tree does not record it, so the output check passes): a fn's
     deduction clause prints before an implicit's (`=>[add] dest: Mut, !elem

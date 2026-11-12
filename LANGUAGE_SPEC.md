@@ -13346,8 +13346,12 @@ replaced the working document TESTING.md).
   qualifiers add none; a union or a spread under `?` or `[]` is grouped, and
   so is a type ending in a fn type's return type (a fn type, or qualifiers
   over one: `once () -> R` is `once (() -> R)`) under `?` or `[]` or as a
-  union's arm (the last too, an agent's call to confirm, ROADMAP §0av, so
-  `A | (() -> B)` does not read as `(A | ()) -> B`). After qualifiers a
+  union's arm. A fn type arm is grouped whatever its position (user
+  decision 2026-11-12): `(() -> A) | B`, `A | ((x: Int) -> B) | C`, `A |
+  (() -> B)`. Before another arm the parser needs the pair, since the
+  return type would take the arms after it; as the last arm it does not,
+  but `A | () -> B` would read as `(A | ()) -> B`, so it prints `A | (() ->
+  B)`. After qualifiers a
   tuple, a fn type and a literal stand as they
   are (`Ok (A, B)`, `once () -> R`, `Short "port"`) and anything else is
   grouped (`Ok (Ok Str | Err Int)`); the space after a qualifier is what

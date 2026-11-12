@@ -133,8 +133,14 @@ The standard library is formatted like any project: run `salvo fmt` in
   string). Parentheses are added only where precedence needs them.
 - **Canonical spellings** where the program reads the same either way: a
   handler with no parameters is written without brackets (`handler H for
-  E`), and a deduction entry writes the claims it establishes first
-  (`list: Mut +Heap<T>(?cmp)` becomes `list: +Heap<T>(?cmp) Mut`).
+  E`), a deduction entry writes the claims it establishes first
+  (`list: Mut +Heap<T>(?cmp)` becomes `list: +Heap<T>(?cmp) Mut`), and a
+  fn type that is an arm of a union is in parentheses wherever the arm
+  stands: `(() -> A) | B`, `A | ((x: Int) -> B) | C`, `A | (() -> B)`.
+  Before another arm the pair is needed, since a fn type's return type
+  would take the arms after it; as the last arm `A | () -> B` parses as
+  written, and the formatter adds the pair so it cannot be read as `(A |
+  ()) -> B`.
 - **Spacing around parentheses**: an argument or parameter list touches its
   name (`f(x)`, `fn f(x: Int)`, `InRange(0, 100)`), a qualifier is one space
   from what it qualifies (`Ok (1, 2)`, `proj(xs) T`), and a keyword is one

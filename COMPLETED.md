@@ -152,6 +152,54 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — A fn type in a union prints in parentheses, whatever the arm's position ([ast-print])
+
+User decision 2026-11-12, closing ROADMAP §0av's "a fn type as a union's
+last arm": the printer puts a fn type in parentheses whenever it is an arm
+of a union, first, middle or last: `(() -> A) | B`, `A | ((x: Int) -> B) |
+C`, `A | (() -> B)`. A printer rule only; what parses is unchanged (`A | ()
+-> B` still parses, as a union whose last arm is the fn type, and prints
+with the pair).
+
+- **Already built**: the agent's call in "A type's parentheses only where
+  the parser needs them" below had `Printer::ty_inner`'s union arm group
+  every arm `ends_in_fn` holds of (a fn type, or qualifiers over one, so
+  `A | (once () -> B)` too), the last included; the decision confirms it.
+  Code: only the comment there, which now states the rule. Checked with
+  `salvo fmt -` over each form: the pair is added to a bare last arm and
+  kept, not doubled, on a written one; inside a type argument (`List<A |
+  (() -> B)>`), a qualifier group (`Ok (A | (() -> B))`), a union under `?`
+  or `[]` (`(A | (() -> B))?`) and an effect's type argument (`[Throws<A |
+  (() -> B)>]`); a fn type under `?` or `[]` keeps its one pair, also as an
+  arm (`B | (() -> A)?`), and `() -> A?` stays a fn returning `A?`. An `is`
+  head reads type refs only (`x is A | () -> B` does not parse), so no fn
+  type reaches one; an effect list holds effects, not unions.
+- **Found** (ROADMAP §0av, open defect): a checked type's text in a
+  diagnostic or a hover is `Ty`'s `Display`, not the printer, and groups
+  nothing: `(() -> Int) | Int` reports as `() -> Int | Int`, `(Int |
+  Str)[]` as `Int | Str[]`.
+- **Nothing to reformat**: `salvo fmt --check` over stage H's scope
+  (`lib/std`, `examples/*/salvo`, `bench/*/salvo`, `modules/aws`'s
+  `salvo/aws.sv`, examples and demos: 92 files) reports nothing, so nothing
+  derived was regenerated.
+- **Tests**: canonical fixture `type_parens` gained `fn_arm_first`,
+  `fn_arm_middle` (each written with its pair, printed with one),
+  `fn_arm_last` (bare in a parameter and a return type, after two arms, a
+  qualified fn type; printed with the pair) and `fn_arm_nested` (the
+  positions above). The repo walk (`every_file_prints_to_its_own_tree`)
+  passes, its `bare` reparse included: that one forgets every written type
+  pair (`forget_type_parens`), so it is where the pair on a first or middle
+  fn type arm is added by the printer rather than kept.
+- **Docs**: [ast-print]; `Formatting.md`'s canonical spellings.
+- **Checked**: `cargo build` warning-free; 765 tests under `cargo nextest
+  run --no-fail-fast`: the first run (2m52 wall, nextest's 151s, the
+  `salvo-syntax` comment relinking every binary) failed only
+  `every_print_fixture_formats_as_expected` (a stale `type_parens.out.sv`
+  comment line), and after regenerating it the second was all green, 1m57
+  wall (nextest's 115s); a third after the review's wording fixes (the
+  `print.rs` comment again, so every binary relinked) all green, 2m48 wall
+  (nextest's 150s).
+
 ### 2026-11-12 — Spacing tells a name's arguments from what a qualifier qualifies ([syntax-space] [ast-print] [qual-value-arg])
 
 User decision 2026-11-12, one rule everywhere: (1) no space between a name
@@ -583,7 +631,9 @@ prints without brackets.
   arm groups a union, a spread or a type ending in a fn type (`ends_in_fn`:
   a fn type, or qualifiers over one), no longer a qualified type; a union's
   arm groups a union or a type ending in a fn type, the last arm too (agent's
-  call, open in ROADMAP §0av: `A | () -> B` parses, but reads as `(A | ())
+  call, confirmed by the user the same day, the entry "A fn type in a union
+  prints in parentheses, whatever the arm's position" above: `A | () -> B`
+  parses, but reads as `(A | ())
   -> B`); a spread's inner type the same (a spread's fn type before another
   arm would take it); the `QualifiedGroup` arm adds a pair only over what is
   not a tuple, a fn type or a literal, or where the base would read as value

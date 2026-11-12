@@ -2637,10 +2637,11 @@ impl<'n> Printer<'n> {
                     let breakable = self.group > 0;
                     self.frozen += 1;
                     self.bar_list(arms, t.span(), &gaps, breakable, |p, _, a| {
-                        // A fn type takes the arms after it into its return
-                        // type. As the last arm it needs no pair, but gets
-                        // one for the reader: `A | () -> B` reads as
-                        // `(A | ()) -> B`.
+                        // A fn type arm is grouped in every position. Before
+                        // another arm the parser needs the pair (the return
+                        // type would take the arms after it); as the last
+                        // arm only the reader needs it: `A | () -> B` reads
+                        // as `(A | ()) -> B`.
                         let paren = a.parens() == 0 && (matches!(a, Type::Union { .. }) || ends_in_fn(a));
                         if paren {
                             p.push("(");
