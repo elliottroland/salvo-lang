@@ -22,11 +22,13 @@ fn describe_container(xs: List<Int>) [Console] -> None => xs {
         sum = plus@std.core.basic(sum, n)
     }
     println@std.core.console("1. list of ${to_str@std.core.basic(size@std.core.list<Int>(xs))} sums to ${to_str@std.core.basic(sum)}")
+
     let letters: Mut Str = Mut Str()
     for c in "salvo" {
         append@std.core.string(letters, "${to_str@std.core.basic(c)}.")
     }
     println@std.core.console("1. string: ${to_str@std.core.string(letters#{as Str})}")
+
     let arr: Int[] = array_of@std.core.array<Int>(10, 20, 30)
     let from_array: Int = 0
     for n in arr {
@@ -251,8 +253,12 @@ fn first<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut {
 
 fn main() [use] {
     use StdConsole()
+
     let xs: NonEmpty List<Int> = List@std.core.list<Int>(1, 2, 3, 4)
     describe_container@main(xs)
+
+    // 2. a hand-written iterator, driven in two stages, then through a step
+    // under another name: `for n in skip(p)` re-invokes the call each turn.
     let p: Mut Countdown@main = countdown@main(5)
     take@main(p, 2)
     println@std.core.console("2. rest sums to ${to_str@std.core.basic(sum_of@main<Countdown@main>(p, next = next@main))}")
@@ -260,39 +266,74 @@ fn main() [use] {
     for n in skip@main(q) {
         println@std.core.console("2. skip ${to_str@std.core.basic(n)}")
     }
+
+    // 2b. the generated iterator: one declaration, and `halving(20)` mints one
+    // — driven straight away, or held and driven by anything that takes one.
     for n in halving@main(20) #{next@main} {
         println@std.core.console("2b. halving ${to_str@std.core.basic(n)}")
     }
     let hp: Mut Halving@main = halving@main(20)
     println@std.core.console("2b. summed from a held iterator: ${to_str@std.core.basic(sum_of@main<Halving@main>(hp, next = next@main))}")
     println@std.core.console("2b. first from a fn returning one: ${to_str@std.core.basic(first@main<Halving@main>(halving_from_ten@main(), next = next@main))}")
+
+    // 2c. a source: `for` over it mints with its `iter`, and so does a
+    // combinator over any source.
     let bag: Bag@main = Bag { items: List@std.core.list<Int>(7, 8) }
     for n in bag #{iter@main, next@main} {
         println@std.core.console("2c. bag ${to_str@std.core.basic(n)}")
     }
     println@std.core.console("2c. total of a bag ${to_str@std.core.basic(total@main<Bag@main, BagIter@main>(bag, iter = iter@main, next = next@main))}, of a list ${to_str@std.core.basic(total@main<NonEmpty List<Int>, ListIter<Int>>(xs, iter = iter@std.core.list, next = next@std.core.list))}")
+
+    // 3. an effectful iterator: `for` supplies the handler per turn. It cannot
+    // fill a *pure* `?Next` position, so a combinator over it would have to
+    // declare `[Console]` too — the ordinary effect rule.
     for n in fibs@main(6) #{next@main} {
         println@std.core.console("3. fib ${to_str@std.core.basic(n)}")
     }
+
+    // An unbounded one, stopped by the consumer.
     for n in naturals@main(10) #{next@main} {
         if cmp@std.core.basic(n, 12) > 0 {
             break
         }
         println@std.core.console("3. natural ${to_str@std.core.basic(n)}")
     }
+
+    // ===== 5. the sequence functions =====
+    //
+    // `map`/`filter`/`reduce` are eager and take an *iterator*: a container is
+    // iterated by writing its `iter`. A `List` has a fast path under the same
+    // name, which is why `map(xs, f)` still reads well.
     let doubled: Mut List<Int> = map@std.core.seq<Int, Int, ()>(xs, (n: Int) -> times@std.core.basic(n, 2))
     let odd: Mut List<Int> = filter@std.core.seq<Int, ()>(xs, (n: Int) -> eq@std.core.basic(n % 2, 1))
     let total: Int = reduce@std.core.seq<Int, Int, ()>(xs, 0, (acc: Int, n: Int) -> plus@std.core.basic(acc, n))
     println@std.core.console("5. list: ${to_str@std.core.basic(size@std.core.list<Int>(doubled#{as List<Int>}))} doubled, ${to_str@std.core.basic(size@std.core.list<Int>(odd#{as List<Int>}))} odd, total ${to_str@std.core.basic(total)}")
+
     let words: NonEmpty List<Str> = List@std.core.list<Str>("ann", "bo", "carol")
     let lengths: Mut List<Int> = map@std.core.seq<ListIter<Str>, proj Str, Int, ()>(iter@std.core.list<Str>(words), (w: proj Str) -> size@std.core.string(w#{as Str}), next = next@std.core.list)
     println@std.core.console("5. lengths: ${to_str@std.core.basic(reduce@std.core.seq<ListIter<Int>, Int, Int, ()>(iter@std.core.list<Int>(lengths#{as List<Int>}), 0, (acc: Int, n: Int) -> plus@std.core.basic(acc, n), next = next@std.core.list))}")
+
+    // `filter` returns a *view* of the elements it keeps, so what it walks
+    // has to outlive the result: a literal would die at the end of the line.
     let word: Str = "iteration"
     let vowels: Mut List<Char> = filter@std.core.seq<StrIter, Char, ()>(iter@std.core.string(word), (c: Char) -> eq@std.core.basic(c, 'i') || eq@std.core.basic(c, 'o'), next = next@std.core.string)
     println@std.core.console("5. vowels: ${to_str@std.core.basic(size@std.core.list<Char>(vowels#{as List<Char>}))}")
+
+    // An `iter fn`'s iterator composes with them exactly like a container's.
     println@std.core.console("5. halving total ${to_str@std.core.basic(reduce@std.core.seq<Halving@main, Int, Int, ()>(halving@main(20), 0, (acc: Int, n: Int) -> plus@std.core.basic(acc, n), next = next@main))}")
+
+    // ===== 6. mapping into a collection you provide =====
+    //
+    // `map_to` maps into a collection you provide and hands it back, reached
+    // through an `add` the call site resolves — so the destination need not be
+    // a `List`.
     let collected: Mut List<Int> = map_to@std.core.seq<List<Int>, Countdown@main, Int, Int>(Mut List<Int>(), countdown@main(3), (n: Int) -> times@std.core.basic(n, 10), add = add@std.core.list, next = next@main)
     println@std.core.console("6. collected ${to_str@std.core.basic(size@std.core.list<Int>(collected#{as List<Int>}))}")
+
+    // ===== 7. ranges =====
+    //
+    // std's `range` is an `iter fn` with three parameters and two delegating
+    // overloads returning its `Range`.
     let evens: Mut Str = Mut Str()
     for i in range@std.core.range(0, 10, 2) #{next@std.core.range} {
         append@std.core.string(evens, "${to_str@std.core.basic(i)} ")

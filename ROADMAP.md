@@ -1000,24 +1000,13 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   2026-11-11 are COMPLETED.md's formatter record, which each stage below
   cites). Built: the parser's tree is the source as written
   [syntax-lowered], with its grouping parentheses [expr-group] and its
-  literals' spellings [lit-spelling] (stage D), and the printer writes it
-  back [ast-print] — every std source, every example, the corpus and
-  `crates/salvo-core/tests/print/{sugar,spellings}.sv` parse back to the
-  same tree and print the same again, and the fixtures print back to their
-  own text byte for byte. Left, in the stages the user set:
-  * **E. Comments in bodies.** The lexer keeps own-line comments by line
-    (`Parser::comments`) only to attach doc runs; every other comment,
-    and every end-of-line comment, is dropped. Attach each to a node:
-    leading own-line runs, a trailing end-of-line one, a run before a
-    closing `}`; a comment inside a bracketed list forces the list to break
-    (stage F); a free-standing run (blank lines around it, a heading over a
-    group of fns) stays where it is; a module doc keeps its handling; no
-    comment or doc block is reflowed. Add comments to the round-trip test
-    (a fixture with comments in it) and test that none is lost.
-  * **E. Blank lines.** Blank lines inside a body are not in the tree: the
-    printer writes none. One or more written become exactly one; none at a
-    block's start or end; one between declarations (as now). A statement's
-    leading-blank flag, or a span gap the printer reads off the source.
+  literals' spellings [lit-spelling] (stage D), its comments and blank
+  lines beside it [fmt-comments] [fmt-blank-lines] (stage E), and the
+  printer writes it back [ast-print] — every `.sv` file of the repository
+  that parses prints keeping every comment, parses back to the same tree
+  and prints the same again, and the fixtures
+  (`crates/salvo-core/tests/print/{sugar,spellings,comments}.sv`) print back
+  to their own text byte for byte. Left, in the stages the user set:
   * **F. Line breaking at a width of 120, the author's breaks kept.** Every
     expression is printed on one line now. All-or-nothing per construct: a
     list or chain the author broke prints one item per line; one the author
@@ -1030,6 +1019,36 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     trailing newline, no trailing whitespace. The span a written group
     covers (`Span::parens` counts the pairs; the printer has the inner and
     outer ranges) is what a break inside parentheses needs.
+  * **DECISION: the agent's calls inside stage E, to confirm** (built
+    2026-11-11, COMPLETED.md's stage-E entry): (1) comments live beside the
+    tree (`Module::trivia`), not on nodes; (2) two one-line declarations
+    written on consecutive lines (imports, aliases, a body-less fn) keep no
+    blank line between them, where every other pair of declarations gets
+    one; (3) a module-level `use` prints where it was written, no longer
+    after the imports; (4) a body's members print in their written order,
+    no longer fields, then fns, then refns; (5) the dumps show the
+    comments, and a lowered module printed as source shows none.
+  * **What stage E left for F**: the blank line between two top-level
+    declarations is left out when both print on one line (`Top::one_line`,
+    a property of the tree); once F breaks a long one-liner across lines,
+    that predicate must read the printed shape instead, or the blank line
+    goes missing beside it. A list a comment breaks prints one item per line
+    with no trailing comma; F decides the commas with the rest of breaking.
+  * **Comments the printer moves** (stage E, 2026-11-11): a comment with no
+    slot moves to the next one, so a comment inside a declaration's header —
+    above a deduction clause written on its own line, as
+    `crates/salvo-core/tests/check/deduce/reapply.sv` writes its `//~`
+    annotations — prints at the start of the body (repro: `fn f(x: Int) ->
+    Int` / `// c` / `=> x {` / `}`). Harmless for text, but H would move
+    those annotations off the line they name; F's own-line deduction clause
+    (the [deduce-syntax] style) is the slot that keeps them.
+  * **Docs printed twice for a member on its container's line**: the parser
+    gives `actor effect E { send fn f() }`'s docs to the effect *and* to
+    `f` (the member's line is the comment's next line), so the printing
+    writes the run above both. Four test-data files do it
+    (`DOCS_ON_A_SHARED_LINE` in `print_tests.rs`). Refusing members on one
+    line (below) ends it, or the doc rule could take docs only for a
+    declaration that starts its line, as fields already do.
   * **G. The command**: `salvo fmt [paths]` writing files in place (default:
     the project's source roots), `--check` (exit non-zero and name the
     files that would change), `-` / stdin to stdout for editors, the

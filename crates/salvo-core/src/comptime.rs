@@ -661,9 +661,13 @@ fn run<M: crate::expand::ModuleSlot>(
         // compile-time intrinsics [comptime-eval-fns]: heads, which call
         // them, are gone.
         let before = module.items.len();
-        module
-            .items
-            .retain(|item| !matches!(item, Item::Test(_)) && !matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) || (f.compfn.is_some() && f.intrinsic) || is_test_kind(f)));
+        let leaves = |item: &Item| matches!(item, Item::Test(_)) || matches!(item, Item::Fn(f) if f.compfn.as_ref().is_some_and(|c| c.bound.is_some()) || (f.compfn.is_some() && f.intrinsic) || is_test_kind(f));
+        // [fmt-comments] Their comments leave with them.
+        let gone: Vec<salvo_syntax::Span> = module.items.iter().filter(|i| leaves(i)).map(Item::span).collect();
+        for span in gone {
+            module.trivia.forget_comments_in(span);
+        }
+        module.items.retain(|item| !leaves(item));
         // [decl-id] A module that gained or lost a declaration: a scope that
         // took it in is built again over the stamped program, the rest are
         // viewed (`resolve::resolve`).

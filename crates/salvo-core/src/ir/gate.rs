@@ -99,7 +99,7 @@ impl Gate {
         let within = |s: Span| d.span.start >= s.start && d.span.start < s.end.max(s.start + 1);
         let mut found = false;
         for (i, item) in module.items.iter().enumerate() {
-            let Some(span) = item_span(item) else { continue };
+            let span = item.span();
             if !within(span) {
                 continue;
             }
@@ -123,24 +123,6 @@ impl Gate {
             self.files.insert(file);
         }
     }
-}
-
-fn item_span(item: &Item) -> Option<Span> {
-    Some(match item {
-        Item::Import(i) => i.span,
-        Item::Type(t) => t.span,
-        Item::Struct(s) => s.span,
-        Item::Qualifier(q) => q.span,
-        Item::Effect(e) => e.span,
-        Item::Handler(h) => h.span,
-        Item::Fns(p) => p.span,
-        Item::Fn(f) => f.span,
-        Item::EffectAlias(a) => a.span,
-        Item::Namespace(n) => n.span,
-        Item::Refn(r) => r.span,
-        Item::Rename(r) => r.span,
-        Item::Test(t) => t.span,
-    })
 }
 
 /// [ir-analyze] Which declarations of the built IR the checks run on: not a

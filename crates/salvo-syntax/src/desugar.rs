@@ -1514,6 +1514,7 @@ pub fn lower_module(module: &mut Module) -> Vec<Diagnostic> {
     lower_sugar(module);
     diags.extend(expand_iter_fns(module));
     lower_picks(module);
+    module.trivia.lowered = true;
     diags
 }
 

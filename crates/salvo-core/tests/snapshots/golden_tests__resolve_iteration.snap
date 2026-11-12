@@ -22,17 +22,19 @@ fn describe_container(xs: List<Int>) [Console] -> None => xs {
         sum#{15:9} = sum#{15:9} + n#{16:9}
     }
     println("1. list of ${size(xs#{14:23})} sums to ${sum#{15:9}}")
+
     let letters = Mut Str()
     for c in "salvo" {
-        append(letters#{20:9}, "${c#{21:9}}.")
+        append(letters#{21:9}, "${c#{22:9}}.")
     }
-    println("1. string: ${letters#{20:9}}")
+    println("1. string: ${letters#{21:9}}")
+
     let arr = array_of(10, 20, 30)
     let from_array = 0
-    for n in arr#{25:9} {
-        from_array#{26:9} = from_array#{26:9} + n#{27:9}
+    for n in arr#{27:9} {
+        from_array#{28:9} = from_array#{28:9} + n#{29:9}
     }
-    println("1. array sums to ${from_array#{26:9}}")
+    println("1. array sums to ${from_array#{28:9}}")
 }
 
 // ===== 2. an iterator struct of your own, written out =====
@@ -49,40 +51,40 @@ struct Countdown : Next<self, Int> canbe Mut {
 }
 
 fn countdown(from: Int) -> Mut Countdown@main {
-    return Mut Countdown@main { at: from#{46:14} }
+    return Mut Countdown@main { at: from#{48:14} }
 }
 
 // Advancing is a mutation of the position, which is why the parameter is
 // `Mut` and is handed back with `=> p: Mut`.
 fn next(p: Mut Countdown@main) -> Emitted Int | Finished => p: Mut {
-    if p#{52:9}.at <= 0 {
+    if p#{54:9}.at <= 0 {
         return finished()
     }
-    let now = copy(p#{52:9}.at)
-    p#{52:9}.at = p#{52:9}.at - 1
-    return emitted(now#{56:9})
+    let now = copy(p#{54:9}.at)
+    p#{54:9}.at = p#{54:9}.at - 1
+    return emitted(now#{58:9})
 }
 
 // A second step over the same struct, under another name. Only `next` is the
 // canonical one `for p in …` drives; this one is driven by naming the call:
 // `for n in skip(p)`.
 fn skip(p: Mut Countdown@main) -> Emitted Int | Finished => p: Mut {
-    if p#{64:9}.at <= 1 {
+    if p#{66:9}.at <= 1 {
         return finished()
     }
-    let now = copy(p#{64:9}.at)
-    p#{64:9}.at = p#{64:9}.at - 2
-    return emitted(now#{68:9})
+    let now = copy(p#{66:9}.at)
+    p#{66:9}.at = p#{66:9}.at - 2
+    return emitted(now#{70:9})
 }
 
 // An iterator is a value, so it can be driven in stages: this loop leaves the
 // iterator where the `break` found it, and the caller carries on from there.
 fn take(p: Mut Countdown@main, count: Int) [Console] -> None => p: Mut {
     let seen = 0
-    for n in p#{75:9} {
-        println("2. got ${n#{77:9}}")
-        seen#{76:9} = seen#{76:9} + 1
-        if seen#{76:9} == count#{75:27} {
+    for n in p#{77:9} {
+        println("2. got ${n#{79:9}}")
+        seen#{78:9} = seen#{78:9} + 1
+        if seen#{78:9} == count#{77:27} {
             break
         }
     }
@@ -109,17 +111,17 @@ struct Halving : Next<self, Int> canbe Mut {
 //
 // Mints a fresh `Halving` — generated from `iter fn halving` [iter-fn].
 fn halving(start: Int) [] -> Mut Halving@main {
-    return Mut Halving@main { start: start#{106:12}, at: start#{106:12} }
+    return Mut Halving@main { start: start#{108:12}, at: start#{108:12} }
 }
 
 // The step of `iter fn halving`, generated from its body [iter-fn].
 fn next(__p: Mut Halving@main) -> Emitted Int | Finished => __p: Mut {
-    if __p#{111:9}.at <= 0 {
+    if __p#{113:9}.at <= 0 {
         return finished()
     }
-    let now = copy(__p#{111:9}.at)
-    __p#{111:9}.at = __p#{111:9}.at / 2
-    return emitted(now#{115:9})
+    let now = copy(__p#{113:9}.at)
+    __p#{113:9}.at = __p#{113:9}.at / 2
+    return emitted(now#{117:9})
 }
 
 // The struct is an ordinary type, so a fn handing one out names it.
@@ -147,17 +149,17 @@ struct BagIter : Next<self, Int> canbe Mut {
 //
 // Mints a fresh `BagIter` — generated from `iter fn iter` [iter-fn].
 fn iter(bag: Bag@main) [] -> Mut BagIter@main => bag {
-    return Mut BagIter@main { bag: bag#{144:9}, at: 0 }
+    return Mut BagIter@main { bag: bag#{146:9}, at: 0 }
 }
 
 // The step of `iter fn iter`, generated from its body [iter-fn].
 fn next(__p: Mut BagIter@main) -> Emitted Int | Finished => __p: Mut {
-    let e = get(__p#{149:9}.bag.items, __p#{149:9}.at)
-    if e#{150:9} is None {
+    let e = get(__p#{151:9}.bag.items, __p#{151:9}.at)
+    if e#{152:9} is None {
         return finished()
     }
-    __p#{149:9}.at = __p#{149:9}.at + 1
-    return emitted(copy(e#{150:9}))
+    __p#{151:9}.at = __p#{151:9}.at + 1
+    return emitted(copy(e#{152:9}))
 }
 
 // The iterator struct of `iter fn fibs`, generated from it [iter-fn].
@@ -176,21 +178,21 @@ struct Fibs : Next<self, Int, [Console]> canbe Mut {
 //
 // Mints a fresh `Fibs` — generated from `iter fn fibs` [iter-fn].
 fn fibs(count: Int) [] -> Mut Fibs@main {
-    return Mut Fibs@main { count: count#{173:9}, a: 0, b: 1, made: 0 }
+    return Mut Fibs@main { count: count#{175:9}, a: 0, b: 1, made: 0 }
 }
 
 // The step of `iter fn fibs`, generated from its body [iter-fn].
 fn next(__p: Mut Fibs@main) [Console] -> Emitted Int | Finished => __p: Mut {
-    if __p#{178:9}.made >= __p#{178:9}.count {
+    if __p#{180:9}.made >= __p#{180:9}.count {
         println("3. finished")
         return finished()
     }
-    let now = copy(__p#{178:9}.a)
-    let sum = __p#{178:9}.a + __p#{178:9}.b
-    __p#{178:9}.a = copy(__p#{178:9}.b)
-    __p#{178:9}.b = copy(sum#{184:9})
-    __p#{178:9}.made = __p#{178:9}.made + 1
-    return emitted(now#{183:9})
+    let now = copy(__p#{180:9}.a)
+    let sum = __p#{180:9}.a + __p#{180:9}.b
+    __p#{180:9}.a = copy(__p#{180:9}.b)
+    __p#{180:9}.b = copy(sum#{186:9})
+    __p#{180:9}.made = __p#{180:9}.made + 1
+    return emitted(now#{185:9})
 }
 
 // The iterator struct of `iter fn naturals`, generated from it [iter-fn].
@@ -205,14 +207,14 @@ struct Naturals : Next<self, Int> canbe Mut {
 //
 // Mints a fresh `Naturals` — generated from `iter fn naturals` [iter-fn].
 fn naturals(from: Int) [] -> Mut Naturals@main {
-    return Mut Naturals@main { from: from#{202:13}, at: from#{202:13} }
+    return Mut Naturals@main { from: from#{204:13}, at: from#{204:13} }
 }
 
 // The step of `iter fn naturals`, generated from its body [iter-fn].
 fn next(__p: Mut Naturals@main) -> Emitted Int | Finished => __p: Mut {
-    let now = copy(__p#{207:9}.at)
-    __p#{207:9}.at = __p#{207:9}.at + 1
-    return emitted(now#{208:9})
+    let now = copy(__p#{209:9}.at)
+    __p#{209:9}.at = __p#{209:9}.at + 1
+    return emitted(now#{210:9})
 }
 
 // ===== 4. combinators of your own =====
@@ -223,10 +225,10 @@ fn next(__p: Mut Naturals@main) -> Emitted Int | Finished => __p: Mut {
 // is driven exactly like a named one.
 fn sum_of<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut {
     let total = 0
-    for n in it#{219:15} {
-        total#{220:9} = total#{220:9} + n#{221:9}
+    for n in it#{221:15} {
+        total#{222:9} = total#{222:9} + n#{223:9}
     }
-    return total#{220:9}
+    return total#{222:9}
 }
 
 // `?Iter<C, It, T>` is the same over a *source*: it brings in the `iter` that
@@ -234,68 +236,107 @@ fn sum_of<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut {
 // container itself — a `Bag`, a `List`, anything with an `iter`.
 fn total<C, It>(c: C, ?Iter<C, It, Int>) -> Int => c {
     let total = 0
-    for n in c#{230:17} {
-        total#{231:9} = total#{231:9} + n#{232:9}
+    for n in c#{232:17} {
+        total#{233:9} = total#{233:9} + n#{234:9}
     }
-    return total#{231:9}
+    return total#{233:9}
 }
 
 // Any iterator struct emitting `Int`: a generic with its `?Next` spread, so a
 // hand-written struct and an `iter fn`'s both fit.
 fn first<It>(it: Mut It, ?Next<It, Int>) -> Int => it: Mut {
-    for n in it#{240:14} {
-        return n#{241:9}
+    for n in it#{242:14} {
+        return n#{243:9}
     }
     return -1
 }
 
 fn main() [use] {
     use StdConsole()
+
     let xs = List(1, 2, 3, 4)
-    describe_container@main(xs#{249:9})
+    describe_container@main(xs#{252:9})
+
+    // 2. a hand-written iterator, driven in two stages, then through a step
+    // under another name: `for n in skip(p)` re-invokes the call each turn.
     let p = countdown@main(5)
-    take@main(p#{251:9}, 2)
-    println("2. rest sums to ${sum_of@main(p#{251:9})}")
+    take@main(p#{257:9}, 2)
+    println("2. rest sums to ${sum_of@main(p#{257:9})}")
     let q = countdown@main(6)
-    for n in skip@main(q#{254:9}) {
-        println("2. skip ${n#{255:9}}")
+    for n in skip@main(q#{260:9}) {
+        println("2. skip ${n#{261:9}}")
     }
+
+    // 2b. the generated iterator: one declaration, and `halving(20)` mints one
+    // — driven straight away, or held and driven by anything that takes one.
     for n in halving@main(20) {
-        println("2b. halving ${n#{258:9}}")
+        println("2b. halving ${n#{267:9}}")
     }
     let hp = halving@main(20)
-    println("2b. summed from a held iterator: ${sum_of@main(hp#{261:9})}")
+    println("2b. summed from a held iterator: ${sum_of@main(hp#{270:9})}")
     println("2b. first from a fn returning one: ${first#{@main, @std.core.array, @std.core.deque, … 1 more}(halving_from_ten@main())}")
+
+    // 2c. a source: `for` over it mints with its `iter`, and so does a
+    // combinator over any source.
     let bag = Bag@main { items: List(7, 8) }
-    for n in bag#{264:9} {
-        println("2c. bag ${n#{265:9}}")
+    for n in bag#{276:9} {
+        println("2c. bag ${n#{277:9}}")
     }
-    println("2c. total of a bag ${total@main(bag#{264:9})}, of a list ${total@main(xs#{249:9})}")
+    println("2c. total of a bag ${total@main(bag#{276:9})}, of a list ${total@main(xs#{252:9})}")
+
+    // 3. an effectful iterator: `for` supplies the handler per turn. It cannot
+    // fill a *pure* `?Next` position, so a combinator over it would have to
+    // declare `[Console]` too — the ordinary effect rule.
     for n in fibs@main(6) {
-        println("3. fib ${n#{269:9}}")
+        println("3. fib ${n#{285:9}}")
     }
+
+    // An unbounded one, stopped by the consumer.
     for n in naturals@main(10) {
-        if n#{272:9} > 12 {
+        if n#{290:9} > 12 {
             break
         }
-        println("3. natural ${n#{272:9}}")
+        println("3. natural ${n#{290:9}}")
     }
-    let doubled = map(xs#{249:9}, (n) -> n#{278:28} * 2)
-    let odd = filter(xs#{249:9}, (n) -> n#{279:27} % 2 == 1)
-    let total = reduce(xs#{249:9}, 0, (acc, n) -> acc#{280:32} + n#{280:37})
-    println("5. list: ${size(doubled#{278:9})} doubled, ${size(odd#{279:9})} odd, total ${total#{280:9}}")
+
+    // ===== 5. the sequence functions =====
+    //
+    // `map`/`filter`/`reduce` are eager and take an *iterator*: a container is
+    // iterated by writing its `iter`. A `List` has a fast path under the same
+    // name, which is why `map(xs, f)` still reads well.
+    let doubled = map(xs#{252:9}, (n) -> n#{302:28} * 2)
+    let odd = filter(xs#{252:9}, (n) -> n#{303:27} % 2 == 1)
+    let total = reduce(xs#{252:9}, 0, (acc, n) -> acc#{304:32} + n#{304:37})
+    println("5. list: ${size(doubled#{302:9})} doubled, ${size(odd#{303:9})} odd, total ${total#{304:9}}")
+
     let words = List("ann", "bo", "carol")
-    let lengths = map(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(words#{282:9}), (w) -> size(w#{283:37}))
-    println("5. lengths: ${reduce(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(lengths#{283:9}), 0, (acc, n) -> acc#{284:54} + n#{284:59})}")
+    let lengths = map(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(words#{307:9}), (w) -> size(w#{308:37}))
+    println("5. lengths: ${reduce(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(lengths#{308:9}), 0, (acc, n) -> acc#{309:54} + n#{309:59})}")
+
+    // `filter` returns a *view* of the elements it keeps, so what it walks
+    // has to outlive the result: a literal would die at the end of the line.
     let word = "iteration"
-    let vowels = filter(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(word#{285:9}), (c) -> c#{286:38} == 'i' || c#{286:38} == 'o')
-    println("5. vowels: ${size(vowels#{286:9})}")
-    println("5. halving total ${reduce(halving@main(20), 0, (acc, n) -> acc#{288:57} + n#{288:62})}")
-    let collected = map_to(Mut List<Int>(), countdown@main(3), (n: Int) -> n#{289:60} * 10)
-    println("6. collected ${size(collected#{289:9})}")
+    let vowels = filter(iter#{@main, @std.core.array, @std.core.buffer, … 7 more}(word#{313:9}), (c) -> c#{314:38} == 'i' || c#{314:38} == 'o')
+    println("5. vowels: ${size(vowels#{314:9})}")
+
+    // An `iter fn`'s iterator composes with them exactly like a container's.
+    println("5. halving total ${reduce(halving@main(20), 0, (acc, n) -> acc#{318:57} + n#{318:62})}")
+
+    // ===== 6. mapping into a collection you provide =====
+    //
+    // `map_to` maps into a collection you provide and hands it back, reached
+    // through an `add` the call site resolves — so the destination need not be
+    // a `List`.
+    let collected = map_to(Mut List<Int>(), countdown@main(3), (n: Int) -> n#{325:60} * 10)
+    println("6. collected ${size(collected#{325:9})}")
+
+    // ===== 7. ranges =====
+    //
+    // std's `range` is an `iter fn` with three parameters and two delegating
+    // overloads returning its `Range`.
     let evens = Mut Str()
     for i in range(0, 10, 2) {
-        append(evens#{291:9}, "${i#{292:9}} ")
+        append(evens#{332:9}, "${i#{333:9}} ")
     }
-    println("7. evens ${evens#{291:9}}")
+    println("7. evens ${evens#{332:9}}")
 }

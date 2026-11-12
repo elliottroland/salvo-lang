@@ -406,13 +406,15 @@ fn every_source_file_as_written_prints_to_its_own_tree() {
 /// statements and heads (ROADMAP §0av).
 const NOT_YET_PRINTED: &[&str] = &[];
 
-/// [ast-print] [syntax-lowered] [expr-group] [lit-spelling] Each print
-/// fixture, written in the printer's layout, prints back byte for byte:
-/// `sugar.sv` each piece of sugar as it was written, not as what it stands
-/// for; `spellings.sv` the parentheses and the literals as written.
+/// [ast-print] [syntax-lowered] [expr-group] [lit-spelling] [fmt-comments]
+/// [fmt-blank-lines] Each print fixture, written in the printer's layout,
+/// prints back byte for byte: `sugar.sv` each piece of sugar as it was
+/// written, not as what it stands for; `spellings.sv` the parentheses and
+/// the literals as written; `comments.sv` a comment in every slot and the
+/// blank lines between statements, members and declarations.
 #[test]
 fn every_print_fixture_prints_as_written() {
-    for name in ["sugar.sv", "spellings.sv"] {
+    for name in ["sugar.sv", "spellings.sv", "comments.sv"] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print").join(name);
         let text = std::fs::read_to_string(&path).unwrap();
         let (module, diags) = salvo_syntax::parse_module(&text);
@@ -453,4 +455,201 @@ fn a_lowered_trailing_replyto_is_marked_in_a_dump() {
     let want = "    total(n, replyto got(n, replyto done()))#{desugared from `total(n) replyto got(n) replyto done()`}\n    total(n, replyto got(n))\n";
     assert!(dump.contains(want), "missing `{want}` in:\n{dump}");
     assert_eq!(dump.matches("desugared").count(), 1, "{dump}");
+}
+
+/// Every `.sv` file of the repository: its sources, examples, benchmarks,
+/// modules and test data, but not what a build or a tool wrote (`target/`,
+/// `tmp/`, `wiki/`, `build/` and hidden directories).
+fn every_sv_file() -> Vec<std::path::PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let p = e.path();
+            let name = e.file_name().to_string_lossy().to_string();
+            if p.is_dir() {
+                if !(name.starts_with('.') || ["target", "tmp", "wiki", "build", "node_modules"].contains(&name.as_str())) {
+                    walk(&p, out);
+                }
+            } else if p.extension().is_some_and(|x| x == "sv") {
+                out.push(p);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."), &mut out);
+    out.sort();
+    out
+}
+
+/// [fmt-comments] Each comment's text, as written, counted.
+fn comment_texts(source: &str) -> std::collections::BTreeMap<String, usize> {
+    let mut out = std::collections::BTreeMap::new();
+    for c in salvo_syntax::lexer::lex(source).comments {
+        *out.entry(source[c.span.start as usize..c.span.end as usize].to_string()).or_insert(0) += 1;
+    }
+    out
+}
+
+/// [fmt-comments] [fmt-blank-lines] [ast-print] The formatter's guarantees
+/// over every `.sv` file of the repository that parses (test data that is
+/// meant not to parse is skipped): its printing keeps every comment, as
+/// written, as often as it was written; parses to the same tree; and prints
+/// the same again.
+#[test]
+fn every_file_prints_keeping_its_comments() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let paths = every_sv_file();
+    assert!(paths.len() > 500, "found only {} files", paths.len());
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for path in &paths {
+        let text = std::fs::read_to_string(path).unwrap();
+        let (module, diags) = salvo_syntax::parse_module(&text);
+        if diags.iter().any(|d| d.is_error()) {
+            continue;
+        }
+        checked += 1;
+        let name = path.strip_prefix(&root).unwrap_or(path).display().to_string();
+        let printed = print_module(&module).text;
+        let (before, after) = (comment_texts(&text), comment_texts(&printed));
+        // A container's docs the parser also gives the member written on
+        // its line (ROADMAP §0av, members on one line) print above both.
+        let duplicated = DOCS_ON_A_SHARED_LINE.contains(&name.as_str());
+        if duplicated && before == after {
+            failures.push(format!("{name}: keeps its comments now: take it off `DOCS_ON_A_SHARED_LINE`"));
+        }
+        if before != after && !duplicated {
+            let lost: Vec<String> = before.iter().filter(|(t, n)| after.get(*t) != Some(n)).map(|(t, n)| format!("{n} x {t}")).collect();
+            let gained: Vec<String> = after.iter().filter(|(t, n)| before.get(*t) != Some(n)).map(|(t, n)| format!("{n} x {t}")).collect();
+            failures.push(format!("{name}: comments differ\n  written: {}\n  printed: {}", lost.join("\n           "), gained.join("\n           ")));
+            continue;
+        }
+        if let Some(why) = written_difference(&name, &text) {
+            failures.push(why);
+        }
+    }
+    assert!(checked > 400, "only {checked} files parse");
+    assert!(failures.is_empty(), "{} of {checked} files:\n{}", failures.len(), failures.join("\n\n"));
+}
+
+/// The files whose first member is written on its container's line under the
+/// container's docs, which the parser gives both (ROADMAP §0av): printed,
+/// the docs are above each.
+const DOCS_ON_A_SHARED_LINE: &[&str] = &[
+    "crates/salvo-backend-rust/tests/emit/effects/effect_generics_erased.sv",
+    "crates/salvo-cli/tests/run/network/the_network_sequence_step_actor_groups.sv",
+    "crates/salvo-core/tests/check/actors/self_send.sv",
+    "crates/salvo-core/tests/check/eff_handle/handles.sv",
+];
+
+/// [fmt-blank-lines] [fmt-comments] What the printer changes of a layout:
+/// blank lines written in a run print as one, and none at a body's start or
+/// end; consecutive one-line declarations stay together, and any other two
+/// get one blank line; a comment between a branch's `}` and its `elif`
+/// closes the branch; one inside a list that has no slot for it stays on the
+/// line it was written on.
+#[test]
+fn a_layout_prints_in_the_printers_blank_lines() {
+    let written = "import a
+import b
+type A = Int
+fn f() {}
+type B = Int
+
+
+type C = Int
+fn g(x: Int) -> Int {
+
+
+    let a = 1
+
+
+
+    let b = 2
+
+    // a free-standing comment
+
+
+    return a
+
+}
+fn h(x: Int) -> Int {
+    if x > 0 {
+        return 1
+    }
+    // before the elif
+    elif x < 0 {
+        return 2
+    }
+    return 3
+}
+";
+    let want = "import a
+import b
+type A = Int
+fn f() {}
+type B = Int
+
+type C = Int
+
+fn g(x: Int) -> Int {
+    let a = 1
+
+    let b = 2
+
+    // a free-standing comment
+
+    return a
+}
+
+fn h(x: Int) -> Int {
+    if x > 0 {
+        return 1
+        // before the elif
+    } elif x < 0 {
+        return 2
+    }
+    return 3
+}
+";
+    let (module, diags) = salvo_syntax::parse_module(written);
+    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
+    let printed = print_module(&module).text;
+    assert_eq!(printed, want);
+    let (again, _) = salvo_syntax::parse_module(&printed);
+    assert_eq!(print_module(&again).text, want, "printed again");
+}
+
+/// [fmt-comments] [doc-comment] A comment the printer has to move never
+/// lands directly above a declaration, where it would read back as its docs:
+/// one written inside a declaration's header goes to the next slot, and the
+/// docs stay the declaration's.
+#[test]
+fn a_moved_comment_never_becomes_docs() {
+    let written = "fn f(x: Int) -> Int
+// inside the header
+=> x {
+    return x
+}
+// the docs of g
+fn g() {}
+";
+    let (module, diags) = salvo_syntax::parse_module(written);
+    assert!(!diags.iter().any(|d| d.is_error()), "{diags:?}");
+    let printed = print_module(&module).text;
+    let (again, _) = salvo_syntax::parse_module(&printed);
+    let docs = |m: &salvo_syntax::ast::Module| -> Vec<Vec<String>> { m.items.iter().filter_map(|i| if let salvo_syntax::ast::Item::Fn(f) = i { Some(f.docs.clone()) } else { None }).collect() };
+    assert_eq!(docs(&module), docs(&again), "{printed}");
+    assert_eq!(docs(&again), vec![Vec::<String>::new(), vec!["the docs of g".to_string()]], "{printed}");
+    assert!(printed.contains("// inside the header"), "{printed}");
+
+    // Inside a body-less member's header: printed after it, a blank line
+    // between it and the next member, which keeps no docs.
+    let written = "effect E {\n    fn f(x: Int) -> Int\n    // inside the header\n    => x\n    fn g() -> None\n}\n";
+    let (module, _) = salvo_syntax::parse_module(written);
+    let printed = print_module(&module).text;
+    assert_eq!(printed, "effect E {\n    fn f(x: Int) -> Int => x\n    // inside the header\n\n    fn g() -> None\n}\n");
+    let (again, _) = salvo_syntax::parse_module(&printed);
+    let Some(salvo_syntax::ast::Item::Effect(e)) = again.items.first() else { panic!("{printed}") };
+    assert!(e.fns.iter().all(|f| f.docs.is_empty()), "{printed}");
 }

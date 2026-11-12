@@ -13206,8 +13206,9 @@ replaced the working document TESTING.md).
   printer's (four-space indentation, one paragraph per declaration, the
   items in their order with the imports the file opens with as one
   paragraph, a struct's attached fns back in its body [fn-attached], a
-  flattened declaration back in its `namespace` [mod-namespace]); comments
-  in bodies are not kept, doc comments are. A module **as written**
+  flattened declaration back in its `namespace` [mod-namespace]); every
+  comment and the written blank lines are kept [fmt-comments]
+  [fmt-blank-lines]. A module **as written**
   (`parse_module`) prints as written [syntax-lowered]: its sugar,
   its namespaces and their `...`, its terminal bodies, and its comptime
   statements, heads, calls and splices (`[for …]`, `[if …] … else { … }`,
@@ -13244,8 +13245,9 @@ replaced the working document TESTING.md).
   module (expanded), every example's and every source file print back to
   their own trees and print stably, as written and as lowered, and that
   `tests/print/sugar.sv` (each piece of sugar in each position, the
-  comptime forms) and `tests/print/spellings.sv` (parentheses and literals
-  as written) print back to their own text, byte for byte.
+  comptime forms), `tests/print/spellings.sv` (parentheses and literals
+  as written) and `tests/print/comments.sv` (a comment in every slot)
+  print back to their own text, byte for byte.
 * [expr-group] **Grouping parentheses are kept as written, as spelling**
   (user decision 2026-11-11, for `salvo fmt`: "KEEP what was written").
   `(x)`, `((a + b))`, `(a && b) || c`, a parenthesized condition, a grouped
@@ -13286,6 +13288,75 @@ replaced the working document TESTING.md).
   compile-time expression's literals (`[if n == 1_000]`), which print in
   the printer's spelling (ROADMAP §0av). Salvo has no hex, `\u{…}` or raw
   string literals.
+* [fmt-comments] **Every comment prints back, as written, where it was
+  written** (user decisions 2026-11-11, for `salvo fmt`). The comments that
+  are no docs [doc-comment] [doc-module] are the module's **trivia**
+  (`Module::trivia`, `salvo_syntax::trivia`: each with its offset, its text
+  from `//` to the line's end, and whether code precedes it on its line),
+  beside the tree rather than in it: no phase after the parse reads them,
+  `Trivia`'s `==` is always true and the tree's debug form leaves it out, so
+  the checker, the IR, the backends and the parser snapshots see the same
+  tree as before. The parser tells the two apart exactly as it did: the
+  lines a declaration's [doc-comment] run or the module's [doc-module] run
+  took (`Parser::doc_lines`) are docs, every other comment is trivia; the
+  trivia also holds the docs as written (`doc_comments`), which the printer
+  writes in place of `// ` and the text when it finds them above their
+  declaration. The printer [ast-print] places each comment by its offset
+  among the nodes it prints, in source order, at the slots of a **run** (a
+  body's statements, declarations, members or fields; a `when`'s arms; a
+  broken list's items):
+  * a run of own-line comments before an element is printed above it (its
+    **leading** comment), with the blank line before it the source had;
+  * a comment after code on the element's last line is printed at the end
+    of that line (its **trailing** comment);
+  * a run after the last element, before the closing `}` (or `)`, `]`,
+    `>`), is printed there (the container's **closing** comment); one
+    written between a branch's `}` and the `elif` or `else` after it closes
+    the branch's block;
+  * a **free-standing** run (a blank line between it and the next element:
+    a heading over a group of declarations, of members, of statements)
+    stays where it is, with its blank lines;
+  * a comment inside a bracketed list — call arguments, parameters (a fn's,
+    a lambda's), type arguments, a tuple, a struct literal's fields — and
+    outside its items breaks the list one item per line (`,` after each
+    but the last), each item's comments around it;
+  * a comment where no slot is (inside a declaration's header, inside an
+    expression printed on one line) is printed at the next slot: at the end
+    of the line printed last when it followed code, otherwise on a line of
+    its own. A comment printed on its own line directly above a declaration
+    would read back as its docs, so a blank line separates the two.
+  Comment text is never reflowed or re-spaced: only its indentation is the
+  printer's, and its trailing whitespace is its own. A node is a slot only
+  when it is written in the printed module's own file (`Span::is_written`,
+  its file tag): the code an expansion copies or a pass makes places no
+  comment. A printing of a **lowered** module (`desugar::lower_module` sets
+  `Trivia::lowered`) writes its comments for a dump [dump-resolve]
+  [dump-type-check] and none as `Source` (its text is no file's, and the
+  comments the printer writes of its own, over a stamped fn or a message
+  arm, would read back as the author's); a declaration comptime removes
+  takes its comments with it (`Trivia::forget_comments_in`).
+  `print_tests.rs`: `comments.sv` prints back byte for byte; every `.sv`
+  file of the repository that parses prints keeping each comment's text as
+  often as it was written, parses to the same tree and prints the same
+  again (`every_file_prints_keeping_its_comments`); golden_tests.rs: both
+  dumps show a program's comments and none of a template's.
+* [fmt-blank-lines] **Blank lines: one or more written print as one**
+  (user decision 2026-11-11), between two statements, declarations,
+  members, fields, arms or comments, measured in the source between the end
+  of one and the start of the next (`Trivia::blank_between`); none at a
+  body's start or end, and none between a broken list's items. Between two
+  declarations of a module or a namespace there is always one, but for two
+  that each print on one line (an import, an alias, a body-less fn, an
+  empty struct, a `refn`…, their docs aside) written on consecutive lines,
+  which stay together (agent's call, to confirm: the author's choice, so a
+  group of imports or aliases stays a group). A printing with no source to
+  follow (a node no file placed) keeps the printer's layout: one blank line
+  between declarations and members, none between fields, statements, a
+  `fns` group's members, or imports and `use`s. A module-level `use` prints
+  where it was written, and a declaration body's members in the order they
+  were written when each was placed in the source (agent's call, to
+  confirm); a body a pass built prints its fields, then its fns, then its
+  refinements.
 * [round-trip] **Every choice survives being written out** (the pipeline record B4
   and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
   P24). `salvo_core::round_trip` prints a checked file's expanded tree back
@@ -14787,7 +14858,8 @@ replaced the working document TESTING.md).
     fields, qualifiers, effects, handlers, and type declarations.
     Comments are not tokens: the lexer collects them separately
     (`LexResult::comments`) and the parser attaches the block above each
-    declaration by line number.
+    declaration by line number. Every comment no declaration (and not the
+    module) takes is the module's trivia [fmt-comments].
   * Backing modifiers do not interfere: `intrinsic` and
     `provenance` sit on the declaration's own line.
 * [doc-module] **A module's documentation is the first comment run in its

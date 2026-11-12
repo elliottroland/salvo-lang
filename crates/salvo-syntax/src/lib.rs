@@ -12,6 +12,7 @@ pub mod parser;
 pub mod print;
 pub mod span;
 pub mod token;
+pub mod trivia;
 pub mod visit;
 pub mod visit_mut;
 

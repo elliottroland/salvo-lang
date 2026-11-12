@@ -30,6 +30,12 @@ pub struct Parser<'s> {
     /// Own-line `//` comments by the line they sit on [doc-comment],
     /// used to attach the run above a declaration as its docs.
     comments: HashMap<u32, String>,
+    /// [fmt-comments] Every comment, as the lexer found it: what is not
+    /// docs becomes the module's trivia.
+    all_comments: Vec<Comment>,
+    /// [fmt-comments] The lines whose comments a declaration (or the
+    /// module) took as its docs: no trivia of the file.
+    doc_lines: std::cell::RefCell<std::collections::HashSet<u32>>,
     /// Byte offset of the start of each line, for offset -> line lookup.
     line_starts: Vec<u32>,
     /// [implicit-with] Entries a **plural** `with` subject desugared to
@@ -250,17 +256,19 @@ impl<'s> Parser<'s> {
             Ok(line) => line,
             Err(next) => next - 1,
         };
-        let comments = comments
-            .into_iter()
+        let own_line = comments
+            .iter()
             .filter(|c| c.own_line)
-            .map(|c| (line_of(c.span.start) as u32, c.text))
+            .map(|c| (line_of(c.span.start) as u32, c.text.clone()))
             .collect();
         Parser {
             source,
             tokens,
             pos: 0,
             diagnostics: Vec::new(),
-            comments,
+            comments: own_line,
+            all_comments: comments,
+            doc_lines: Default::default(),
             line_starts,
             pending_deductions: Vec::new(),
             group_depth: 0,
@@ -300,7 +308,10 @@ impl<'s> Parser<'s> {
         while line > 0 {
             line -= 1;
             match self.comments.get(&line) {
-                Some(text) => docs.push(text.clone()),
+                Some(text) => {
+                    docs.push(text.clone());
+                    self.doc_lines.borrow_mut().insert(line);
+                }
                 None => break,
             }
         }
@@ -342,7 +353,29 @@ impl<'s> Parser<'s> {
         {
             return Vec::new();
         }
+        self.doc_lines.borrow_mut().extend(start..=end);
         (start..=end).map(|line| self.comments[&line].clone()).collect()
+    }
+
+    /// [fmt-comments] [fmt-blank-lines] The file's trivia, once its tree is
+    /// parsed: the comments no declaration took as docs, and the blank lines.
+    fn trivia(&mut self) -> crate::trivia::Trivia {
+        let comments = std::mem::take(&mut self.all_comments);
+        let closers = self
+            .tokens
+            .iter()
+            .filter_map(|t| {
+                let c = match t.kind {
+                    TokenKind::RParen => ')',
+                    TokenKind::RBracket => ']',
+                    TokenKind::RBrace => '}',
+                    TokenKind::Gt => '>',
+                    _ => return None,
+                };
+                Some((t.span.start, c))
+            })
+            .collect();
+        crate::trivia::Trivia::new(self.source, comments, self.line_starts.clone(), &self.doc_lines.borrow(), closers)
     }
 
     // --- Token helpers ---
@@ -522,7 +555,8 @@ impl<'s> Parser<'s> {
                 self.bump();
             }
         }
-        Module { docs, items, uses, namespaces: Vec::new(), node_ranges: Vec::new(), file_tag: crate::span::NO_FILE }
+        let trivia = self.trivia();
+        Module { docs, items, uses, namespaces: Vec::new(), node_ranges: Vec::new(), file_tag: crate::span::NO_FILE, trivia }
     }
 
     /// Skips tokens until something that can plausibly start a top-level item.

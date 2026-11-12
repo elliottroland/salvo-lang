@@ -48,6 +48,10 @@ pub struct Module {
     /// (`Span::file`): given by a program's driver, which knows the file
     /// (`salvo_core::source::file_tag`); `NO_FILE` for a bare parse.
     pub file_tag: u32,
+    /// [fmt-comments] [fmt-blank-lines] The file's comments that are no
+    /// docs, and its blank lines: beside the tree, for the printer alone
+    /// (equal whatever it holds, and not in the debug form).
+    pub trivia: crate::trivia::Trivia,
 }
 
 impl Default for Module {
@@ -59,6 +63,7 @@ impl Default for Module {
             namespaces: Vec::new(),
             node_ranges: Vec::new(),
             file_tag: crate::span::NO_FILE,
+            trivia: Default::default(),
         }
     }
 }
@@ -66,7 +71,7 @@ impl Default for Module {
 /// The tree, without the numbering (`node_ranges`): what the parser made.
 impl fmt::Debug for Module {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Module { docs, items, uses, namespaces, node_ranges: _, file_tag: _ } = self;
+        let Module { docs, items, uses, namespaces, node_ranges: _, file_tag: _, trivia: _ } = self;
         f.debug_struct("Module").field("docs", docs).field("items", items).field("uses", uses).field("namespaces", namespaces).finish()
     }
 }
@@ -125,6 +130,27 @@ pub enum Item {
     /// resolution (`desugar::expand_tests`), so nothing downstream knows
     /// the form exists.
     Test(TestDecl),
+}
+
+impl Item {
+    /// The span the declaration covers.
+    pub fn span(&self) -> Span {
+        match self {
+            Item::Import(i) => i.span,
+            Item::Type(t) => t.span,
+            Item::Struct(s) => s.span,
+            Item::Qualifier(q) => q.span,
+            Item::Effect(e) => e.span,
+            Item::Handler(h) => h.span,
+            Item::Fns(g) => g.span,
+            Item::Fn(f) => f.span,
+            Item::EffectAlias(a) => a.span,
+            Item::Namespace(n) => n.span,
+            Item::Refn(r) => r.span,
+            Item::Rename(r) => r.span,
+            Item::Test(t) => t.span,
+        }
+    }
 }
 
 /// [test-decl] `test "trim removes both edges" { … }`: a test declaration.

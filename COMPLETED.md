@@ -150,6 +150,96 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-11 — Every comment and the written blank lines print back ([fmt-comments] [fmt-blank-lines] [ast-print])
+
+Stage E of the formatter record below (user decisions 2026-11-11): every
+comment is kept and printed back, as written, where it was written, and the
+blank lines between statements, members and declarations print as one.
+
+- **Representation: a side table, not nodes** (agent's call, to confirm).
+  `Module::trivia` (`salvo_syntax::trivia::Trivia`) holds the comments that
+  are no docs (offset, text from `//` to the line's end, whether code
+  precedes it), the docs as written, the blank lines, the line starts and
+  the closing brackets' offsets. Its `==` is always true and the module's
+  debug form leaves it out, so no consumer changed: the checker, the IR, the
+  backends, comptime, the language server and the parser snapshots (none
+  moved) read the same tree. Fields on nodes would have meant a slot on
+  every list of statements, members, fields, arms and arguments, each
+  matched and rebuilt by every pass, for something only the printer reads.
+- **Doc or comment is decided as before, exactly.** The parser records the
+  lines its doc rules took (`docs_before` and `module_docs`, into
+  `Parser::doc_lines`); every other comment is trivia. Nothing about which
+  comments are docs changed, so `salvo docs`, hover and the doc-example
+  check are untouched. The printer writes the docs as written
+  (`Trivia::docs_as_written`, e.g. `//text` stays `//text`, `//= stdout`
+  stays as it is) where it finds them above their declaration, and `// `
+  plus the text otherwise (a lowered module's, a note).
+- **Placement** (the printer's runs: `elem_start`, `elem_end`, `run_close`,
+  `broken_list`): each comment by its offset, in source order, at the slots
+  of a run — leading (an own-line run before an element), trailing (after
+  code on the element's last line), closing (before the `}` or bracket, or
+  between a branch's `}` and its `elif`/`else`), free-standing (blank lines
+  kept around it). A comment among a call's arguments, a fn's or lambda's
+  parameters, type arguments, a tuple or a struct literal's fields breaks
+  that list one item per line. A comment with no slot (inside a
+  declaration's header, inside an expression on one line) goes to the next
+  slot: the end of the line printed last after code, else a line of its own,
+  and a blank line keeps it from becoming the next declaration's docs.
+  Nothing is dropped: whatever is left is printed at the end of the file.
+  Comment text, trailing whitespace included, is printed as written.
+- **Blank lines**: measured in the source between two elements; one or
+  more print as one, none at a body's start or end, none between a broken
+  list's items. Between two top-level (or namespace) declarations there is
+  always one, but for two **one-line** declarations (an import, an alias, a
+  body-less fn or empty struct, a `refn`, docs aside) written on
+  consecutive lines (agent's call, to confirm: the author's choice, so a
+  group of imports or aliases stays a group; with the stage-F width a
+  one-liner that breaks gets its blank line). Members of a body follow the
+  source alone. A module-level `use` now prints where it was written (it
+  printed after the imports, which would have dragged the comments before
+  it). A body's members print in their written order when every one was
+  placed in the source (they had printed fields, then fns, then refns).
+- **The dumps show the comments** (both dumps print the lowered tree with
+  `Reading::Dump`): placed by written nodes only, so the code a comptime fn
+  stamps carries none of its template's, and a generic comptime fn that
+  stamping removes takes its comments with it
+  (`Trivia::forget_comments_in`). A lowered module printed as `Source` (the
+  round trip, `every_std_module_prints_stably`) prints none: its text is no
+  file's, and the comments the printer writes of its own (over a stamped
+  fn, a message arm) would read back as the author's and print twice.
+- **Tests**: `tests/print/comments.sv` (leading, trailing, closing,
+  free-standing headings, docs as written, comments in a struct, a union's
+  body, a namespace, an effect, a handler and its state, statements, after
+  `{` and `else`, before `elif`, arms, lambdas, comptime brackets, and
+  broken arguments, named arguments, parameters, a tuple, type arguments
+  and lambda parameters) added to `every_print_fixture_prints_as_written`;
+  `every_file_prints_keeping_its_comments` over every `.sv` of the
+  repository that parses (539 files: std, examples, bench, modules, the
+  demo, the corpus and all test data; the test data meant not to parse is
+  skipped): the comments' texts are the same multiset, the tree the same,
+  the printing idempotent — 4 files exempted by name
+  (`DOCS_ON_A_SHARED_LINE`, below); `a_layout_prints_in_the_printers_blank_lines`
+  and `a_moved_comment_never_becomes_docs`;
+  `the_dumps_show_the_comments_written` (golden_tests.rs, both dumps). The
+  iteration example's two dump snapshots gained its 27 body comments and 14
+  blank lines, and the resolve dump's binding coordinates moved with them
+  (reviewed: no other line changed). A placement check over 576 files
+  (every comment followed by the same code line before and after printing)
+  found two displacements: comments before an `iter fn`'s `state` block
+  (fixed) and comments inside a declaration's header, over a deduction
+  clause written on its own line, which move into the body
+  (`check/deduce/reapply.sv`'s `//~` annotations; left, ROADMAP §0av).
+- **Found, left** (ROADMAP §0av): a member written on its container's line
+  (`actor effect E { send fn f() }`) gets the container's docs from the
+  parser too, so the printing writes them above both (the four exempted
+  files); comments inside a declaration's header land in its body.
+- 784 tests under `cargo nextest run`, all green: 2m01 wall (nextest's own
+  119s, `run_data` 59s of it), after a run of 3m35 that relinked every
+  binary and failed only the two dump snapshots above; after the review's
+  fixes (a `salvo-syntax` relink) 3m00 (nextest's 160s), load averages
+  134–240. `Item::span` is the
+  one definition of an item's span now (the IR gate's copy went).
+
 ### 2026-11-11 — The tree keeps grouping parentheses and literal spellings as written; the formatter's decision record ([expr-group] [lit-spelling] [ast-print])
 
 **The formatter's decision record** (user decisions 2026-11-11, for `salvo
@@ -42938,6 +43028,14 @@ the emitter output, rerun with `INSTA_UPDATE=always` and review the
 snapshot diffs.
 
 ## Gotchas / lessons learned
+
+- **A printing that reads back what the printer wrote as comments of its
+  own is not stable once comments are kept** (2026-11-11, [fmt-comments]):
+  the expanded printing writes a message arm and a stamped fn's provenance
+  as comments; parsed back, those are the author's, and the next printing
+  writes them again beside the ones it makes. That is why a lowered module
+  prints no comments as `Source`. The same goes for any new note the
+  printer adds: it is fine in a dump, never in source.
 
 - **A span is copied, and its parentheses with it** (2026-11-11,
   [expr-group]): `Span::parens` rides on every copy of a span (`..span`,

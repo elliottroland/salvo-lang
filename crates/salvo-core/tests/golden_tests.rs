@@ -483,3 +483,51 @@ fn the_dumps_show_written_parentheses_and_spellings() {
         assert!(typed.contains(want), "missing `{want}` in:\n{typed}");
     }
 }
+
+const COMMENTED: &str = "struct Point {
+    x: Int // the x
+    y: Int
+}
+
+comptime fn names<T is Struct>(t: T) [] -> Str {
+    let out = \"\"
+    [for field in T.fields] {
+        // in the template
+        out = \"${out}${field.name}\"
+    }
+    return out
+}
+
+fn names(t: Point) [] -> Str by names
+
+fn show(p: Point) [Console] {
+    // a leading comment
+    let q = Point { x: 1, y: 2 } // trailing
+
+    println(names(q))
+    // closing show
+}
+";
+
+/// [dump-resolve] [dump-type-check] [fmt-comments] Both dumps print the
+/// comments the program was written with, where they were written; the code
+/// a comptime fn stamps has none of its template's, and a template the
+/// stamping removed takes its comments with it.
+#[test]
+fn the_dumps_show_the_comments_written() {
+    let program = salvo_testkit::front::clean_program("kt", &[("main.sv", COMMENTED)]);
+    let symbols = salvo_core::Symbols::collect(&program);
+    let resolution = salvo_core::resolve(&program);
+    let file = program.files.iter().position(|f| f.name == "main.sv").unwrap();
+    let resolved = salvo_core::names::dump::dump_file(&program, &resolution, &symbols, file, false);
+    let checked = salvo_testkit::front::check_with("kt", &program, &resolution, &symbols);
+    let errors: Vec<String> = checked.errors.iter().filter(|d| d.is_error()).map(|d| d.render(&program.files)).collect();
+    assert!(errors.is_empty(), "{errors:?}");
+    let typed = salvo_core::round_trip::dump_file(&program, &symbols, &checked, file, false);
+    for dump in [&resolved, &typed] {
+        for want in ["    x: Int // the x\n    y: Int\n}", "{\n    // a leading comment\n    let q", "} // trailing\n\n    println", "\n    // closing show\n}"] {
+            assert!(dump.contains(want), "missing `{want}` in:\n{dump}");
+        }
+        assert!(!dump.contains("in the template"), "{dump}");
+    }
+}

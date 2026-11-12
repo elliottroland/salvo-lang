@@ -4,8 +4,10 @@
 //! desugarings a program's driver runs — and writes the source a reader
 //! would have written for it: one declaration per paragraph, four-space
 //! indentation, every expression on one line except the blocks it holds.
-//! Layout is the printer's, not the file's, and comments inside bodies are
-//! not kept (doc comments are: they are part of the tree).
+//! Layout is the printer's, not the file's, but for what the module's trivia
+//! keeps: every comment, placed among the nodes by its offset
+//! [fmt-comments], and the blank lines written between statements, members
+//! and declarations [fmt-blank-lines].
 //!
 //! It also records where it printed every node whose span is numbered
 //! [node-id] (`Printed::nodes`, keyed by the node's file tag and ordinal), so a
@@ -14,9 +16,10 @@
 //! lets a dump show code an expansion wrote (a comptime stamp's body, a
 //! hidden fn), whose spans are its template's.
 //!
-//! The parser keeps no grouping parentheses, so the printer adds them where
-//! precedence needs them (the parser's binding powers); an expression's
-//! recorded `outer` range includes them.
+//! The parser counts the grouping parentheses written [expr-group]; the
+//! printer writes them, and adds a pair where precedence needs one (the
+//! parser's binding powers); an expression's recorded `outer` range
+//! includes them.
 //!
 //! A module as the parser wrote it (`parse_module`) prints as
 //! written [syntax-lowered]: its sugar (`ast::Sugar`, `x += e`), its terminal
@@ -40,6 +43,7 @@ use std::fmt::Write;
 use crate::ast::*;
 use crate::parser::{EFF_TYPE_NAME, SITE_SELECTOR};
 use crate::span::Span;
+use crate::trivia::{Trivia, TriviaComment};
 
 /// [ast-print] Where a node was printed: its own text `start..end`, and for
 /// an expression `outer_start..outer_end` with the parentheses the printer
@@ -139,8 +143,12 @@ pub fn print_module(module: &Module) -> Printed {
 }
 
 /// [ast-print] [`print_module`] with `notes` adding comments, for `reading`.
-pub fn print_module_with(module: &Module, notes: &dyn Notes, reading: Reading) -> Printed {
+pub fn print_module_with<'a>(module: &'a Module, notes: &'a dyn Notes, reading: Reading) -> Printed {
     let mut p = Printer::new(notes, reading);
+    if !module.trivia.is_empty() && (!module.trivia.lowered || reading == Reading::Dump) {
+        p.trivia = Some(&module.trivia);
+        p.file = module.file_tag;
+    }
     p.module(module);
     Printed { text: p.out, nodes: p.nodes }
 }
@@ -307,15 +315,58 @@ struct Printer<'n> {
     /// [expr-terminal-scope] The terminal body the statement being printed
     /// holds, printed after it.
     pending_rest: Option<Block>,
+    /// [fmt-comments] The module's trivia, when it has any: its comments
+    /// are printed among the nodes, and its blank lines kept.
+    trivia: Option<&'n Trivia>,
+    /// [node-file] The module's file tag: a node of another file (or of an
+    /// expansion) is placed by no comment.
+    file: u32,
+    /// [fmt-comments] The first comment of `trivia` not yet printed.
+    next_comment: usize,
+    /// [fmt-comments] The current line already ends in a comment.
+    eol: bool,
 }
 
 impl<'n> Printer<'n> {
     fn new(notes: &'n dyn Notes, reading: Reading) -> Self {
-        Printer { out: String::new(), nodes: HashMap::new(), indent: 0, notes, no_struct: false, holes: Vec::new(), inline: false, reading, quiet_origin: false, pending_rest: None }
+        Printer {
+            out: String::new(),
+            nodes: HashMap::new(),
+            indent: 0,
+            notes,
+            no_struct: false,
+            holes: Vec::new(),
+            inline: false,
+            reading,
+            quiet_origin: false,
+            pending_rest: None,
+            trivia: None,
+            file: crate::span::NO_FILE,
+            next_comment: 0,
+            eol: false,
+        }
     }
 }
 
-impl Printer<'_> {
+/// [fmt-comments] [fmt-blank-lines] Where a run of elements (a body's
+/// statements, declarations, members or fields, or a broken list's items)
+/// has got to.
+#[derive(Default)]
+struct Run {
+    /// Something of the run is printed: a blank line may come before the
+    /// next (never at the start of a body).
+    started: bool,
+    /// Where the last thing printed ended in the source, when it was
+    /// placed there: what the next one's blank line is measured from.
+    prev_end: Option<u32>,
+    /// The line printed last is a comment of its own line, which a
+    /// declaration directly under it would take as its docs.
+    comment_last: bool,
+    /// A list's run: no blank lines between its items.
+    no_blanks: bool,
+}
+
+impl<'n> Printer<'n> {
     fn at(&self) -> u32 {
         self.out.len() as u32
     }
@@ -342,14 +393,188 @@ impl Printer<'_> {
     }
 
     fn newline(&mut self) {
-        // No trailing spaces on a blank line.
-        while self.out.ends_with(' ') {
+        // No trailing spaces on a blank line; a comment's own are its text,
+        // printed as written [fmt-comments].
+        while !self.eol && self.out.ends_with(' ') {
             self.out.pop();
         }
         self.out.push('\n');
         for _ in 0..self.indent {
             self.out.push_str("    ");
         }
+        self.eol = false;
+    }
+
+    // --- Comments and blank lines [fmt-comments] [fmt-blank-lines] ---
+
+    /// Whether a comment may be placed by `span`: the printing has trivia,
+    /// and the node is written in this file (not copied by an expansion, not
+    /// made by a pass), outside a one-line `${…}`.
+    fn anchored(&self, span: Span) -> bool {
+        self.trivia.is_some() && !self.inline && span.is_written() && span.file == self.file
+    }
+
+    /// The first comment not printed yet, when it starts before `at`.
+    fn comment_before(&self, at: u32) -> Option<&'n TriviaComment> {
+        let trivia: &'n Trivia = self.trivia?;
+        trivia.comments.get(self.next_comment).filter(|c| c.start < at)
+    }
+
+    /// Whether the current line holds nothing but its indentation.
+    fn line_is_fresh(&self) -> bool {
+        self.out.rsplit('\n').next().is_some_and(|l| l.bytes().all(|b| b == b' '))
+    }
+
+    /// Starts a line of its own for what comes next, with one blank line
+    /// before it when `blank` (and none at the very start of the text).
+    fn fresh_line(&mut self, blank: bool) {
+        if self.out.is_empty() {
+            return;
+        }
+        if !self.line_is_fresh() {
+            self.newline();
+        }
+        if blank && !self.out.trim_end_matches(' ').ends_with("\n\n") {
+            self.newline();
+        }
+    }
+
+    /// Prints comment `c` as written: at the end of the line printed last
+    /// when it was written after code and that line holds no comment yet,
+    /// otherwise on a line of its own (after a blank line when `blank`).
+    /// Whether it took a line of its own.
+    fn put_comment(&mut self, c: &TriviaComment, blank: bool) -> bool {
+        self.next_comment += 1;
+        if !c.own_line && !self.eol && !self.line_is_fresh() {
+            self.push(" ");
+            self.push(&c.text);
+            self.eol = true;
+            return false;
+        }
+        self.fresh_line(blank);
+        self.push(&c.text);
+        self.eol = true;
+        true
+    }
+
+    /// The comments before `at` not printed yet, each where `put_comment`
+    /// puts it; `forced`: a blank line before the first that takes a line.
+    fn comments_before(&mut self, run: &mut Run, at: u32, mut forced: bool) -> bool {
+        let mut any_own = false;
+        while let Some(c) = self.comment_before(at) {
+            let blank = run.started && !run.no_blanks && (forced || run.prev_end.is_some_and(|p| self.blank_between(p, c.start)));
+            if self.put_comment(c, blank) {
+                forced = false;
+                any_own = true;
+                run.comment_last = true;
+                run.started = true;
+            }
+            run.prev_end = Some(c.end);
+        }
+        any_own
+    }
+
+    fn blank_between(&self, from: u32, to: u32) -> bool {
+        self.trivia.is_some_and(|t| t.blank_between(from, to))
+    }
+
+    /// Before an element of a run, at `span`: the comments written before
+    /// it, then a line of its own, after one blank line where the source
+    /// had one or more between it and what came before. `forced(source)`:
+    /// the blank line the layout wants whatever was written (`source`: the
+    /// written one decides). `takes_docs`: an element a comment directly
+    /// above would document, which a comment printed there must not be.
+    fn elem_start(&mut self, run: &mut Run, span: Span, takes_docs: bool, forced: impl FnOnce(bool) -> bool) {
+        let anchored = self.anchored(span);
+        let source = anchored && run.prev_end.is_some();
+        let want = run.started && !run.no_blanks && forced(source);
+        let mut blank = want;
+        if anchored && self.comments_before(run, span.start, want) {
+            blank = false;
+        }
+        if anchored && !run.no_blanks && run.started {
+            blank |= run.prev_end.is_some_and(|p| self.blank_between(p, span.start));
+        }
+        blank |= takes_docs && run.comment_last;
+        let blank = blank && run.started && !run.no_blanks;
+        if run.started || !self.line_is_fresh() {
+            self.fresh_line(blank);
+        }
+        run.comment_last = false;
+        run.started = true;
+    }
+
+    /// After an element of a run, at `span`: a comment written after it on
+    /// its last line, and one written inside it that no slot of it took.
+    fn elem_end(&mut self, run: &mut Run, span: Span) {
+        run.started = true;
+        if !self.anchored(span) {
+            run.prev_end = None;
+            return;
+        }
+        let Some(trivia) = self.trivia else { return };
+        let line = trivia.line_of(span.end);
+        while let Some(c) = trivia.comments.get(self.next_comment) {
+            if !(c.start < span.end || (!c.own_line && trivia.line_of(c.start) == line)) {
+                break;
+            }
+            if self.put_comment(c, false) {
+                run.comment_last = true;
+            }
+        }
+        run.prev_end = Some(span.end);
+    }
+
+    /// The comments that close a run, written before `close` (a body's `}`,
+    /// a list's bracket), each on its line. Whether there were any.
+    fn run_close(&mut self, run: &mut Run, close: u32) -> bool {
+        self.comments_before(run, close, false)
+    }
+
+    /// Whether a comment not printed yet lies in `from..to` outside every
+    /// one of `items`: a comment the list itself holds, which breaks it.
+    fn list_holds_comment(&self, from: u32, to: u32, items: &[Span]) -> bool {
+        let Some(trivia) = self.trivia else { return false };
+        if self.inline {
+            return false;
+        }
+        trivia.comments[self.next_comment.min(trivia.comments.len())..]
+            .iter()
+            .take_while(|c| c.start < to)
+            .any(|c| c.start >= from && !items.iter().any(|i| i.start <= c.start && c.start < i.end))
+    }
+
+    /// [fmt-comments] A list a comment is written in, one item per line
+    /// (after the opening bracket the caller printed; the caller prints the
+    /// closing one): each item's comments around it, `,` between the items,
+    /// and the comments before `close` on their lines.
+    fn broken_list<T>(&mut self, items: &[T], span_of: impl Fn(&T) -> Span, close: u32, mut print: impl FnMut(&mut Self, &T)) {
+        self.indent += 1;
+        let mut run = Run { no_blanks: true, ..Run::default() };
+        for (i, it) in items.iter().enumerate() {
+            let sp = span_of(it);
+            self.elem_start(&mut run, sp, false, |_| false);
+            print(self, it);
+            if i + 1 < items.len() {
+                self.push(",");
+            }
+            self.elem_end(&mut run, sp);
+        }
+        self.run_close(&mut run, close);
+        self.indent -= 1;
+        self.newline();
+    }
+
+    /// The comments not printed yet, at the end of the text: none is lost.
+    fn rest_of_comments(&mut self) {
+        let mut run = Run { started: true, ..Run::default() };
+        self.comments_before(&mut run, u32::MAX, false);
+    }
+
+    /// The source offset of the first `close` bracket at or after `offset`,
+    /// when the printing has trivia.
+    fn close_after(&self, offset: u32, close: char) -> Option<u32> {
+        self.trivia.and_then(|t| t.close_after(offset, close))
     }
 
     fn comment_lines(&mut self, lines: &[String]) {
@@ -360,6 +585,30 @@ impl Printer<'_> {
                 self.push("// ");
                 self.push(l);
             }
+            self.eol = true;
+            self.newline();
+        }
+    }
+
+    /// [doc-comment] A declaration's docs: as written, when the printing
+    /// has the file's trivia and finds them above `span`; otherwise each
+    /// line after `// `.
+    fn docs(&mut self, docs: &[String], span: Span) {
+        if docs.is_empty() {
+            return;
+        }
+        let written = self.trivia.filter(|_| self.anchored(span)).and_then(|t| t.docs_as_written(docs, span.start, false));
+        match written {
+            Some(lines) => self.written_lines(&lines),
+            None => self.comment_lines(docs),
+        }
+    }
+
+    /// Comment lines as written, each followed by a newline.
+    fn written_lines(&mut self, lines: &[&str]) {
+        for l in lines {
+            self.push(l);
+            self.eol = true;
             self.newline();
         }
     }
@@ -392,28 +641,11 @@ impl Printer<'_> {
 
     fn module(&mut self, m: &Module) {
         if !m.docs.is_empty() {
-            self.comment_lines(&m.docs);
-            self.newline();
-        }
-        let mut first = true;
-        // The imports the file opens with, as one paragraph; one written
-        // later stays where it is (a printing keeps the items' order).
-        let leading = m.items.iter().take_while(|i| matches!(i, Item::Import(_))).count();
-        for item in &m.items[..leading] {
-            if let Item::Import(i) = item {
-                self.import(i);
-                self.newline();
-                first = false;
+            match self.trivia.and_then(|t| t.docs_as_written(&m.docs, 0, true)) {
+                Some(written) => self.written_lines(&written),
+                None => self.comment_lines(&m.docs),
             }
-        }
-        for u in &m.uses {
-            let s = self.at();
-            self.push("use ");
-            self.expr(&u.handler, 0);
-            let e = self.at();
-            self.record(u.span, s, e, s, e);
             self.newline();
-            first = false;
         }
         // [fn-attached] A struct's fns go back in its body, and a named
         // union's [type-union-body].
@@ -436,22 +668,62 @@ impl Printer<'_> {
                 }
             }
         }
-        let mut after_import = false;
-        for item in &m.items[leading..] {
-            match item {
-                Item::Fn(f) if f.scoped_to.as_ref().is_some_and(|o| structs.contains(o.name.as_str())) => continue,
-                _ => {}
+        let items: Vec<&Item> = m
+            .items
+            .iter()
+            .filter(|item| !matches!(item, Item::Fn(f) if f.scoped_to.as_ref().is_some_and(|o| structs.contains(o.name.as_str()))))
+            .collect();
+        // The imports the file opens with, then its module-level `use`s; a
+        // `use` placed in the source goes where it was written [fmt-comments].
+        let leading = items.iter().take_while(|i| matches!(i, Item::Import(_))).count();
+        let mut elems: Vec<Top> = items[..leading].iter().map(|i| Top::Item(i)).collect();
+        let mut rest: Vec<Top> = items[leading..].iter().map(|i| Top::Item(i)).collect();
+        for u in &m.uses {
+            if self.anchored(u.span) {
+                let at = |e: &Top| self.anchored(e.span()) && e.span().start > u.span.start;
+                match elems.iter().position(at) {
+                    Some(i) => elems.insert(i, Top::Use(u)),
+                    None => match rest.iter().position(at) {
+                        Some(i) => rest.insert(i, Top::Use(u)),
+                        None => rest.push(Top::Use(u)),
+                    },
+                }
+            } else {
+                elems.push(Top::Use(u));
             }
-            // Consecutive imports are one paragraph.
-            let import = matches!(item, Item::Import(_));
-            if !first && !(import && after_import) {
-                self.newline();
-            }
-            after_import = import;
-            first = false;
-            self.namespaced(item, &m.namespaces, &attached);
-            self.newline();
         }
+        elems.extend(rest);
+        let mut run = Run::default();
+        let mut prev: Option<(Top, bool)> = None;
+        for e in elems {
+            let span = e.span();
+            let one_line = self.one_line(&e, &attached);
+            self.elem_start(&mut run, span, e.takes_docs(), |source| match prev {
+                // [fmt-blank-lines] One blank line between declarations, but
+                // for one-line declarations the author wrote on consecutive
+                // lines (a group of imports, of aliases).
+                Some((_, p)) if source => !(p && one_line),
+                // A printing with no source to follow: imports and `use`s
+                // are one paragraph.
+                Some((p, _)) => !(p.is_import_or_use() && e.is_import_or_use()),
+                None => false,
+            });
+            match e {
+                Top::Item(item) => self.namespaced(item, &m.namespaces, &attached),
+                Top::Use(u) => {
+                    let s = self.at();
+                    self.push("use ");
+                    self.expr(&u.handler, 0);
+                    let e = self.at();
+                    self.record(u.span, s, e, s, e);
+                }
+            }
+            self.elem_end(&mut run, span);
+            prev = Some((e, one_line));
+        }
+        self.run_close(&mut run, u32::MAX);
+        self.rest_of_comments();
+        self.newline();
         while self.out.ends_with('\n') && self.out.ends_with("\n\n") {
             self.out.pop();
         }
@@ -507,7 +779,7 @@ impl Printer<'_> {
             Item::Fns(g) => self.fns_group(g, strip),
             Item::Fn(f) => self.fn_decl(f, strip, true),
             Item::EffectAlias(a) => {
-                self.comment_lines(&a.docs);
+                self.docs(&a.docs, a.span);
                 if a.exported {
                     self.push("export ");
                 }
@@ -517,7 +789,7 @@ impl Printer<'_> {
                 self.effect_list(&a.effects);
             }
             Item::Namespace(n) => {
-                self.comment_lines(&n.docs);
+                self.docs(&n.docs, n.span);
                 if n.exported {
                     self.push("export ");
                 }
@@ -527,21 +799,16 @@ impl Printer<'_> {
                 // to the end of the list it is in.
                 if n.terminal {
                     self.push(" ...");
-                    for it in &n.items {
-                        self.newline();
-                        self.newline();
-                        self.item(it, None, attached);
-                    }
+                    let mut run = Run { started: true, prev_end: self.anchored(n.name.span).then_some(n.name.span.end), ..Run::default() };
+                    self.namespace_items(&mut run, &n.items, attached, true);
                     return;
                 }
                 self.push(" {");
                 self.indent += 1;
-                for (i, it) in n.items.iter().enumerate() {
-                    if i > 0 {
-                        self.newline();
-                    }
-                    self.newline();
-                    self.item(it, None, attached);
+                let mut run = Run::default();
+                self.namespace_items(&mut run, &n.items, attached, false);
+                if self.anchored(n.span) {
+                    self.run_close(&mut run, n.span.end.saturating_sub(1));
                 }
                 self.indent -= 1;
                 self.newline();
@@ -551,6 +818,36 @@ impl Printer<'_> {
             Item::Rename(r) => self.rename(r),
             Item::Test(t) => self.test(t),
         }
+    }
+
+    /// [mod-namespace] A namespace's declarations, as a run: one blank line
+    /// between them, but for consecutive one-line ones written so
+    /// [fmt-blank-lines]. `terminal`: after a terminal `...`, where the
+    /// first is a paragraph of its own.
+    fn namespace_items(&mut self, run: &mut Run, items: &[Item], attached: &HashMap<&str, Vec<&FnDecl>>, terminal: bool) {
+        let mut prev: Option<(Top, bool)> = None;
+        for it in items {
+            let e = Top::Item(it);
+            let span = e.span();
+            let one_line = self.one_line(&e, attached);
+            self.elem_start(run, span, e.takes_docs(), |source| match prev {
+                Some((_, p)) if source => !(p && one_line),
+                Some((p, _)) => !(p.is_import_or_use() && e.is_import_or_use()),
+                None => terminal,
+            });
+            self.item(it, None, attached);
+            self.elem_end(run, span);
+            prev = Some((e, one_line));
+        }
+    }
+
+    /// [fmt-blank-lines] Whether a declaration prints on one line, its docs
+    /// aside: no body with anything in it, and no comment inside it.
+    fn one_line(&self, e: &Top, attached: &HashMap<&str, Vec<&FnDecl>>) -> bool {
+        let span = e.span();
+        let commented = self.anchored(span)
+            && self.trivia.is_some_and(|t| t.comments[self.next_comment.min(t.comments.len())..].iter().take_while(|c| c.start < span.end).any(|c| c.start >= span.start));
+        e.one_line(attached) && !commented
     }
 
     fn decl_name(&mut self, id: &Ident, strip: Option<usize>) {
@@ -667,7 +964,7 @@ impl Printer<'_> {
     }
 
     fn type_decl(&mut self, t: &TypeDecl, strip: Option<usize>, fns: &[&FnDecl]) {
-        self.comment_lines(&t.docs);
+        self.docs(&t.docs, t.span);
         let s = self.at();
         if t.exported {
             self.push("export ");
@@ -703,28 +1000,17 @@ impl Printer<'_> {
             self.ty(a);
         }
         self.obligations(&t.obligations);
-        // [type-union-body] A named union's fns, then its refinements, as a
-        // struct body prints them; an opaque type's body is refinements only.
+        // [type-union-body] A named union's fns and refinements, printed as
+        // `members` prints a struct body's (in written order, or fns then
+        // refinements with no source to follow); an opaque type's body is
+        // refinements only.
         let own: Vec<&FnDecl> = t.fns.iter().chain(fns.iter().copied()).collect();
-        if !own.is_empty() || !t.refns.is_empty() {
+        let mut members: Vec<Member> = own.iter().map(|f| Member::Fn(f, false)).collect();
+        members.extend(t.refns.iter().map(Member::Refn));
+        let close = t.span.end.saturating_sub(1);
+        if !members.is_empty() || (self.anchored(t.span) && t.alias.is_none() && self.comment_before(close).is_some()) {
             self.push(" {");
-            self.indent += 1;
-            for (i, f) in own.iter().enumerate() {
-                if i > 0 {
-                    self.newline();
-                }
-                self.newline();
-                self.fn_decl(f, None, false);
-            }
-            for (i, r) in t.refns.iter().enumerate() {
-                if i == 0 && !own.is_empty() {
-                    self.newline();
-                }
-                self.newline();
-                self.refn(r);
-            }
-            self.indent -= 1;
-            self.newline();
+            self.members(members, t.span);
             self.push("}");
         }
         let e = self.at();
@@ -732,7 +1018,7 @@ impl Printer<'_> {
     }
 
     fn struct_decl(&mut self, st: &StructDecl, strip: Option<usize>, fns: &[&FnDecl]) {
-        self.comment_lines(&st.docs);
+        self.docs(&st.docs, st.span);
         let note = self.notes.struct_note(st);
         self.comment_lines(&note);
         // [actor-message] A message arm is the compiler's, declared again
@@ -768,37 +1054,17 @@ impl Printer<'_> {
         self.obligations(&st.obligations);
         self.canbe(&st.auto_qualifiers);
         self.push(" {");
-        self.indent += 1;
-        for f in &st.fields {
-            self.newline();
-            self.field(f);
-        }
-        let own: Vec<&FnDecl> = st.fns.iter().chain(fns.iter().copied()).collect();
-        for (i, f) in own.iter().enumerate() {
-            if i > 0 || !st.fields.is_empty() {
-                self.newline();
-            }
-            self.newline();
-            self.fn_decl(f, None, false);
-        }
-        for r in &st.refns {
-            self.newline();
-            self.newline();
-            self.refn(r);
-        }
-        self.indent -= 1;
-        if st.fields.is_empty() && own.is_empty() && st.refns.is_empty() {
-            self.push("}");
-        } else {
-            self.newline();
-            self.push("}");
-        }
+        let mut members: Vec<Member> = st.fields.iter().map(Member::Field).collect();
+        members.extend(st.fns.iter().chain(fns.iter().copied()).map(|f| Member::Fn(f, false)));
+        members.extend(st.refns.iter().map(Member::Refn));
+        self.members(members, st.span);
+        self.push("}");
         let e = self.at();
         self.record(st.span, s, e, s, e);
     }
 
     fn field(&mut self, f: &FieldDecl) {
-        self.comment_lines(&f.docs);
+        self.docs(&f.docs, f.span);
         let s = self.at();
         for a in &f.annotations {
             self.type_ref(a);
@@ -829,7 +1095,7 @@ impl Printer<'_> {
     }
 
     fn qualifier(&mut self, q: &QualifierDecl, strip: Option<usize>) {
-        self.comment_lines(&q.docs);
+        self.docs(&q.docs, q.span);
         let s = self.at();
         if q.exported {
             self.push("export ");
@@ -850,37 +1116,18 @@ impl Printer<'_> {
         self.ty(&q.of);
         if q.has_body {
             self.push(" {");
-            self.indent += 1;
-            for f in &q.field_overrides {
-                self.newline();
-                self.field(f);
-            }
-            for (i, f) in q.fns.iter().enumerate() {
-                if i > 0 || !q.field_overrides.is_empty() {
-                    self.newline();
-                }
-                self.newline();
-                self.fn_decl(f, None, true);
-            }
-            for r in &q.refns {
-                self.newline();
-                self.newline();
-                self.refn(r);
-            }
-            self.indent -= 1;
-            if q.field_overrides.is_empty() && q.fns.is_empty() && q.refns.is_empty() {
-                self.push("}");
-            } else {
-                self.newline();
-                self.push("}");
-            }
+            let mut members: Vec<Member> = q.field_overrides.iter().map(Member::Field).collect();
+            members.extend(q.fns.iter().map(|f| Member::Fn(f, true)));
+            members.extend(q.refns.iter().map(Member::Refn));
+            self.members(members, q.span);
+            self.push("}");
         }
         let e = self.at();
         self.record(q.span, s, e, s, e);
     }
 
     fn effect(&mut self, ef: &EffectDecl, strip: Option<usize>) {
-        self.comment_lines(&ef.docs);
+        self.docs(&ef.docs, ef.span);
         let s = self.at();
         if ef.exported {
             self.push("export ");
@@ -896,25 +1143,14 @@ impl Printer<'_> {
             self.effect_list(&ef.prereqs);
         }
         self.push(" {");
-        self.indent += 1;
-        for (i, f) in ef.fns.iter().enumerate() {
-            if i > 0 {
-                self.newline();
-            }
-            self.newline();
-            self.fn_decl(f, None, true);
-        }
-        self.indent -= 1;
-        if !ef.fns.is_empty() {
-            self.newline();
-        }
+        self.members(ef.fns.iter().map(|f| Member::Fn(f, true)).collect(), ef.span);
         self.push("}");
         let e = self.at();
         self.record(ef.span, s, e, s, e);
     }
 
     fn handler(&mut self, h: &HandlerDecl, strip: Option<usize>) {
-        self.comment_lines(&h.docs);
+        self.docs(&h.docs, h.span);
         let s = self.at();
         if h.exported {
             self.push("export ");
@@ -932,7 +1168,7 @@ impl Printer<'_> {
         self.decl_name(&h.name, strip);
         self.generics(&h.generics, &[], &[]);
         if !h.params.is_empty() || !h.platform {
-            self.params(&h.params, &[]);
+            self.params(&h.params, &[], after_generics(h.name.span, &h.generics, &[]));
         }
         if let Some(effects) = &h.effects {
             self.push(" ");
@@ -952,61 +1188,18 @@ impl Printer<'_> {
         let body = h.mailbox.is_some() || !h.state.is_empty() || h.state_name.is_some() || h.init.is_some() || !h.fns.is_empty();
         if body {
             self.push(" {");
-            self.indent += 1;
-            let mut first = true;
-            let mut gap = |p: &mut Self| {
-                if !first {
-                    p.newline();
-                }
-                first = false;
-                p.newline();
-            };
-            if let Some(Expr::StructLit { fields, span, .. }) = &h.mailbox {
-                gap(self);
-                let s = self.at();
-                self.push("mailbox ");
-                self.struct_fields(fields);
-                let e = self.at();
-                self.record(*span, s, e, s, e);
+            let mut members = Vec::new();
+            if let Some(m @ Expr::StructLit { .. }) = &h.mailbox {
+                members.push(Member::Mailbox(m));
             }
             if !h.state.is_empty() || h.state_name.is_some() {
-                gap(self);
-                self.push("state ");
-                if let Some(n) = &h.state_name {
-                    self.ident(n);
-                    self.push(" ");
-                }
-                self.push("{");
-                self.indent += 1;
-                for f in &h.state {
-                    self.newline();
-                    self.field(f);
-                }
-                self.indent -= 1;
-                if !h.state.is_empty() {
-                    self.newline();
-                }
-                self.push("}");
+                members.push(Member::State(h));
             }
             if let Some(init) = &h.init {
-                gap(self);
-                let note = self.notes.fn_note(init);
-                self.comment_lines(&note);
-                let s = self.at();
-                self.ident(&init.name);
-                self.push(" ");
-                if let Some(b) = &init.body {
-                    self.block(b);
-                }
-                let e = self.at();
-                self.record(init.span, s, e, s, e);
+                members.push(Member::Init(init));
             }
-            for f in &h.fns {
-                gap(self);
-                self.fn_decl(f, None, true);
-            }
-            self.indent -= 1;
-            self.newline();
+            members.extend(h.fns.iter().map(|f| Member::Fn(f, true)));
+            self.members(members, h.span);
             self.push("}");
         }
         let e = self.at();
@@ -1014,7 +1207,7 @@ impl Printer<'_> {
     }
 
     fn fns_group(&mut self, g: &FnsDecl, strip: Option<usize>) {
-        self.comment_lines(&g.docs);
+        self.docs(&g.docs, g.span);
         let s = self.at();
         if g.exported {
             self.push("export ");
@@ -1027,22 +1220,114 @@ impl Printer<'_> {
             self.deductions(&g.deductions.iter().collect::<Vec<_>>());
         }
         self.push(" {");
-        self.indent += 1;
-        for f in &g.fns {
-            self.newline();
-            self.fn_decl(f, None, true);
-        }
-        self.indent -= 1;
-        if !g.fns.is_empty() {
-            self.newline();
-        }
+        self.members(g.fns.iter().map(|f| Member::Grouped(f)).collect(), g.span);
         self.push("}");
         let e = self.at();
         self.record(g.span, s, e, s, e);
     }
 
+    /// [fmt-comments] [fmt-blank-lines] A declaration's body after its `{`,
+    /// up to its `}` (which the caller prints): its members as a run, in the
+    /// order they were written when every one was placed in the source, and
+    /// the comments closing it. A body with nothing in it is `{}`.
+    fn members(&mut self, mut members: Vec<Member>, owner: Span) {
+        let close = owner.end.saturating_sub(1);
+        let anchored = self.anchored(owner);
+        if members.is_empty() && !(anchored && self.comment_before(close).is_some()) {
+            return;
+        }
+        if members.iter().all(|m| self.anchored(m.span(self.trivia))) {
+            members.sort_by_key(|m| m.span(self.trivia).start);
+        }
+        self.indent += 1;
+        let mut run = Run::default();
+        let mut prev: Option<&Member> = None;
+        for m in &members {
+            let span = m.span(self.trivia);
+            // A printing with no source to follow: a blank line between
+            // members, but not between fields, nor between a `fns` group's.
+            let default = prev.is_some_and(|p| !matches!((p, m), (Member::Field(_), Member::Field(_)) | (Member::Grouped(_), Member::Grouped(_))));
+            self.elem_start(&mut run, span, m.takes_docs(), |source| !source && default);
+            self.member(m);
+            self.elem_end(&mut run, span);
+            prev = Some(m);
+        }
+        if anchored {
+            self.run_close(&mut run, close);
+        }
+        self.indent -= 1;
+        self.newline();
+    }
+
+    fn member(&mut self, m: &Member) {
+        match m {
+            Member::Field(f) => self.field(f),
+            Member::Fn(f, export) => self.fn_decl(f, None, *export),
+            Member::Grouped(f) => self.fn_decl(f, None, true),
+            Member::Refn(r) => self.refn(r),
+            Member::Mailbox(Expr::StructLit { fields, span, .. }) => {
+                let s = self.at();
+                self.push("mailbox ");
+                self.struct_fields(fields, Some((span.start, span.end)));
+                let e = self.at();
+                self.record(*span, s, e, s, e);
+            }
+            Member::Mailbox(_) => {}
+            Member::State(h) => {
+                self.push("state ");
+                if let Some(n) = &h.state_name {
+                    self.ident(n);
+                    self.push(" ");
+                }
+                self.push("{");
+                let close = self.state_close(h);
+                self.fields_body(&h.state, close);
+                self.push("}");
+            }
+            Member::Init(init) => {
+                let note = self.notes.fn_note(init);
+                self.comment_lines(&note);
+                let s = self.at();
+                self.ident(&init.name);
+                self.push(" ");
+                if let Some(b) = &init.body {
+                    self.block(b);
+                }
+                let e = self.at();
+                self.record(init.span, s, e, s, e);
+            }
+        }
+    }
+
+    /// Where a handler's `state { … }` closes, in the source: its `}`.
+    fn state_close(&self, h: &HandlerDecl) -> Option<u32> {
+        let from = h.state.last().map(|f| f.span.end).or(h.state_name.as_ref().map(|n| n.span.end))?;
+        self.anchored(h.span).then(|| self.close_after(from, '}')).flatten()
+    }
+
+    /// The fields of a `state { … }` after its `{`, up to its `}`: one per
+    /// line, the comments among them kept; `{}` with none.
+    fn fields_body(&mut self, fields: &[FieldDecl], close: Option<u32>) {
+        let has_comment = close.is_some_and(|c| self.comment_before(c).is_some());
+        if fields.is_empty() && !has_comment {
+            return;
+        }
+        self.indent += 1;
+        let mut run = Run::default();
+        for f in fields {
+            self.elem_start(&mut run, f.span, true, |_| false);
+            self.field(f);
+            self.elem_end(&mut run, f.span);
+        }
+        if let Some(c) = close {
+            self.run_close(&mut run, c);
+        }
+        self.indent -= 1;
+        self.newline();
+    }
+
     fn refn(&mut self, r: &RefnDecl) {
-        self.comment_lines(&r.docs);
+        self.docs(&r.docs, r.span);
         let s = self.at();
         self.push("refn ");
         self.ident(&r.name);
@@ -1099,20 +1384,20 @@ impl Printer<'_> {
     }
 
     fn rename(&mut self, r: &RenameDecl) {
-        self.comment_lines(&r.docs);
+        self.docs(&r.docs, r.span);
         let s = self.at();
         self.push("rename fn ");
         self.ident(&r.name);
         self.push(" = ");
         self.ident(&r.target);
         self.generics(&r.generics, &[], &[]);
-        self.params(&r.params, &[]);
+        self.params(&r.params, &[], after_generics(r.target.span, &r.generics, &[]));
         let e = self.at();
         self.record(r.span, s, e, s, e);
     }
 
     fn test(&mut self, t: &TestDecl) {
-        self.comment_lines(&t.docs);
+        self.docs(&t.docs, t.span);
         let s = self.at();
         self.push("test ");
         if let Some(k) = &t.kind {
@@ -1130,7 +1415,7 @@ impl Printer<'_> {
         }
         self.push(&quote_str(&t.name));
         if !t.params.is_empty() {
-            self.params(&t.params, &[]);
+            self.params(&t.params, &[], t.span.at(t.span.start, t.span.start));
         }
         self.push(" ");
         self.block(&t.body);
@@ -1145,9 +1430,15 @@ impl Printer<'_> {
             FnSource::Tree => {}
             FnSource::Omit => return,
             FnSource::Text(text) => {
-                self.comment_lines(&f.docs);
+                self.docs(&f.docs, f.span);
                 if f.exported && show_export {
                     self.push("export ");
+                }
+                // Its comments are in the text.
+                if self.anchored(f.span) {
+                    while self.comment_before(f.span.end).is_some() {
+                        self.next_comment += 1;
+                    }
                 }
                 // The text's own lines (indented relative to its first),
                 // at this indentation.
@@ -1160,7 +1451,7 @@ impl Printer<'_> {
                 return;
             }
         }
-        self.comment_lines(&f.docs);
+        self.docs(&f.docs, f.span);
         let note = self.notes.fn_note(f);
         self.comment_lines(&note);
         let s = self.at();
@@ -1205,7 +1496,9 @@ impl Printer<'_> {
                 }
             }
         }
-        self.params(&f.params, &f.implicit_groups);
+        let bound = f.compfn.as_ref().and_then(|c| c.bound.as_ref()).map(|(_, p)| p.clone());
+        let named = after_generics(f.name.span, &f.generics, &f.generic_canbe);
+        self.params(&f.params, &f.implicit_groups, after_generics(named, bound.as_slice(), &[]));
         if let Some(effects) = &f.effects {
             self.push(" ");
             self.effect_list(effects);
@@ -1269,25 +1562,30 @@ impl Printer<'_> {
         if f.is_iter {
             self.push(" {");
             self.indent += 1;
-            self.newline();
+            // [fmt-comments] The state block is the body's first element,
+            // placed by its name (or its first field).
+            let mut run = Run::default();
+            let at = f.iter_state_name.as_ref().map(|n| n.span).or(f.iter_state.first().map(|fd| fd.span));
+            match at {
+                Some(at) => self.elem_start(&mut run, at, false, |_| false),
+                None => self.newline(),
+            }
             self.push("state ");
             if let Some(n) = &f.iter_state_name {
                 self.ident(n);
                 self.push(" ");
             }
             self.push("{");
-            self.indent += 1;
-            for fd in &f.iter_state {
-                self.newline();
-                self.field(fd);
-            }
-            self.indent -= 1;
-            if !f.iter_state.is_empty() {
-                self.newline();
-            }
+            let from = f.iter_state.last().map(|fd| fd.span.end).or(f.iter_state_name.as_ref().map(|n| n.span.end));
+            let close = from.filter(|_| self.anchored(f.span)).and_then(|o| self.close_after(o, '}'));
+            self.fields_body(&f.iter_state, close);
             self.push("}");
             if let Some(b) = &f.body {
-                self.stmts(&b.stmts);
+                let mut run = Run { started: true, prev_end: close, ..run };
+                self.stmts_run(&mut run, &b.stmts);
+                if self.anchored(f.span) {
+                    self.run_close(&mut run, f.span.end.saturating_sub(1));
+                }
             }
             self.indent -= 1;
             self.newline();
@@ -1327,25 +1625,36 @@ impl Printer<'_> {
         }
     }
 
-    fn params(&mut self, params: &[Param], groups: &[TypeRef]) {
+    /// A parameter list; `from`: where it starts in the source (the name
+    /// before it), so a comment written in it breaks it one parameter per
+    /// line [fmt-comments].
+    fn params(&mut self, params: &[Param], groups: &[TypeRef], from: Span) {
         self.push("(");
-        let mut first = true;
-        for param in params.iter().filter(|p| !p.implicit).chain(params.iter().filter(|p| p.implicit)) {
-            if !first {
-                self.push(", ");
-            }
-            first = false;
-            self.param(param);
-        }
-        for g in groups {
-            if !first {
-                self.push(", ");
-            }
-            first = false;
-            self.push("?");
-            self.type_ref(g);
+        let items: Vec<ParamItem> = params
+            .iter()
+            .filter(|p| !p.implicit)
+            .chain(params.iter().filter(|p| p.implicit))
+            .map(ParamItem::Param)
+            .chain(groups.iter().map(ParamItem::Group))
+            .collect();
+        let spans: Vec<Span> = items.iter().map(ParamItem::span).collect();
+        let last = spans.iter().map(|s| s.end).max().unwrap_or(from.end).max(from.end);
+        let close = self.anchored(from).then(|| self.close_after(last, ')')).flatten();
+        match close.filter(|&c| self.list_holds_comment(from.end, c + 1, &spans)) {
+            Some(c) => self.broken_list(&items, ParamItem::span, c, |p, i| p.param_item(i)),
+            None => self.list(&items, ", ", |p, i| p.param_item(i)),
         }
         self.push(")");
+    }
+
+    fn param_item(&mut self, item: &ParamItem) {
+        match item {
+            ParamItem::Param(param) => self.param(param),
+            ParamItem::Group(g) => {
+                self.push("?");
+                self.type_ref(g);
+            }
+        }
     }
 
     fn param(&mut self, param: &Param) {
@@ -1688,7 +1997,14 @@ impl Printer<'_> {
             }
             if !r.args.is_empty() {
                 self.push("<");
-                self.list(&r.args, ", ", |p, a| p.ty(a));
+                // [fmt-comments] A comment among the type arguments breaks
+                // them one per line.
+                let spans: Vec<Span> = r.args.iter().map(Type::span).collect();
+                let close = self.anchored(r.span).then(|| self.close_after(spans.iter().map(|s| s.end).max().unwrap_or(r.name.span.end), '>')).flatten();
+                match close.filter(|&c| self.list_holds_comment(r.name.span.end, c + 1, &spans)) {
+                    Some(c) => self.broken_list(&r.args, Type::span, c, |p, a| p.ty(a)),
+                    None => self.list(&r.args, ", ", |p, a| p.ty(a)),
+                }
                 self.push(">");
             }
             if !r.value_args.is_empty() {
@@ -1704,6 +2020,13 @@ impl Printer<'_> {
     // --- Blocks and statements ---
 
     fn block(&mut self, b: &Block) {
+        self.block_to(b, b.span.end.saturating_sub(1));
+    }
+
+    /// A block whose closing comments are those written before `close`:
+    /// its `}`, or for a branch followed by `elif` or `else`, what follows
+    /// it [fmt-comments].
+    fn block_to(&mut self, b: &Block, close: u32) {
         let s = self.at();
         // [expr-terminal-scope] Written `...`: its statements follow the
         // statement that holds it (`stmts`).
@@ -1715,7 +2038,8 @@ impl Printer<'_> {
             return;
         }
         let saved = std::mem::replace(&mut self.no_struct, false);
-        if b.stmts.is_empty() {
+        let anchored = self.anchored(b.span);
+        if b.stmts.is_empty() && !(anchored && self.comment_before(close).is_some()) {
             self.push("{}");
         } else if self.inline {
             self.push("{ ");
@@ -1724,7 +2048,11 @@ impl Printer<'_> {
         } else {
             self.push("{");
             self.indent += 1;
-            self.stmts(&b.stmts);
+            let mut run = Run::default();
+            self.stmts_run(&mut run, &b.stmts);
+            if anchored {
+                self.run_close(&mut run, close);
+            }
             self.indent -= 1;
             self.newline();
             self.push("}");
@@ -1737,16 +2065,31 @@ impl Printer<'_> {
     /// The statements of a block, each on a line of its own, and after one
     /// whose construct took a terminal `...` body, that body's.
     fn stmts(&mut self, stmts: &[Stmt]) {
+        let mut run = Run { started: true, ..Run::default() };
+        self.stmts_run(&mut run, stmts);
+    }
+
+    /// The statements of a block as a run [fmt-comments] [fmt-blank-lines].
+    fn stmts_run(&mut self, run: &mut Run, stmts: &[Stmt]) {
         // A body printed inside a statement (the `else` after `if c ...`)
         // leaves the statement's own terminal body to the statement.
         let outer = self.pending_rest.take();
         for st in stmts {
-            self.newline();
+            let span = st.span();
+            self.elem_start(run, span, matches!(st, Stmt::Rename(_)), |_| false);
             self.stmt(st);
             // [expr-terminal-scope] The rest of the block a terminal `...`
             // in the statement stands for: the statements after it.
-            if let Some(rest) = self.pending_rest.take() {
-                self.stmts(&rest.stmts);
+            match self.pending_rest.take() {
+                Some(rest) => {
+                    // The statement ends on the last line of code before
+                    // its rest begins.
+                    let end = self.trivia.map_or(rest.span.start, |t| t.code_end_before(rest.span.start)).max(span.start);
+                    let head = Span { end, ..span };
+                    self.elem_end(run, head);
+                    self.stmts_run(run, &rest.stmts);
+                }
+                None => self.elem_end(run, span),
             }
         }
         self.pending_rest = outer;
@@ -1994,23 +2337,36 @@ impl Printer<'_> {
     }
 
     fn args(&mut self, args: &[Expr], named: &[NamedArg]) {
+        self.args_in(args, named, None);
+    }
+
+    /// A call's arguments; `region`: the source range from its callee to
+    /// its `)`, where a comment breaks them one per line [fmt-comments].
+    fn args_in(&mut self, args: &[Expr], named: &[NamedArg], region: Option<(u32, u32)>) {
         let saved = std::mem::replace(&mut self.no_struct, false);
         self.push("(");
-        let arg = |p: &mut Self, a: &Expr| p.arg(a);
-        self.list(args, ", ", arg);
-        for (i, n) in named.iter().enumerate() {
-            if i > 0 || !args.is_empty() {
-                self.push(", ");
-            }
-            let s = self.at();
-            self.ident(&n.name);
-            self.push(" = ");
-            arg(self, &n.value);
-            let e = self.at();
-            self.record(n.span, s, e, s, e);
+        let items: Vec<Arg> = args.iter().map(Arg::Pos).chain(named.iter().map(Arg::Named)).collect();
+        let spans: Vec<Span> = items.iter().map(Arg::span).collect();
+        match region.filter(|&(from, to)| self.list_holds_comment(from, to, &spans)) {
+            Some((_, to)) => self.broken_list(&items, Arg::span, to.saturating_sub(1), |p, a| p.arg_item(a)),
+            None => self.list(&items, ", ", |p, a| p.arg_item(a)),
         }
         self.push(")");
         self.no_struct = saved;
+    }
+
+    fn arg_item(&mut self, a: &Arg) {
+        match a {
+            Arg::Pos(a) => self.arg(a),
+            Arg::Named(n) => {
+                let s = self.at();
+                self.ident(&n.name);
+                self.push(" = ");
+                self.arg(&n.value);
+                let e = self.at();
+                self.record(n.span, s, e, s, e);
+            }
+        }
     }
 
     /// A call argument, or either side of a pair.
@@ -2021,11 +2377,24 @@ impl Printer<'_> {
     }
 
     fn type_args(&mut self, targs: &[Type]) {
+        self.type_args_in(targs, None);
+    }
+
+    /// Type arguments; `from`: the source offset they follow (a callee's
+    /// end), so a comment written among them breaks them one per line
+    /// [fmt-comments].
+    fn type_args_in(&mut self, targs: &[Type], from: Option<Span>) {
         if targs.is_empty() {
             return;
         }
         self.push("<");
-        self.list(targs, ", ", |p, t| p.ty(t));
+        let spans: Vec<Span> = targs.iter().map(Type::span).collect();
+        let last = spans.iter().map(|s| s.end).max().unwrap_or(0);
+        let close = from.filter(|f| self.anchored(*f)).and_then(|f| self.close_after(last.max(f.end), '>').map(|c| (f.end, c)));
+        match close.filter(|&(f, c)| self.list_holds_comment(f, c + 1, &spans)) {
+            Some((_, c)) => self.broken_list(targs, Type::span, c, |p, t| p.ty(t)),
+            None => self.list(targs, ", ", |p, t| p.ty(t)),
+        }
         self.push(">");
     }
 
@@ -2144,8 +2513,9 @@ impl Printer<'_> {
                     }
                     other => self.expr(other, POSTFIX),
                 }
-                self.type_args(type_args);
-                self.args(args, named);
+                self.type_args_in(type_args, Some(callee.span()));
+                let from = type_args.last().map_or(callee.span().end, |t| t.span().end);
+                self.args_in(args, named, Some((from, e.span().end)));
             }
             Expr::Index { base, index, .. } => {
                 self.expr(base, POSTFIX);
@@ -2153,10 +2523,15 @@ impl Printer<'_> {
                 self.expr(index, 0);
                 self.push("]");
             }
-            Expr::Tuple { elems, .. } => {
+            Expr::Tuple { elems, span } => {
                 let saved = std::mem::replace(&mut self.no_struct, false);
                 self.push("(");
-                self.list(elems, ", ", |p, x| p.expr(x, 0));
+                let spans: Vec<Span> = elems.iter().map(Expr::span).collect();
+                if self.list_holds_comment(span.start, span.end, &spans) {
+                    self.broken_list(elems, Expr::span, span.end.saturating_sub(1), |p, x| p.expr(x, 0));
+                } else {
+                    self.list(elems, ", ", |p, x| p.expr(x, 0));
+                }
                 self.push(")");
                 self.no_struct = saved;
             }
@@ -2186,7 +2561,8 @@ impl Printer<'_> {
                     }
                     self.push(" ");
                 }
-                self.struct_fields(fields);
+                let from = ty.as_ref().map_or(span.start, |t| t.span().end);
+                self.struct_fields(fields, Some((from, span.end)));
             }
             Expr::Unary { op, operand, .. } => {
                 self.push(match op {
@@ -2287,19 +2663,28 @@ impl Printer<'_> {
                 }
             }
             Expr::If { branches, else_block, .. } => self.if_expr(branches, else_block),
-            Expr::When { binding, subject, branches, origin, .. } => self.when(binding, subject, branches, *origin),
-            Expr::WhenCond { branches, else_block, .. } => {
+            Expr::When { binding, subject, branches, origin, span } => self.when(binding, subject, branches, *origin, Some(span.end.saturating_sub(1))),
+            Expr::WhenCond { branches, else_block, span } => {
                 self.push("when {");
                 self.indent += 1;
+                let mut run = Run::default();
                 for (c, b) in branches {
-                    self.newline();
+                    let arm = c.span().to(b.span);
+                    self.elem_start(&mut run, arm, false, |_| false);
                     self.condition(c);
                     self.push(" ");
                     self.block(b);
+                    self.elem_end(&mut run, arm);
                 }
-                self.newline();
+                // The `else` arm starts at its keyword, before its block.
+                let at = else_block.span;
+                self.elem_start(&mut run, at, false, |_| false);
                 self.push("else ");
                 self.block(else_block);
+                self.elem_end(&mut run, at);
+                if self.anchored(*span) {
+                    self.run_close(&mut run, span.end.saturating_sub(1));
+                }
                 self.indent -= 1;
                 self.newline();
                 self.push("}");
@@ -2326,9 +2711,9 @@ impl Printer<'_> {
                     self.block(b);
                 }
             }
-            Expr::Lambda { params, effects, deductions, ret, body, .. } => {
+            Expr::Lambda { params, effects, deductions, ret, body, span } => {
                 self.push("(");
-                self.list(params, ", ", |p, lp| {
+                let param = |p: &mut Self, lp: &LambdaParam| {
                     let s = p.at();
                     p.ident(&lp.name);
                     if let Some(t) = &lp.ty {
@@ -2337,7 +2722,15 @@ impl Printer<'_> {
                     }
                     let e = p.at();
                     p.record(lp.span, s, e, s, e);
-                });
+                };
+                // [fmt-comments] A comment among the parameters breaks them
+                // one per line.
+                let spans: Vec<Span> = params.iter().map(|p| p.span).collect();
+                let close = self.anchored(*span).then(|| self.close_after(spans.iter().map(|s| s.end).max().unwrap_or(span.start), ')')).flatten();
+                match close.filter(|&c| self.list_holds_comment(span.start, c + 1, &spans)) {
+                    Some(c) => self.broken_list(params, |p| p.span, c, param),
+                    None => self.list(params, ", ", param),
+                }
                 self.push(")");
                 if let Some(effects) = effects {
                     self.push(" ");
@@ -2578,8 +2971,9 @@ impl Printer<'_> {
                 self.comp_ty(ty);
                 self.push(".kind] {");
                 self.indent += 1;
+                let mut run = Run::default();
                 for arm in arms {
-                    self.newline();
+                    self.elem_start(&mut run, arm.span, false, |_| false);
                     let s = self.at();
                     self.push("is ");
                     self.push(arm.kind.word());
@@ -2587,6 +2981,10 @@ impl Printer<'_> {
                     self.block(&arm.body);
                     let e = self.at();
                     self.record(arm.span, s, e, s, e);
+                    self.elem_end(&mut run, arm.span);
+                }
+                if self.anchored(c.span()) {
+                    self.run_close(&mut run, c.span().end.saturating_sub(1));
                 }
                 self.indent -= 1;
                 self.newline();
@@ -2597,8 +2995,9 @@ impl Printer<'_> {
                 self.comp_ty(ty);
                 self.push("] {");
                 self.indent += 1;
+                let mut run = Run::default();
                 for arm in arms {
-                    self.newline();
+                    self.elem_start(&mut run, arm.span, false, |_| false);
                     let s = self.at();
                     self.push("is ");
                     self.comp_binders(&arm.binders);
@@ -2607,6 +3006,10 @@ impl Printer<'_> {
                     self.block(&arm.body);
                     let e = self.at();
                     self.record(arm.span, s, e, s, e);
+                    self.elem_end(&mut run, arm.span);
+                }
+                if self.anchored(c.span()) {
+                    self.run_close(&mut run, c.span().end.saturating_sub(1));
                 }
                 self.indent -= 1;
                 self.newline();
@@ -2617,8 +3020,9 @@ impl Printer<'_> {
                 self.ident(binder);
                 self.push(".name] {");
                 self.indent += 1;
+                let mut run = Run::default();
                 for arm in arms {
-                    self.newline();
+                    self.elem_start(&mut run, arm.span, false, |_| false);
                     let s = self.at();
                     self.push("is ");
                     self.list(&arm.lits, " | ", |p, (lit, _)| p.push(&quote_str(lit)));
@@ -2626,6 +3030,10 @@ impl Printer<'_> {
                     self.block(&arm.body);
                     let e = self.at();
                     self.record(arm.span, s, e, s, e);
+                    self.elem_end(&mut run, arm.span);
+                }
+                if self.anchored(c.span()) {
+                    self.run_close(&mut run, c.span().end.saturating_sub(1));
                 }
                 self.indent -= 1;
                 self.newline();
@@ -2799,42 +3207,52 @@ impl Printer<'_> {
         }
     }
 
-    fn struct_fields(&mut self, fields: &[StructLitField]) {
+    /// A struct literal's `{ … }`; `region`: the literal's source range,
+    /// where a comment breaks it one field per line [fmt-comments].
+    fn struct_fields(&mut self, fields: &[StructLitField], region: Option<(u32, u32)>) {
         let saved = std::mem::replace(&mut self.no_struct, false);
-        if fields.is_empty() {
+        let spans: Vec<Span> = fields.iter().map(|f| f.span).collect();
+        let broken = region.filter(|&(from, to)| self.list_holds_comment(from, to, &spans));
+        if let Some((_, to)) = broken {
+            self.push("{");
+            self.broken_list(fields, |f| f.span, to.saturating_sub(1), |p, f| p.struct_field(f));
+            self.push("}");
+        } else if fields.is_empty() {
             self.push("{}");
         } else {
             self.push("{ ");
-            self.list(fields, ", ", |p, f| {
-                let s = p.at();
-                match &f.kind {
-                    // [struct-lit-shorthand] `{ x }`: the parser reads it as
-                    // `{ x: x }` with the one identifier as both, so the
-                    // value's span is the name's. A dump writes it out, so
-                    // the value can say what it resolved to.
-                    StructLitFieldKind::Named { name, value: Expr::Ident(v) } if v.name == name.name && v.span == name.span && p.reading == Reading::Source => {
-                        p.ident(name);
-                    }
-                    StructLitFieldKind::Named { name, value } => {
-                        p.ident(name);
-                        p.push(": ");
-                        p.expr(value, 0);
-                    }
-                    StructLitFieldKind::Spread(v) => {
-                        p.push("...");
-                        p.expr(v, 0);
-                    }
-                    StructLitFieldKind::InlineFor { binder, seq, entries } => {
-                        p.list_for_head(binder, seq);
-                        p.struct_fields(entries);
-                    }
-                }
-                let e = p.at();
-                p.record(f.span, s, e, s, e);
-            });
+            self.list(fields, ", ", |p, f| p.struct_field(f));
             self.push(" }");
         }
         self.no_struct = saved;
+    }
+
+    fn struct_field(&mut self, f: &StructLitField) {
+        let s = self.at();
+        match &f.kind {
+            // [struct-lit-shorthand] `{ x }`: the parser reads it as
+            // `{ x: x }` with the one identifier as both, so the
+            // value's span is the name's. A dump writes it out, so
+            // the value can say what it resolved to.
+            StructLitFieldKind::Named { name, value: Expr::Ident(v) } if v.name == name.name && v.span == name.span && self.reading == Reading::Source => {
+                self.ident(name);
+            }
+            StructLitFieldKind::Named { name, value } => {
+                self.ident(name);
+                self.push(": ");
+                self.expr(value, 0);
+            }
+            StructLitFieldKind::Spread(v) => {
+                self.push("...");
+                self.expr(v, 0);
+            }
+            StructLitFieldKind::InlineFor { binder, seq, entries } => {
+                self.list_for_head(binder, seq);
+                self.struct_fields(entries, None);
+            }
+        }
+        let e = self.at();
+        self.record(f.span, s, e, s, e);
     }
 
     /// A condition: a struct literal there is parenthesized.
@@ -2851,9 +3269,16 @@ impl Printer<'_> {
             self.push(if i == 0 { "if " } else { " elif " });
             self.condition(c);
             self.push(" ");
+            // [fmt-comments] A comment written between a branch's `}` and
+            // the `elif` or `else` after it closes the branch's block.
+            let next = branches.get(i + 1).map(|(c, _)| c.span()).or(else_block.as_ref().map(|e| e.span));
+            let close = match next {
+                Some(n) if self.anchored(n) && self.anchored(b.span) => n.start,
+                _ => b.span.end.saturating_sub(1),
+            };
             match (&as_qual, i) {
                 (Some(what), 0) => self.noted_block(b, what),
-                _ => self.block(b),
+                _ => self.block_to(b, close),
             }
         }
         if let Some(b) = else_block {
@@ -2880,7 +3305,9 @@ impl Printer<'_> {
         self.record(b.span, s, e, s, e);
     }
 
-    fn when(&mut self, binding: &Option<Ident>, subject: &Expr, branches: &[WhenBranch], origin: Option<WhenOrigin>) {
+    /// A `when`; `end`: the source offset of its `}`, before which its
+    /// closing comments are [fmt-comments].
+    fn when(&mut self, binding: &Option<Ident>, subject: &Expr, branches: &[WhenBranch], origin: Option<WhenOrigin>, end: Option<u32>) {
         // [when-lowered] For source, a lowered `?:`, `?.` or `?>` is written
         // as the operator it was: its arms are holes no `is` can spell. A
         // dump writes the `when`, to show what the lowering made of it.
@@ -2960,8 +3387,9 @@ impl Printer<'_> {
             self.push(&text);
             self.push("`");
         }
+        let mut run = Run::default();
         for br in branches {
-            self.newline();
+            self.elem_start(&mut run, br.span, false, |_| false);
             let s = self.at();
             self.push("is ");
             match br.hole {
@@ -2984,6 +3412,10 @@ impl Printer<'_> {
             self.block(&br.body);
             let e = self.at();
             self.record(br.span, s, e, s, e);
+            self.elem_end(&mut run, br.span);
+        }
+        if let Some(close) = end.filter(|_| self.anchored(subject.span())) {
+            self.run_close(&mut run, close);
         }
         self.indent -= 1;
         self.newline();
@@ -2999,7 +3431,7 @@ impl Printer<'_> {
     fn operator_text(&self, binding: &Option<Ident>, subject: &Expr, branches: &[WhenBranch], origin: Option<WhenOrigin>) -> Option<String> {
         let mut p = Printer::new(self.notes, Reading::Source);
         p.inline = true;
-        p.when(binding, subject, branches, origin);
+        p.when(binding, subject, branches, origin, None);
         // A block in it the source printing wrote across lines, as one.
         (!p.out.starts_with("when ")).then(|| p.out.lines().map(str::trim).collect::<Vec<_>>().join(" "))
     }
@@ -3138,6 +3570,128 @@ fn starts_with_minus(e: &Expr) -> bool {
 
 fn type_text_starts_with_dot(t: &Type) -> bool {
     matches!(t, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name.starts_with('.'))
+}
+
+/// [fmt-blank-lines] An element of a module's (or a namespace's) run.
+#[derive(Clone, Copy)]
+enum Top<'a> {
+    Item(&'a Item),
+    Use(&'a ModuleUse),
+}
+
+impl Top<'_> {
+    fn span(&self) -> Span {
+        match self {
+            Top::Use(u) => u.span,
+            Top::Item(item) => item.span(),
+        }
+    }
+
+    /// [doc-comment] Whether a comment run directly above it is its docs.
+    fn takes_docs(&self) -> bool {
+        !matches!(self, Top::Use(_) | Top::Item(Item::Import(_)))
+    }
+
+    fn is_import_or_use(&self) -> bool {
+        matches!(self, Top::Use(_) | Top::Item(Item::Import(_)))
+    }
+
+    /// [fmt-blank-lines] Whether it prints on one line, its docs aside: no
+    /// body with anything in it.
+    fn one_line(&self, attached: &HashMap<&str, Vec<&FnDecl>>) -> bool {
+        let Top::Item(item) = self else { return true };
+        let no_fns = |name: &str| attached.get(name).is_none_or(|v| v.is_empty());
+        match item {
+            Item::Import(_) => true,
+            Item::EffectAlias(_) | Item::Rename(_) | Item::Refn(_) => true,
+            Item::Type(t) => t.fns.is_empty() && t.refns.is_empty() && no_fns(&t.name.name),
+            Item::Struct(st) => {
+                st.message_arm.is_none() && st.fields.is_empty() && st.fns.is_empty() && st.refns.is_empty() && no_fns(&st.name.name)
+            }
+            Item::Fn(f) => f.body.as_ref().is_none_or(|b| b.stmts.is_empty()) && !f.is_iter,
+            Item::Effect(e) => e.fns.is_empty(),
+            Item::Qualifier(q) => !q.has_body || (q.field_overrides.is_empty() && q.fns.is_empty() && q.refns.is_empty()),
+            Item::Fns(g) => g.fns.is_empty(),
+            Item::Handler(_) | Item::Namespace(_) | Item::Test(_) => false,
+        }
+    }
+}
+
+/// [fmt-comments] Where a parameter list may start: `name`'s span, reaching
+/// to the end of the generics written after it (a comment among those is
+/// theirs, not the list's).
+fn after_generics(name: Span, generics: &[Ident], canbe: &[(Ident, TypeRef)]) -> Span {
+    let end = generics.iter().map(|g| g.span.end).chain(canbe.iter().map(|(_, q)| q.span.end)).fold(name.end, u32::max);
+    Span { end, ..name }
+}
+
+/// A parameter list's entry: a parameter, or an implicit group `?G`.
+enum ParamItem<'a> {
+    Param(&'a Param),
+    Group(&'a TypeRef),
+}
+
+impl ParamItem<'_> {
+    fn span(&self) -> Span {
+        match self {
+            ParamItem::Param(p) => p.span,
+            ParamItem::Group(g) => g.span,
+        }
+    }
+}
+
+/// A call argument: positional, or named.
+enum Arg<'a> {
+    Pos(&'a Expr),
+    Named(&'a NamedArg),
+}
+
+impl Arg<'_> {
+    fn span(&self) -> Span {
+        match self {
+            Arg::Pos(e) => e.span(),
+            Arg::Named(n) => n.span,
+        }
+    }
+}
+
+/// [fmt-comments] A member of a declaration's body.
+enum Member<'a> {
+    Field(&'a FieldDecl),
+    /// A fn, and whether its `export` is printed.
+    Fn(&'a FnDecl, bool),
+    /// A fn of a `fns` group.
+    Grouped(&'a FnDecl),
+    Refn(&'a RefnDecl),
+    /// A handler's `mailbox { … }`.
+    Mailbox(&'a Expr),
+    /// A handler's `state { … }`.
+    State(&'a HandlerDecl),
+    Init(&'a FnDecl),
+}
+
+impl Member<'_> {
+    fn span(&self, trivia: Option<&Trivia>) -> Span {
+        match self {
+            Member::Field(f) => f.span,
+            Member::Fn(f, _) | Member::Grouped(f) | Member::Init(f) => f.span,
+            Member::Refn(r) => r.span,
+            Member::Mailbox(m) => m.span(),
+            // From its first field (or its name) to its `}`: what the
+            // comments around it are placed by.
+            Member::State(h) => {
+                let first = h.state_name.as_ref().map(|n| n.span).or(h.state.first().map(|f| f.span)).unwrap_or(h.span);
+                let last = h.state.last().map(|f| f.span.end).unwrap_or(first.end);
+                let end = trivia.and_then(|t| t.close_after(last, '}')).map_or(last, |c| c + 1);
+                Span { end, ..first }
+            }
+        }
+    }
+
+    /// [doc-comment] Whether a comment run directly above it is its docs.
+    fn takes_docs(&self) -> bool {
+        !matches!(self, Member::Mailbox(_) | Member::State(_) | Member::Init(_))
+    }
 }
 
 /// The name a declaration item declares, for its namespace.
