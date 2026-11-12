@@ -63,7 +63,7 @@ export intrinsic fn get<T>(array: T[], index: Int) [] -> (proj(array) T)? => arr
 
 // The first element of an array, borrowed from it, or `None` when it is
 // empty.
-export intrinsic fn first<T>(array: T[]) [] -> (proj(array) T)? => array
+export intrinsic fn first<T>(array: T[]) [] -> proj(array) T? => array
 
 // A new iterator over an array's elements, front to back. The array is
 // borrowed, not moved, and each element is borrowed from it.

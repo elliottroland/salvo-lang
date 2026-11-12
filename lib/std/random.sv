@@ -36,7 +36,7 @@ export effect Random {
 // different numbers. In an actor test it is seeded by the test's seed
 // instead, so a run can be repeated exactly. Not suitable for cryptography.
 // @compilerrules [std-random-default, test-actor]
-export handler DefaultRandom() for Random {
+export handler DefaultRandom for Random {
     fn random() -> Double {
         return random_double()
     }

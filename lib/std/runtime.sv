@@ -234,13 +234,13 @@ export platform fn unpark(p: Parker) [] -> None => p
 // only lent for the call it is passed to. There is no handle to join or
 // stop the thread; the scheduler ends one by changing the state it reads.
 // @compilerrules [runtime-kept-fn, platform-fn-value]
-export platform fn start_thread(body: once (() -> None)) [] -> None => !body
+export platform fn start_thread(body: once () -> None) [] -> None => !body
 
 // Runs [body] inside a fault boundary: `None` when it returned, or the
 // host's account of the fault that ended it. A fault inside is then the
 // death of the work, not of the thread.
 // @compilerrules [runtime-kept-fn]
-platform fn guarded(body: once (() -> None)) [] -> Str? => !body
+platform fn guarded(body: once () -> None) [] -> Str? => !body
 
 // Runs [body] inside a fault boundary and answers what it answered, or,
 // if it faulted, the fault's message in its place. The host prints nothing
@@ -252,7 +252,7 @@ export platform fn trap_boundary(body: () -> Str?) [] -> Str? => body
 // [trap_boundary] for a body that runs once and may consume what it holds:
 // a property test's run, which moves its drawn parameters into the property.
 // @compilerrules [test-recover, test-property, runtime-kept-fn]
-export platform fn trap_boundary_once(body: once (() -> Str?)) [] -> Str? => !body
+export platform fn trap_boundary_once(body: once () -> Str?) [] -> Str? => !body
 
 // ===== the host =====
 //
@@ -787,7 +787,7 @@ effect SchedTable {
     fn virtual_work(own: Int) -> RunActor | RunTask | None => !own
 }
 
-handler Scheduler() for SchedTable {
+handler Scheduler for SchedTable {
     state {
         actors: Mut List<Mut ActorRec> = Mut List()
         waiters: Mut List<Mut WaiterRec> = Mut List()

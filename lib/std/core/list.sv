@@ -380,7 +380,7 @@ export platform fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) I
 // ```
 // @compilerrules [col-locate, implicit-group, ref-handle]
 export fns Ref<C, L, T> {
-    fn at(c: C, l: L) -> (ref(c) Mut T)?
+    fn at(c: C, l: L) -> ref(c) Mut T?
 }
 
 // A handle to the element at an index, through which it can be changed in
@@ -405,7 +405,7 @@ export fns Ref<C, L, T> {
 // ```
 // @compilerrules [col-locate, ref-handle, cmp-groups, rs-path]
 // @compilerknown
-export platform fn at<T canbe linear>(list: List<T>, index: Int) [] -> (ref(list) T)?
+export platform fn at<T canbe linear>(list: List<T>, index: Int) [] -> ref(list) T?
 => list, index
 
 // [at] at an index proven in range: answers the handle itself, with no
@@ -638,7 +638,7 @@ export platform fn remove_last<T canbe linear>(list: Mut List<T>) [] -> T? => li
 // let ys = List(1, 2)
 // let one = first(ys)                      // 1, an Int
 // ```
-export platform fn first<T canbe linear>(list: List<T>) [] -> (proj(list) T)? => list
+export platform fn first<T canbe linear>(list: List<T>) [] -> proj(list) T? => list
 
 // [first] of a list known non-empty: answers the element itself.
 // @compilerrules [col-nonempty, fn-overload-rank]
@@ -661,7 +661,7 @@ export platform fn size<T canbe linear>(list: List<T>) [] -> Int => list
 
 // The last element, borrowed, or `None` when the list is empty.
 // @compilerrules [col-salvo]
-export fn last<T canbe linear>(list: List<T>) [] -> (proj(list) T)? => list {
+export fn last<T canbe linear>(list: List<T>) [] -> proj(list) T? => list {
     return get(list, size(list) - 1)
 }
 

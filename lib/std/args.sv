@@ -1970,7 +1970,7 @@ fn opt_takes_value<T>(spec: Spec<T>, key: Str) [] -> Bool => spec, key {
 // Runs `f`: a block in a place that takes an expression, which
 // is how the derive reads a field with statements inside a struct literal.
 // @compilerrules [args-derive]
-fn eval<Q>(f: once (() -> Q)) [] -> Q => !f {
+fn eval<Q>(f: once () -> Q) [] -> Q => !f {
     return f()
 }
 

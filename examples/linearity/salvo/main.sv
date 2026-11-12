@@ -98,7 +98,7 @@ fn read_a_field() [Console] -> None {
 // The callback is `once`: it may be called at most once, which is exactly
 // what a consuming callback needs to be. Without `once` the body could call
 // it twice and discharge the same obligation twice.
-fn hand_over<T canbe linear>(value: T, to: once ((t: T) [Console] -> None)) [Console] -> None
+fn hand_over<T canbe linear>(value: T, to: once (t: T) [Console] -> None) [Console] -> None
 => !value, !to =>[to] !t {
     to(value)
 }

@@ -98,7 +98,7 @@ export platform handler HostRawFs for RawFs
 // reports is answered as `Err Checked<FsError>`. The dependency on [RawFs]
 // is supplied where the handler is bound, so no function that uses files
 // mentions it.
-export handler DefaultFs() [RawFs] for Fs {
+export handler DefaultFs [RawFs] for Fs {
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)
         let r = raw_open_read(path_text)

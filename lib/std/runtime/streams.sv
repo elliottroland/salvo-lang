@@ -193,7 +193,7 @@ effect StreamTable {
     fn take_pending(handle: Long) -> Pending? => handle
 }
 
-handler Streams() for StreamTable {
+handler Streams for StreamTable {
     state {
         next: Long = 0
         in_keys: Mut List<Long> = Mut List()

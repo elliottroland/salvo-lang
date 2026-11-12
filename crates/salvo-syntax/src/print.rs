@@ -1795,7 +1795,9 @@ impl<'n> Printer<'n> {
         self.push("handler ");
         self.decl_name(&h.name, strip);
         self.generics(&h.generics, &[], &[]);
-        if !h.params.is_empty() || !h.platform {
+        // [ast-print] A constructor with no parameters is written without
+        // brackets: `handler H for E`.
+        if !h.params.is_empty() {
             self.params(&h.params, &[], after_generics(h.name.span, &h.generics, &[]));
         }
         if let Some(effects) = &h.effects {
@@ -2421,12 +2423,15 @@ impl<'n> Printer<'n> {
                 if quals.is_empty() && reapplied.is_empty() {
                     self.push(" None");
                 }
-                for q in quals {
-                    self.push(" ");
-                    self.type_ref(q);
-                }
+                // [deduce-syntax] The deltas first, then the claims kept,
+                // each in its written order (the tree keeps the two lists,
+                // not how they interleaved).
                 for q in reapplied {
                     self.push(" +");
+                    self.type_ref(q);
+                }
+                for q in quals {
+                    self.push(" ");
                     self.type_ref(q);
                 }
             }
@@ -2494,11 +2499,12 @@ impl<'n> Printer<'n> {
                     self.type_ref(q);
                     self.push(" ");
                 }
-                if matches!(**base, Type::Literal { .. }) || base.parens() > 0 {
-                    self.ty(base);
-                } else {
+                let paren = group_base_needs_parens(qualifiers, base);
+                if paren {
                     self.push("(");
-                    self.ty(base);
+                }
+                self.ty(base);
+                if paren {
                     self.push(")");
                 }
             }
@@ -2518,7 +2524,11 @@ impl<'n> Printer<'n> {
                     // [fmt-width] A union breaks after each `|`.
                     let gaps: Vec<(u32, u32)> = arms.windows(2).map(|w| (w[0].span().end, w[1].span().start)).collect();
                     self.bar_list(arms, t.span(), &gaps, true, |p, _, a| {
-                        let paren = matches!(a, Type::Fn { .. } | Type::Union { .. }) && a.parens() == 0;
+                        // A fn type takes the arms after it into its return
+                        // type. As the last arm it needs no pair, but gets
+                        // one for the reader: `A | () -> B` reads as
+                        // `(A | ()) -> B`.
+                        let paren = a.parens() == 0 && (matches!(a, Type::Union { .. }) || ends_in_fn(a));
                         if paren {
                             p.push("(");
                         }
@@ -2531,7 +2541,14 @@ impl<'n> Printer<'n> {
             }
             Type::Spread { inner, .. } => {
                 self.push("...");
+                let paren = inner.parens() == 0 && (matches!(**inner, Type::Union { .. }) || ends_in_fn(inner));
+                if paren {
+                    self.push("(");
+                }
                 self.ty(inner);
+                if paren {
+                    self.push(")");
+                }
             }
             Type::Literal { value, .. } => self.push(&value.to_string()),
             Type::Tuple { elems, span } => {
@@ -2540,10 +2557,10 @@ impl<'n> Printer<'n> {
                 self.group -= 1;
             }
             Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => {
-                let paren = elem.parens() == 0
-                    && (matches!(**elem, Type::Fn { .. } | Type::Union { .. })
-                        || matches!(&**elem, Type::Named { qualifiers, .. } if !qualifiers.is_empty())
-                        || matches!(**elem, Type::QualifiedGroup { .. }));
+                // [ast-print] A prefix qualifier binds tighter than `?` and
+                // `[]` (`Mut Str?` is `(Mut Str)?`), so only a union, a
+                // spread and a type ending in a fn type's return need them.
+                let paren = elem.parens() == 0 && (matches!(**elem, Type::Union { .. } | Type::Spread { .. }) || ends_in_fn(elem));
                 if paren {
                     self.push("(");
                 }
@@ -4228,6 +4245,46 @@ fn starts_with_minus(e: &Expr) -> bool {
 
 fn type_text_starts_with_dot(t: &Type) -> bool {
     matches!(t, Type::Named { qualifiers, base } if qualifiers.is_empty() && base.name.name.starts_with('.'))
+}
+
+/// [ast-print] Whether `t`, printed with no parentheses around it, ends in a
+/// fn type's return type, which would take a `?`, `[]` or `|` after it as its
+/// own: a fn type, or qualifiers over one (`once () -> R`).
+fn ends_in_fn(t: &Type) -> bool {
+    t.parens() == 0
+        && match t {
+            Type::Fn { .. } => true,
+            Type::QualifiedGroup { base, .. } => ends_in_fn(base),
+            _ => false,
+        }
+}
+
+/// [ast-print] Whether a qualified group's base needs parentheses the tree
+/// does not record. A tuple, a fn type and a literal stand after qualifiers
+/// as they are (`Ok (A, B)`, `once () -> R`, `Short "port"`); anything else
+/// is grouped (`Ok (Ok Str | Err Int)`). One pair more where the base would
+/// read as the last qualifier's value arguments: `Ok ((1, 2))`, a tuple of
+/// literal types, against `Ok(1, 2)`, the qualifier `Ok` with two constants.
+fn group_base_needs_parens(qualifiers: &[TypeRef], base: &Type) -> bool {
+    let value_args = qualifiers.last().is_some_and(|q| q.name.name != "proj" && q.value_args.is_empty()) && opens_like_value_args(base);
+    value_args || (base.parens() == 0 && !matches!(base, Type::Tuple { .. } | Type::Fn { .. } | Type::Literal { .. }))
+}
+
+/// Whether `t` prints as `(` and a constant then `,` or `)`, which after a
+/// qualifier's name the parser reads as its value arguments ([qual-const]).
+fn opens_like_value_args(t: &Type) -> bool {
+    let constant = |t: &Type| t.parens() == 0 && matches!(t, Type::Literal { value: TypeLit::Int(_) | TypeLit::Long(_) | TypeLit::Str(_), .. });
+    match t.parens() {
+        0 => match t {
+            Type::Tuple { elems, .. } => elems.first().is_some_and(constant),
+            Type::Fn { params, param_names, .. } => params.first().is_some_and(constant) && !matches!(param_names.first(), Some(Some(_))),
+            _ => false,
+        },
+        // A literal grouped once by a lowering (a parse reads `Q (1)` as
+        // value arguments, so none writes one).
+        1 => matches!(t, Type::Literal { value: TypeLit::Int(_) | TypeLit::Long(_) | TypeLit::Str(_), .. }),
+        _ => false,
+    }
 }
 
 /// [fmt-blank-lines] An element of a module's (or a namespace's) run.

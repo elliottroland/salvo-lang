@@ -1756,6 +1756,12 @@ impl Type {
         let span = self.group_span_mut();
         *span = span.grouped();
     }
+
+    /// [expr-group] The type with no parentheses written around it.
+    pub fn ungroup(&mut self) {
+        let span = self.group_span_mut();
+        *span = span.ungrouped();
+    }
 }
 
 /// [cmp-carry] Whether a written type argument is a function **identity** rather

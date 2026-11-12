@@ -120,6 +120,10 @@ The standard library is formatted like any project: run `salvo fmt` in
 - **Kept as written**: grouping parentheses, even redundant ones (`(a + b)`
   stays), and the spelling of a literal (`1_000`, `0.50`, an escape in a
   string). Parentheses are added only where precedence needs them.
+- **Canonical spellings** where the program reads the same either way: a
+  handler with no parameters is written without brackets (`handler H for
+  E`), and a deduction entry writes the claims it establishes first
+  (`list: Mut +Heap<T>(?cmp)` becomes `list: +Heap<T>(?cmp) Mut`).
 - **Imports**: a file's imports are sorted by the imported path, and
   nothing else is reordered or removed. A comment written directly above
   an import moves with it, and a comment at the end of an import's line is

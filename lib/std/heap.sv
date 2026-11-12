@@ -95,7 +95,7 @@ export fn heap_of<T>(first: T, ...elems: T[], ?Ordered<T>) -> Heap<T>(?cmp) NonE
 // ```
 // @compilerrules [deduce-reapply]
 export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
-=> list: Mut +Heap<T>(?cmp) {
+=> list: +Heap<T>(?cmp) Mut {
     // `+Heap<T>(?cmp)` **establishes** the claim rather than keeping one: the
     // list arrives with nothing claimed about it, and this file declares
     // `Heap`, so it is the party trusted to say what a call leaves behind.
@@ -112,7 +112,7 @@ export fn heapify<T>(list: Mut List<T>, ?Ordered<T>)
 // [heapify] of a list known non-empty, which stays known non-empty.
 // @compilerrules [qual-refn]
 export fn heapify<T>(list: NonEmpty Mut List<T>, ?Ordered<T>)
-=> list: NonEmpty Mut +Heap<T>(?cmp) {
+=> list: +Heap<T>(?cmp) NonEmpty Mut {
     // `heap_of`'s path, and the reason `NonEmpty` can appear in the clause of
     // a module that does not own the claim: arranging a list cannot change
     // *how many* elements it has, so the claim is *kept*, never established.
@@ -173,7 +173,7 @@ fn heapify_part<T>(list: NonEmpty Mut List<T>, n: Int, i: Int, ?Ordered<T>)
 // push(h, 4)
 // let four = peek(h)                       // 4, an Int
 // ```
-export fn peek<T>(heap: Heap List<T>) -> (proj(heap) T)? => heap {
+export fn peek<T>(heap: Heap List<T>) -> proj(heap) T? => heap {
     return heap.get(0)
 }
 
@@ -195,7 +195,7 @@ export fn peek<T>(heap: NonEmpty Heap List<T>) -> proj(heap) T => heap {
 // ```
 // @compilerrules [deduce-reapply]
 export fn push<T>(heap: Heap<T>(?cmp) Mut List<T>, elem: T) -> None
-=> heap: NonEmpty Mut +Heap, !elem {
+=> heap: +Heap NonEmpty Mut, !elem {
     // An ordinary mutator: the claim is **re-established** by this function,
     // which `+Heap<T>(?cmp)` is how a deduction says so. `add`'s own clause
     // strips the claim (a mutating callee must), and nothing but this
@@ -250,7 +250,7 @@ export fn pop<T>(heap: Heap<T>(?cmp) Mut List<T>) -> T? => heap: Mut Heap {
 // [pop] of a heap known non-empty: answers the element itself.
 // @compilerrules [cmp-binder]
 export fn pop<T>(heap: NonEmpty Heap<T>(?cmp) Mut List<T>) -> T
-=> heap: Mut +Heap<T>(?cmp) {
+=> heap: +Heap<T>(?cmp) Mut {
     // A deduction entry names qualifiers, not their arguments: keeping `Heap`
     // keeps the ordering too, since the identity lives in the type and this
     // fn could not have changed it.

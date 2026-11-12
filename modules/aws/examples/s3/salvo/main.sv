@@ -121,7 +121,7 @@ fn round_trip(key: Str) [S3, Fs, Console] => key {
 // generated effect is the contract, so any handler of it will do. It reads a
 // body it is handed through the `Streams` in scope, as the host glue reads
 // one out of the host's table, and answers a body minted in the same place.
-handler MemS3() [Streams] for S3 {
+handler MemS3 [Streams] for S3 {
     state {
         objects: Mut Map<Str, Bytes> = Mut Map()
     }

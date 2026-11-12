@@ -124,7 +124,7 @@ actor effect Gather {
 // partial answer is in. A linear value in state lives in a container — the
 // queue owes, `remove_first` moves one obligation out — which is the shape
 // `examples/actors/` explains.
-handler Gathering() for Ordered Gather {
+handler Gathering for Ordered Gather {
     mailbox { capacity: 16 }
     state {
         pending: Mut Deque<Reply<Int>> = mut_deque_of()
@@ -172,7 +172,7 @@ actor effect Race {
     send fn race(key: Str, members: List<eff[Lookup]>, out: Reply<Str>) => !key, !members, !out
 }
 
-handler Racing() for Ordered Race {
+handler Racing for Ordered Race {
     mailbox { capacity: 16 }
     state {
         pending: Mut Deque<Reply<Str>> = mut_deque_of()

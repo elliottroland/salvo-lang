@@ -34,7 +34,7 @@ actor effect Counter {
 // An ordinary handler. Its state is the actor's, reachable from nowhere else,
 // and every member runs to completion before the next one starts — so
 // `sum = sum + n` needs no lock and cannot interleave.
-handler Counting() for Ordered Counter {
+handler Counting for Ordered Counter {
     mailbox { capacity: 8 }
 
     state {
@@ -73,7 +73,7 @@ actor effect Ledger {
 // The handler declares what it depends on exactly as a synchronous one does —
 // `[Counter]` — and the spawn site supplies it. The child never learns whether
 // its `Counter` is another actor or a local handler.
-handler Bookkeeping() [Counter] for Ordered Ledger {
+handler Bookkeeping [Counter] for Ordered Ledger {
     mailbox { capacity: 4 }
 
     send fn report(label: Str, out: Reply<Str>) {
@@ -142,7 +142,7 @@ actor effect Fragile {
     send fn crash()
 }
 
-handler Breaking() for Ordered Fragile {
+handler Breaking for Ordered Fragile {
     mailbox { capacity: 1 }
 
     send fn crash() {

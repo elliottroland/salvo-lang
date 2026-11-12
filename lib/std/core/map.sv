@@ -220,7 +220,7 @@ export platform fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (proj(map
 // ```
 // @compilerrules [col-locate, ref-handle, fate-poison]
 // @compilerknown
-export platform fn at<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (ref(map) V)? => map, key
+export platform fn at<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> ref(map) V? => map, key
 
 // Stores a value under a key, replacing any value already there.
 //

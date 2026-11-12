@@ -2,7 +2,7 @@
 
 An **actor** is an effect handler bound asynchronously. That sentence is the
 whole design: `actor effect Counter { send fn bump(n: Int) }` declares a
-protocol, `handler Counting() for Counter` implements it exactly as a
+protocol, `handler Counting for Counter` implements it exactly as a
 synchronous handler does — plus a `mailbox { capacity: 8 }` slot saying how deep
 its queue is — and `spawn Counting() on workers` brings it to life with that
 mailbox instead of binding it inline. Nothing about the
@@ -45,7 +45,7 @@ then *ends*. When the counter answers, `reported` runs as its own later
 activation and fulfils the original token. `main` is not in the loop, and no
 thread is blocked anywhere.
 
-Read the handler's dependency too: `handler Bookkeeping() [Counter]` declares
+Read the handler's dependency too: `handler Bookkeeping [Counter]` declares
 what it needs exactly as a synchronous handler does, and the spawn site
 supplies it — `use counter` passes an addr here, and a construction
 (`use Counting()`) would have been the same act. The child cannot tell whether

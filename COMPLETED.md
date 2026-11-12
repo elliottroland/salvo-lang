@@ -152,6 +152,92 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — A type's parentheses only where the parser needs them; `+Q` first; handlers without `()` ([ast-print])
+
+User decisions 2026-11-12, for what stage H found (ROADMAP §0av): (A1) the
+printer adds a type's parentheses only where the parser needs them, with
+`proj` treated as any other qualifier and parentheses kept to a minimum
+where readability does not suffer, and the pairs stage H wrote into std and
+the examples come out again; (A2) a deduction entry prints its `+Q` deltas
+before the claims it keeps; (A3) a handler constructor with no parameters
+prints without brackets.
+
+- **The type grammar, read from `parser.rs`** (`parse_type_postfix`,
+  `parse_type_atom`, `parse_paren_type`, `parse_type_ref_opts`) and checked
+  with `salvo dump --phase parse-ast`: an atom is a run of refs (the
+  qualifiers and a base), and `?`/`[]` apply to the whole atom, so
+  `NonEmpty List<Int>?`, `proj(xs) T?`, `ref(c) Mut T?` and `Q T[]` need
+  nothing; a `(` after the refs on the same line makes a qualified group of
+  the paren type (`Ok (A, B)`, `once () -> R`, whose return type takes
+  whatever follows, so `once () -> R?` returns `R?`); a qualifier's value
+  arguments are recognized by their first entry, not by spacing: `?`, a
+  constant (`1`, `"a"`, `-5`) or a lowercase name before `,` or `)`. So
+  `Ok(A, B)` and `Ok (A, B)` are the same tuple, `Ok(1, 2)` is `Ok` with two
+  constants, and a tuple of literal types after a qualifier needs its own
+  pair, `Ok ((1, 2))`. `print.rs`: `Printer::ty_inner`'s `Array`/`Nullable`
+  arm groups a union, a spread or a type ending in a fn type (`ends_in_fn`:
+  a fn type, or qualifiers over one), no longer a qualified type; a union's
+  arm groups a union or a type ending in a fn type, the last arm too (agent's
+  call, open in ROADMAP §0av: `A | () -> B` parses, but reads as `(A | ())
+  -> B`); a spread's inner type the same (a spread's fn type before another
+  arm would take it); the `QualifiedGroup` arm adds a pair only over what is
+  not a tuple, a fn type or a literal, or where the base would read as value
+  arguments (`group_base_needs_parens`, `opens_like_value_args`).
+  `type_text` prints through the same arms.
+- **The pairs stage H added, removed** (each file of 45ed6a88 formatted
+  again from its text before 45ed6a88 with the fixed printer, and the
+  result compared with HEAD: the differences were these pairs, the four
+  deduction entries and the handlers' brackets, nothing else): 17,
+  `lib/std/core/list.sv`
+  4 (`(proj(list) T)?` 2, `(ref(list) T)?`, `(ref(c) Mut T)?`),
+  `core/deque.sv` 3, `runtime.sv` 3 (`once (() -> …)`), `core/array.sv`,
+  `core/map.sv`, `core/result.sv` (`Ok ((A, B))`), `heap.sv`, `args.sv`,
+  `test.sv` and `examples/linearity/salvo/main.sv` (`once ((t: T) [Console]
+  -> None)`) 1 each. No pair written before 45ed6a88 was touched.
+- **The deduction order as built**: `DeductionKind::Exhaustive` keeps the
+  established claims and the kept ones as two lists, each in written order,
+  not how they interleaved; the printer writes the `+Q` list first, then the
+  kept list (`list: Mut +Heap<T>(?cmp)` prints `list: +Heap<T>(?cmp) Mut`,
+  `NonEmpty +A Mut +B` prints `+A +B NonEmpty Mut`). A `-Q` list cannot mix
+  with either [deduce-syntax]. `heap.sv`'s four entries are back as written
+  before stage H.
+- **Handlers**: every kind shares `parse_handler_flavored`, where the
+  brackets are optional and an empty list is the same tree; the printer
+  writes them only around parameters. Checked by formatting and checking a
+  probe both ways (a plain handler, one with dependencies, a generic one, an
+  actor's with a mailbox, one with parameters, `use H()` in a body: the same
+  diagnostics either way) and by the fixture (`export`, `platform`,
+  `threadsafe platform`, `intrinsic`). `salvo fmt` over stage H's scope
+  rewrote 38 handler headers in 18 files (std, the examples, `bench/`,
+  `modules/aws`'s examples); `lib/std/random.sv` was the one file stage H
+  had not changed. The three example READMEs that quote a rewritten header
+  follow it. **Left as written** (no formatter reaches them, and both
+  spellings are one tree): `handler H()` in the language pages
+  (`Concurrency.md`, `Effects-and-Handlers.md`, …), in std's doc-comment
+  examples (`core/actor.sv`, `net.sv`, `runtime.sv`, `runtime/timers.sv`, …),
+  in the generated `modules/aws/salvo/aws/{sqs,ddb}.sv` (the generator's
+  output), and in the test data.
+- **Regenerated**: the std parser snapshots `snapshot_std_list` and
+  `snapshot_std_result` (spans only: byte offsets and the parentheses
+  counted, checked by comparing them with every span normalized). Nothing
+  else moved: every example's `rust/` and `kotlin/` compiled to the
+  checked-in text, the host project `lib/platform` is current
+  (`the_checked_in_host_project_is_current`), and `modules/aws/check.sh`
+  passes whole (examples, host, glue) with nothing to regenerate; no std
+  line moved, and no generated line names a column the edits shifted.
+- **Tests**: canonical fixtures `type_parens` (each reading above, the
+  written pairs that change a reading kept: `NonEmpty (List<Int>?)`, `(T[])?`,
+  `(once () -> Q)?`, `Ok ((1, 2))` against `Ok(1, 2)`, `ref(c) ((1, 2))`,
+  `Ok ((1) -> R)`, a spread's fn type; `Ok(A,B)` printing
+  `Ok (A, B)`), `deduction_deltas` and `handler_brackets`, in
+  `every_print_fixture_formats_as_expected`. `every_file_prints_to_its_own_tree`'s
+  `width breaks` check is now `bare`: the file printed with no trivia **and
+  no type's parentheses** must parse to the file's own tree, so every pair
+  the parser needs is one the printer adds, over every file of the
+  repository (a probe that dropped the pair around a union under `?` failed
+  it in 7 files). `salvo fmt --check` over stage H's scope (92 files) reports
+  nothing.
+
 ### 2026-11-12 — The formatter's and the flow work's tests folded into data and shared walks
 
 User decision 2026-11-12: the Rust `#[test]`s the formatter and flow work

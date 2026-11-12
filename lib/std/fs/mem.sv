@@ -106,7 +106,7 @@ struct MemWrite {
 //     }
 // }
 // ```
-export handler MemFs() for Fs, Streams {
+export handler MemFs for Fs, Streams {
     state {
         files: Mut Map<Str, Bytes> = Mut Map()
         reads: Mut Map<Long, MemRead> = Mut Map()

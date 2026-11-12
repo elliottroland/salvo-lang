@@ -90,7 +90,7 @@ fn no_queue(url: Str) [] -> SqsError => !url {
 // A queue service in memory, written the way a test would write one: the
 // generated effect is the contract, so any handler of it will do. Queues are
 // keyed by URL; a received message stays until deleted, as in SQS.
-handler MemSqs() for Sqs {
+handler MemSqs for Sqs {
     state {
         queues: Mut Map<Str, List<Str>> = Mut Map()
     }

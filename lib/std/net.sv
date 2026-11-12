@@ -467,7 +467,7 @@ export actor effect Outbound {
 // spawned with. A frame the transport refuses is dropped, as the transport's
 // at-most-once delivery allows. [connect] spawns it, with room for 256
 // frames in its mailbox.
-export handler Sending() [Transport] for Ordered Outbound {
+export handler Sending [Transport] for Ordered Outbound {
     mailbox { capacity: 256 }
 
     send fn send_frame(to: NodeEndpoint, frame: Bytes) => !to, !frame {
@@ -483,7 +483,7 @@ export handler Sending() [Transport] for Ordered Outbound {
 // registers it with `Transport.listen`, with room for 256 frames in its
 // mailbox.
 // @compilerrules [net-addr-routable]
-export handler Receiving() for Ordered Inbound {
+export handler Receiving for Ordered Inbound {
     mailbox { capacity: 256 }
 
     send fn receive_frame(from: NodeEndpoint, frame: Bytes) => !from, !frame {
@@ -2050,7 +2050,7 @@ export actor effect MemNet {
 // mailbox (64 messages) to find its listener. A pair partitioned with
 // `partition` stays so until `heal`, in both directions; a killed endpoint
 // stays dead until something listens there again.
-export handler MemNetwork() for Ordered MemNet {
+export handler MemNetwork for Ordered MemNet {
     mailbox { capacity: 64 }
 
     state {

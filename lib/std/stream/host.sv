@@ -148,7 +148,7 @@ send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End 
 // [raw_receive] starts a host thread for each call. Bind [DefaultStreams]
 // after this one to get [Streams]; see the module's example.
 // @compilerrules [stream-table]
-export handler HostRawStreams() for RawStreams {
+export handler HostRawStreams for RawStreams {
     fn raw_read_line(handle: Long) -> Str | None {
         return next_line(handle)
     }
@@ -357,7 +357,7 @@ fn kind(source: Str, f: Fault) [] -> StreamError => !source, f {
 //     }
 // }
 // ```
-export handler DefaultStreams() [RawStreams] for Streams {
+export handler DefaultStreams [RawStreams] for Streams {
     fn read_line(s: InStream) -> Str | None => s {
         return raw_read_line(s.handle)
     }

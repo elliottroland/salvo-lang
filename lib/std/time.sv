@@ -450,7 +450,7 @@ export fn elapsed(since: Tick) [Ticker] -> Duration => since {
 // let t = tick()
 // ```
 // @compilerrules [time-ticker]
-export handler DefaultTicker() for Ticker {
+export handler DefaultTicker for Ticker {
     fn tick() -> Tick {
         return Tick { nanos: monotonic_nanos() }
     }
@@ -473,7 +473,7 @@ export handler DefaultTicker() for Ticker {
 // println("${to_epoch_milli(at)}")
 // ```
 // @compilerrules [time-clock]
-export handler DefaultClock() for Clock {
+export handler DefaultClock for Clock {
     state {
         base_tick: Long = monotonic_nanos()
         base_epoch: Long = epoch_nanos()
@@ -575,7 +575,7 @@ export actor effect Timer {
 // }
 // ```
 // @compilerrules [time-timer]
-export handler DefaultTimer() for Ordered Timer {
+export handler DefaultTimer for Ordered Timer {
     // The runtime's wheel (`runtime.after_nanos`), written in Salvo over a
     // parker, keeps the deadlines.
     mailbox { capacity: 64 }
@@ -653,7 +653,7 @@ export actor effect TimerCtl {
 // [Clock] or both) is the test's business. Prefer passing time as a value
 // over reading it at all; `examples/time/` works through all of this.
 // @compilerrules [time-manual, time-coupling]
-export handler ManualTime() for Ordered Timer, Ordered TimerCtl {
+export handler ManualTime for Ordered Timer, Ordered TimerCtl {
     mailbox { capacity: 64 }
 
     // Virtual monotonic nanoseconds. A real [Tick]'s origin is arbitrary, so

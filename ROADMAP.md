@@ -1089,29 +1089,20 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     them, file by file; the print fixtures
     (`crates/salvo-core/tests/print/**`) stay as written by design.
     `demo/` is the user's.
-  * **Parentheses the printer adds that the parser does not need** (found
-    by stage H): a qualified named type under `?` or `[]` (`proj(c) T?`
-    prints `(proj(c) T)?`: `parse_type_postfix` wraps the whole qualified
-    atom, so the pair changes nothing), a qualified group's tuple base
-    (`Ok(A, B)` prints `Ok ((A, B))`) and a qualified fn type (`once () ->
-    None` prints `once (() -> None)`); `Printer::ty_inner`'s
-    `Array`/`Nullable` and `QualifiedGroup` arms. 17 sites in std and the
-    examples carry them now, and since written parentheses are kept
-    [expr-group], fixing the printer will not take them out again: that
-    takes a hand edit of those sites after the fix. `type_text` prints
-    through the same arms, so diagnostics and hovers that show such a type
-    change with it.
-  * **DECISION: orders the printer does not keep** (found by stage H; the
-    tree does not record them, so the output check passes): a fn's
+  * **DECISION: a fn type as a union's last arm** (agent's call, built
+    2026-11-12, COMPLETED.md): the printer groups it, `A | (() -> B)`,
+    though the parser needs no pair there (only an earlier arm's fn type
+    takes the arms after it), because `A | () -> B` reads as `(A | ()) ->
+    B`. No parsed file reaches it (a written pair is kept); a lowered type
+    printed in a dump or a diagnostic does. Keep it, or drop the pair.
+  * **DECISION: an order the printer does not keep** (found by stage H; the
+    tree does not record it, so the output check passes): a fn's
     deduction clause prints before an implicit's (`=>[add] dest: Mut, !elem
     => !dest, it: Mut, f` became `=> !dest, it: Mut, f =>[add] dest: Mut,
-    !elem` in `seq.sv`'s `map_to` and `filter_to`), a deduction entry's
-    `Mut` prints before the claims it establishes (`list: +Heap<T>(?cmp)
-    Mut` became `list: Mut +Heap<T>(?cmp)`, four sites in `heap.sv`), and a
-    handler's empty parameter list is normalized (`handler H for E` gains
-    `()`, `platform handler H() for E` loses it, as most of the language
-    pages write them). Keep the canonical forms, or record the written
-    order and spelling in the tree as the literals' are.
+    !elem` in `seq.sv`'s `map_to` and `filter_to`). Keep the canonical
+    form, or record the written order in the tree as the literals'
+    spellings are. (A deduction entry's `+Q` before its kept claims and a
+    handler's brackets were decided 2026-11-12, COMPLETED.md.)
   * **Spellings not kept yet** [lit-spelling]: a literal type's
     (`InRange(-1_000, 5)`, `x is "a\'b"`: `TypeLit` and the `is` chain's
     type-ref name hold the value only) and a compile-time expression's

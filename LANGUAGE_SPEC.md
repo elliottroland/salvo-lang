@@ -13217,6 +13217,31 @@ replaced the working document TESTING.md).
   `v.[f]`, `[f]: …`, `[field.type]`, `name@[site]`), so that it parses back
   to the same tree and prints the same again — what `salvo fmt` writes
   [cli-fmt].
+  The printer's own spellings, where the tree keeps none (user decisions
+  2026-11-12): a **type's parentheses** are added only where the parser
+  needs them, read off its type grammar, treating `proj` like any other
+  qualifier. A prefix qualifier binds tighter than a postfix `?` or `[]`
+  and than `|` (`NonEmpty List<Int>?` is `(NonEmpty List<Int>)?`, `proj(xs)
+  T?` is `(proj(xs) T)?`, `Mut Str | Int` is `(Mut Str) | Int`), so
+  qualifiers add none; a union or a spread under `?` or `[]` is grouped, and
+  so is a type ending in a fn type's return type (a fn type, or qualifiers
+  over one: `once () -> R` is `once (() -> R)`) under `?` or `[]` or as a
+  union's arm (the last too, an agent's call to confirm, ROADMAP §0av, so
+  `A | (() -> B)` does not read as `(A | ()) -> B`). After qualifiers a
+  tuple, a fn type and a literal stand as they
+  are (`Ok (A, B)`, `once () -> R`, `Short "port"`) and anything else is
+  grouped (`Ok (Ok Str | Err Int)`); a base that would read as the last
+  qualifier's value arguments [qual-value-arg] gets one pair more (`Ok ((1,
+  2))`, a tuple of literal types, where `Ok(1, 2)` is `Ok` with two
+  constants; `Ok(A, B)` with types in it is the tuple, as `Ok (A, B)` is). A
+  **deduction entry** prints its established claims `+Q` before the ones it
+  keeps, each list in its written order (the tree keeps the two lists, not
+  how they interleaved: `list: Mut +Heap<T>(?cmp)` prints `list:
+  +Heap<T>(?cmp) Mut`) [deduce-reapply]. A **handler constructor** with no
+  parameters prints without brackets, of every kind (`handler H for E`,
+  `platform handler H for E`, `threadsafe platform handler`, `intrinsic
+  handler`; `handler H() for E` is the same tree); a `use H()` is a call and
+  keeps them.
   What the tree holds with no spelling is written as the surface it came
   from where the tree says so — a type-named call `Mut_List(…)` as `Mut
   List(…)` [fn-type-named], `name@[site]` in a stamped body as the bare

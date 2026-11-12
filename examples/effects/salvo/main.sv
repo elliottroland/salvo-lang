@@ -32,7 +32,7 @@ effect Clock {
 // declared with an initializer, and private to it. This one is a fake clock:
 // each reading is five ticks after the last, so the program's output does not
 // depend on when it ran.
-handler TickingClock() for Clock {
+handler TickingClock for Clock {
     state {
         tick: Int = 0
     }
@@ -80,7 +80,7 @@ effect Logger {
     fn log(message: Str) -> None => message
 }
 
-handler PlainLogger() [Console] for Logger {
+handler PlainLogger [Console] for Logger {
     fn log(message: Str) -> None => message {
         println("   ${message}")
     }
@@ -89,7 +89,7 @@ handler PlainLogger() [Console] for Logger {
 // A handler that throws its input away — used in section 5. It needs nothing at
 // all, which is the point: `Logger` says nothing about how logging happens, so
 // "not at all" is a legitimate implementation.
-handler QuietLogger() for Logger {
+handler QuietLogger for Logger {
     fn log(message: Str) -> None => message {}
 }
 
@@ -108,7 +108,7 @@ handler QuietLogger() for Logger {
 // from the *enclosing signature* as well as from a binding — which is what
 // lets the wiring live in `interception` below, a function that only
 // receives the effects it wires.
-handler Stamped() [Logger, Clock] for Logger {
+handler Stamped [Logger, Clock] for Logger {
     fn log(message: Str) -> None => message {
         log("[t=${now()}] ${message}")
     }
@@ -116,7 +116,7 @@ handler Stamped() [Logger, Clock] for Logger {
 
 // A second one, with state of its own. Interceptors stack: registering this
 // over `Stamped` numbers the line the stamping logger will then print.
-handler Numbered() [Logger] for Logger {
+handler Numbered [Logger] for Logger {
     state {
         seen: Int = 0
     }
@@ -173,13 +173,13 @@ effect Metrics {
     fn record(what: Str) -> None => what
 }
 
-handler ConsoleAudit() [Console] for Audit {
+handler ConsoleAudit [Console] for Audit {
     fn record(what: Str) -> None => what {
         println("   audit: ${what}")
     }
 }
 
-handler ConsoleMetrics() [Console] for Metrics {
+handler ConsoleMetrics [Console] for Metrics {
     fn record(what: Str) -> None => what {
         println("   metric: ${what}")
     }

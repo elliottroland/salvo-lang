@@ -350,10 +350,12 @@ fn too_wide(printed: &str) -> Vec<String> {
 ///   it was written;
 /// - `tree`: it parses to the same tree (spans aside) and prints the same
 ///   again: what a formatter needs;
-/// - `width breaks`: printed with no trivia (so no break is the author's
-///   and every one is the width's), it parses to the same tree and prints
-///   the same again with its trivia, where each of those breaks is now
-///   written: the breaks the width makes read back as the author's;
+/// - `bare`: printed with no trivia (so no break is the author's and every
+///   one is the width's) and no parentheses written around any type (so
+///   every pair is one the printer adds), it parses to the same tree and
+///   prints the same again with its trivia, where each of those breaks and
+///   pairs is now written: the breaks the width makes read back as the
+///   author's, and the printer adds every pair the parser needs;
 /// - `width`: no printed line is wider than the width, but where nothing
 ///   can make it fit ([`too_wide`]).
 #[test]
@@ -419,16 +421,12 @@ fn file_failures(name: &str, text: &str) -> Option<Vec<String>> {
         _ => {}
     }
 
-    let mut bare = module;
+    let mut bare = module.clone();
     bare.trivia = Default::default();
+    forget_type_parens(&mut bare);
     let unbroken = print_module(&bare).text;
-    match parse_written(&unbroken) {
-        Err(why) => failures.push(format!("{name} [width breaks]: printed with no trivia, it does not parse: {why}")),
-        Ok(m) => {
-            if let Some(why) = tree_difference(&m, &print_module(&m).text) {
-                failures.push(format!("{name} [width breaks]: {why}"));
-            }
-        }
+    if let Some(why) = tree_difference(&module, &unbroken) {
+        failures.push(format!("{name} [bare]: {why}"));
     }
 
     for line in too_wide(&printed) {
@@ -440,6 +438,19 @@ fn file_failures(name: &str, text: &str) -> Option<Vec<String>> {
 /// The files holding what the printer cannot write as written yet: comptime
 /// statements and heads (ROADMAP §0av).
 const NOT_YET_PRINTED: &[&str] = &[];
+
+/// [expr-group] [ast-print] `module` with no parentheses written around any
+/// of its types: printed, it holds only those the printer adds.
+fn forget_type_parens(module: &mut salvo_syntax::ast::Module) {
+    use salvo_syntax::ast::Type;
+    struct V;
+    impl salvo_syntax::visit_mut::MutVisitor for V {
+        fn visit_type(&mut self, t: &mut Type) {
+            t.ungroup();
+        }
+    }
+    salvo_syntax::node_id::walk_module(&mut V, module);
+}
 
 /// The files whose first member is written on its container's line under the
 /// container's docs, which the parser gives both (ROADMAP §0av): printed,
@@ -467,7 +478,10 @@ const DOCS_ON_A_SHARED_LINE: &[&str] = &[
 ///   `imports_*.sv` the import runs the sort leaves as written;
 /// - each `tests/print/canonical/<name>.in.sv` formats as `<name>.out.sv`:
 ///   a line too wide broken the canonical way, a layout's blank lines, a
-///   moved comment, sorted imports;
+///   moved comment, sorted imports, a type's parentheses only where the
+///   parser needs them (`type_parens`), a deduction's `+Q` before the
+///   claims it keeps (`deduction_deltas`), a parameterless handler without
+///   brackets (`handler_brackets`);
 /// - the example of `docs/language/Formatting.md` (its first two `salvo`
 ///   fences) formats as the page shows.
 #[test]

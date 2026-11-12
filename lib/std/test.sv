@@ -194,7 +194,7 @@ export fn trapped_by(body: () -> Str?) [] -> Str? => body {
 // @param body  answers `None` on success or a message on failure
 // @returns     that answer, or the trap's message if [body] trapped
 // @compilerrules [test-recover, test-property]
-export fn trapped_by_once(body: once (() -> Str?)) [] -> Str? => !body {
+export fn trapped_by_once(body: once () -> Str?) [] -> Str? => !body {
     return trap_boundary_once(body)
 }
 

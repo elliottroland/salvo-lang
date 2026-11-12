@@ -385,7 +385,7 @@ struct ViewWaiter {
     parker: Parker
 }
 
-handler Routes() for RouteTable {
+handler Routes for RouteTable {
     state {
         node_id: Long = 0
         hosted: Mut Set<Long> = Mut Set()

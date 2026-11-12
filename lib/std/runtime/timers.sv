@@ -83,7 +83,7 @@ effect DeadlineTable {
     fn clear() -> None
 }
 
-handler Deadlines() for DeadlineTable {
+handler Deadlines for DeadlineTable {
     state {
         ats: Mut List<Long> = Mut List()
         dones: Mut List<Reply<Fired>> = Mut List()
@@ -163,7 +163,7 @@ actor effect Wheel {
 
 // The wheel's one activation: answers what is due, sleeps until the
 // earliest deadline left, and returns once none is.
-handler Wheeling() for Ordered Wheel {
+handler Wheeling for Ordered Wheel {
     mailbox { capacity: 2 }
 
     send fn run() {

@@ -190,7 +190,7 @@ export fn both<A, B, E>(
     a: Ok A | Errs NonEmpty List<E>,
     b: Ok B | Errs NonEmpty List<E>,
     ?copy: (v: E) -> E
-) [] -> Ok ((A, B)) | Errs NonEmpty List<E>
+) [] -> Ok (A, B) | Errs NonEmpty List<E>
 => !a, !b {
     when a {
         is Ok {
