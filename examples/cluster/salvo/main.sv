@@ -109,7 +109,9 @@ handler SlowLooking(who: Str, timer: eff[Timer]) for Ordered Lookup {
 handler Scattering(group: eff[ActorGroup<Search>], gather: eff[Gather]) for Search {
     mailbox { capacity: 16 }
     send fn query(word: Str, out: Reply<Int>) => !word, !out {
-        let members = waitfor ms: Reply<List<eff[Search]>> { group.members(ms) }
+        let members = waitfor ms: Reply<List<eff[Search]>> {
+            group.members(ms)
+        }
         gather.scatter(word, members, out)
     }
 }
@@ -144,7 +146,9 @@ handler Gathering() for Ordered Gather {
         if left == 0 {
             let out = remove_first(pending)
             when out {
-                is Reply<Int> { out.send(copy(total)) }
+                is Reply<Int> {
+                    out.send(copy(total))
+                }
                 is None {}
             }
         }
@@ -157,7 +161,9 @@ handler Gathering() for Ordered Gather {
 handler Hedging(group: eff[ActorGroup<Lookup>], racer: eff[Race]) for Lookup {
     mailbox { capacity: 16 }
     send fn lookup(key: Str, out: Reply<Str>) => !key, !out {
-        let members = waitfor ms: Reply<List<eff[Lookup]>> { group.members(ms) }
+        let members = waitfor ms: Reply<List<eff[Lookup]>> {
+            group.members(ms)
+        }
         racer.race(key, members, out)
     }
 }
@@ -180,7 +186,9 @@ handler Racing() for Ordered Race {
     send fn first(answer: Str) => !answer {
         let out = remove_first(pending)
         when out {
-            is Reply<Str> { out.send(answer) }
+            is Reply<Str> {
+                out.send(answer)
+            }
             is None {}
         }
     }
@@ -198,7 +206,9 @@ handler Racing() for Ordered Race {
 // `Elected` would change.
 handler LastHost(nodes: eff[NodeGroup], me: NodeEndpoint) for Leader {
     fn leader() -> NodeId? {
-        let peers = waitfor out: Reply<List<Node>> { nodes.members(out) }
+        let peers = waitfor out: Reply<List<Node>> {
+            nodes.members(out)
+        }
         let best_host = copy(me.host)
         let best = this_node()
         for n in peers {
@@ -218,7 +228,9 @@ handler LastHost(nodes: eff[NodeGroup], me: NodeEndpoint) for Leader {
 // fleet — and nothing here mentions a node, a group or a pick.
 
 fn fresh_id() [Sequencer] -> Str {
-    return waitfor out: Reply<Str> { next(out) }
+    return waitfor out: Reply<Str> {
+        next(out)
+    }
 }
 
 // Which shard a SKU lands on is the hash's business; that the *same* SKU
@@ -228,7 +240,9 @@ fn fresh_id() [Sequencer] -> Str {
 fn checkout(skus: List<Str>) [Inventory, Console] -> None {
     let shards: Mut List<Str> = Mut List()
     for sku in skus {
-        let answer = waitfor out: Reply<Str> { reserve(copy(sku), 1, out) }
+        let answer = waitfor out: Reply<Str> {
+            reserve(copy(sku), 1, out)
+        }
         let parts = split(answer, ":")
         add(shards, copy(get(parts, 0) ?: unreachable!()))
         println("  ${sku}: ${get(parts, 1) ?: unreachable!()} reserved on its shard so far")
@@ -239,11 +253,15 @@ fn checkout(skus: List<Str>) [Inventory, Console] -> None {
 }
 
 fn count(word: Str) [Search] -> Int => !word {
-    return waitfor out: Reply<Int> { query(word, out) }
+    return waitfor out: Reply<Int> {
+        query(word, out)
+    }
 }
 
 fn find(key: Str) [Lookup] -> Str => !key {
-    return waitfor out: Reply<Str> { lookup(key, out) }
+    return waitfor out: Reply<Str> {
+        lookup(key, out)
+    }
 }
 
 // A router is bound for a scope, and a scope is a function. `Leader`
@@ -309,7 +327,9 @@ handler Booting(at: NodeEndpoint, all: List<NodeEndpoint>, net: eff[MemNet]) [Tr
 // ----------------------------------------------------------- node `a` ----
 
 fn settle(timer: eff[Timer]) [] -> None => timer {
-    let _f = waitfor f: Reply<Fired> { timer.after(millis(400), f) }
+    let _f = waitfor f: Reply<Fired> {
+        timer.after(millis(400), f)
+    }
 }
 
 fn main() [use, spawn] {
@@ -337,10 +357,14 @@ fn main() [use, spawn] {
     // Node b, and a moment for the two node groups to meet.
     let pb = pool_at(new_node(), 1)
     let booter = spawn Booting(copy(b), copy(all), copy(network)) with MemTransport(copy(b), copy(network)) on pb
-    let remote_seq = waitfor done: Reply<eff[Sequencer]> { booter.boot(done) }
+    let remote_seq = waitfor done: Reply<eff[Sequencer]> {
+        booter.boot(done)
+    }
     let timer = spawn DefaultTimer() on pool(1)
     settle(copy(timer))
-    let members = waitfor out: Reply<List<Node>> { nodes.members(out) }
+    let members = waitfor out: Reply<List<Node>> {
+        nodes.members(out)
+    }
     println("nodes: ${size(members) + 1}, sequencers: ${size(waitfor out: Reply<List<eff[Sequencer]>> { seq.members(out) })}")
 
     // 1. Singleton — ids come from the leader's sequencer. The leader is the
@@ -365,7 +389,9 @@ fn main() [use, spawn] {
 
     // 5. Failover — b leaves: its members are withdrawn from every group, and
     //    the election answers a, so the singleton's ids now come from a.
-    let _stopped = waitfor done: Reply<Bool> { booter.stop(done) }
+    let _stopped = waitfor done: Reply<Bool> {
+        booter.stop(done)
+    }
     settle(copy(timer))
     println("after b left:")
     println("  sequencers: ${size(waitfor out: Reply<List<eff[Sequencer]>> { seq.members(out) })}")

@@ -22,7 +22,7 @@
 // what a home directory is.
 export struct ProfileCredentials : ToStr<self> by auto {
     // The profile's section name in the credentials file.
-    profile: Str = "default",
+    profile: Str = "default"
     // The credentials file, as a path the host filesystem understands.
     path: Str = "~/.aws/credentials"
 }
@@ -40,13 +40,15 @@ export struct DefaultChain {}
 export type Credentials = ProfileCredentials | EnvironmentCredentials | DefaultChain
 
 // An AWS region by its code: `eu-west-1`, `us-east-1`.
-export struct Region { code: Str }
+export struct Region {
+    code: Str
+}
 
 // How to reach a service: whose credentials, which region, and — for a local
 // stand-in such as LocalStack — an endpoint to use instead of the region's.
 export struct AwsConfig {
-    credentials: Credentials = DefaultChain {},
-    region: Region,
+    credentials: Credentials = DefaultChain {}
+    region: Region
     // A full URL (`http://localhost:4566`); absent means the region's endpoint.
     endpoint: Str? = None
 }
@@ -55,4 +57,7 @@ export struct AwsConfig {
 // declare, an authentication or signing failure, a transport error, a response
 // the SDK could not parse. [code] is the service's error code when it sent
 // one, otherwise a short description of the kind of failure.
-export struct AwsError { code: Str, message: Str }
+export struct AwsError {
+    code: Str
+    message: Str
+}

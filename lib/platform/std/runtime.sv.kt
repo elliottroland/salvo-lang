@@ -737,7 +737,7 @@ class Scheduler : SchedTable {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:779:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:884:37")
                 }
             }
         }
@@ -776,7 +776,7 @@ class Scheduler : SchedTable {
                     __pick2_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:807:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:912:37")
                 }
             }
         }
@@ -804,7 +804,7 @@ class Scheduler : SchedTable {
                     __pick3_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:824:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:929:37")
                 }
             }
         }
@@ -853,7 +853,7 @@ class Scheduler : SchedTable {
                     __pick4_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:846:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:951:37")
                 }
             }
         }
@@ -873,7 +873,7 @@ class Scheduler : SchedTable {
                     __pick5_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:856:36")
+                    throw AssertionError("salvo: unreachable at std.runtime:961:36")
                 }
             }
         }
@@ -889,7 +889,7 @@ class Scheduler : SchedTable {
                     __pick6_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:862:36")
+                    throw AssertionError("salvo: unreachable at std.runtime:967:36")
                 }
             }
         }
@@ -913,7 +913,7 @@ class Scheduler : SchedTable {
                     __pick7_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:876:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:981:37")
                 }
             }
         }
@@ -943,7 +943,7 @@ class Scheduler : SchedTable {
                         __pick8_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime:896:33")
+                        throw AssertionError("salvo: unreachable at std.runtime:1001:33")
                     }
                 }
             }
@@ -971,7 +971,7 @@ class Scheduler : SchedTable {
                     __pick9_3
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:909:36")
+                    throw AssertionError("salvo: unreachable at std.runtime:1014:36")
                 }
             }
         }
@@ -997,7 +997,7 @@ class Scheduler : SchedTable {
                     __pick10_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:930:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:1035:37")
                 }
             }
         }
@@ -1057,7 +1057,7 @@ class Scheduler : SchedTable {
                     __pick11_2
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:989:42")
+                    throw AssertionError("salvo: unreachable at std.runtime:1094:42")
                 }
             }
         }
@@ -1070,7 +1070,7 @@ class Scheduler : SchedTable {
                     __pick12_3
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:991:36")
+                    throw AssertionError("salvo: unreachable at std.runtime:1096:36")
                 }
             }
         }
@@ -1088,7 +1088,7 @@ class Scheduler : SchedTable {
                     __pick13_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:998:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:1103:37")
                 }
             }
         }
@@ -1110,7 +1110,7 @@ class Scheduler : SchedTable {
                 break
             }
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
-            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1015:13") else Unit)
+            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1120:13") else Unit)
             val entry_3: Union3<Delivered, Answered, Reported> = entry!!
             salvo.std.runtime.dropEntry(entry_3)
         }
@@ -1173,7 +1173,7 @@ class Scheduler : SchedTable {
                         __pick14_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime:1051:43")
+                        throw AssertionError("salvo: unreachable at std.runtime:1156:43")
                     }
                 }
             }
@@ -1189,7 +1189,7 @@ class Scheduler : SchedTable {
                     __pick15_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1055:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:1160:37")
                 }
             }
         }
@@ -1205,7 +1205,7 @@ class Scheduler : SchedTable {
                         __pick16_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime:1060:43")
+                        throw AssertionError("salvo: unreachable at std.runtime:1165:43")
                     }
                 }
             }
@@ -1221,7 +1221,7 @@ class Scheduler : SchedTable {
                     __pick17_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1064:38")
+                    throw AssertionError("salvo: unreachable at std.runtime:1169:38")
                 }
             }
         }
@@ -1237,7 +1237,7 @@ class Scheduler : SchedTable {
                         __pick18_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime:1069:43")
+                        throw AssertionError("salvo: unreachable at std.runtime:1174:43")
                     }
                 }
             }
@@ -1254,7 +1254,7 @@ class Scheduler : SchedTable {
                         __pick19_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime:1073:43")
+                        throw AssertionError("salvo: unreachable at std.runtime:1178:43")
                     }
                 }
             }
@@ -1354,7 +1354,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                     __pick20_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1175:34")
+                    throw AssertionError("salvo: unreachable at std.runtime:1285:34")
                 }
             }
         }
@@ -1370,7 +1370,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 break
             }
             val entry: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeFirstPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>))
-            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1185:13") else Unit)
+            (if (!(!((entry == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1295:13") else Unit)
             val entry_2: Union3<Delivered, Answered, Reported> = entry!!
             salvo.std.runtime.dropEntry(entry_2)
         }
@@ -1411,7 +1411,7 @@ fun resetAll(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                     __pick21_5
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1201:33")
+                    throw AssertionError("salvo: unreachable at std.runtime:1309:33")
                 }
             }
         }
@@ -1507,7 +1507,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                     __pick22_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1269:40")
+                    throw AssertionError("salvo: unreachable at std.runtime:1397:40")
                 }
             }
         }
@@ -1525,7 +1525,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                         __pick23_2
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime:1274:50")
+                        throw AssertionError("salvo: unreachable at std.runtime:1402:50")
                     }
                 }
             }
@@ -1539,7 +1539,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                     __pick24_4
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1275:36")
+                    throw AssertionError("salvo: unreachable at std.runtime:1403:36")
                 }
             }
         }
@@ -1556,7 +1556,7 @@ fun release(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sal
                     __pick25_6
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1280:43")
+                    throw AssertionError("salvo: unreachable at std.runtime:1408:43")
                 }
             }
         }
@@ -1578,7 +1578,7 @@ fun reuseWaiter(waiters: salvo.platform.std.core.list.MutList<WaiterRec>, free: 
                     __pick26_2
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1293:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:1421:37")
                 }
             }
         }
@@ -1613,7 +1613,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
                     __pick27_2
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1317:40")
+                    throw AssertionError("salvo: unreachable at std.runtime:1456:40")
                 }
             }
         }
@@ -1638,7 +1638,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
                     __pick28_3
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1330:40")
+                    throw AssertionError("salvo: unreachable at std.runtime:1469:40")
                 }
             }
         }
@@ -1665,7 +1665,7 @@ fun deliverTo(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: s
                     __pick29_6
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1342:36")
+                    throw AssertionError("salvo: unreachable at std.runtime:1481:36")
                 }
             }
         }
@@ -1685,7 +1685,7 @@ fun reportFault(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: s
                     __pick30_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1354:42")
+                    throw AssertionError("salvo: unreachable at std.runtime:1493:42")
                 }
             }
         }
@@ -1700,7 +1700,7 @@ fun reportFault(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: s
                     __pick31_3
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1356:37")
+                    throw AssertionError("salvo: unreachable at std.runtime:1495:37")
                 }
             }
         }
@@ -1761,7 +1761,7 @@ fun fireIdle(actors: salvo.platform.std.core.list.MutList<ActorRec>, waiters: sa
                         __pick32_3
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime:1408:48")
+                        throw AssertionError("salvo: unreachable at std.runtime:1557:48")
                     }
                 }
             }
@@ -1824,7 +1824,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 __pick33_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.runtime:1459:32")
+                throw AssertionError("salvo: unreachable at std.runtime:1616:32")
             }
         }
     }
@@ -1850,7 +1850,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                     __pick34_4
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1466:34")
+                    throw AssertionError("salvo: unreachable at std.runtime:1623:34")
                 }
             }
         }
@@ -1861,7 +1861,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                 val k: Int = at!!
                 val _slot: Long? = salvo.std.core.deque.removeAtPlatform((a.slots as salvo.platform.std.core.deque.MutDeque<Long>), k)
                 val e: Union3<Delivered, Answered, Reported>? = salvo.std.core.deque.removeAtPlatform((a.queue as salvo.platform.std.core.deque.MutDeque<Union3<Delivered, Answered, Reported>>), k)
-                (if (!(!((e == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1473:17") else Unit)
+                (if (!(!((e == null)))) throw AssertionError("salvo: assertion failed at std.runtime:1630:17") else Unit)
                 a.running = true
                 val body: salvo.platform.std.runtime.Body = kotlin.run {
                     val __pick35: salvo.platform.std.runtime.Body? = salvo.std.runtime.slotTakePlatform(a.body)
@@ -1871,7 +1871,7 @@ fun takeWork(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: salv
                             __pick35_5
                         }
                         else -> {
-                            throw AssertionError("salvo: unreachable at std.runtime:1475:49")
+                            throw AssertionError("salvo: unreachable at std.runtime:1632:49")
                         }
                     }
                 }
@@ -1900,7 +1900,7 @@ fun markReady(a: ActorRec, pools: salvo.platform.std.core.list.MutList<PoolRec>,
                 __pick36_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.runtime:1494:40")
+                throw AssertionError("salvo: unreachable at std.runtime:1651:40")
             }
         }
     }
@@ -1966,7 +1966,7 @@ fun deliverable(slots: kotlin.collections.ArrayDeque<Long>, gate: Long?): Int? {
                     __pick37_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime:1542:30")
+                    throw AssertionError("salvo: unreachable at std.runtime:1699:30")
                 }
             }
         } == gate_2)) {
@@ -1987,7 +1987,7 @@ fun wakePool(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
                 __pick38_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.runtime:1556:32")
+                throw AssertionError("salvo: unreachable at std.runtime:1713:32")
             }
         }
     }
@@ -2008,7 +2008,7 @@ fun wakeEvery(pools: salvo.platform.std.core.list.MutList<PoolRec>, pool: Int) {
                 __pick39_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.runtime:1564:32")
+                throw AssertionError("salvo: unreachable at std.runtime:1721:32")
             }
         }
     }
@@ -2041,7 +2041,7 @@ fun retireIfDone(actors: salvo.platform.std.core.list.MutList<ActorRec>, pools: 
                 __pick40_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.runtime:1588:32")
+                throw AssertionError("salvo: unreachable at std.runtime:1745:32")
             }
         }
     }
@@ -2261,7 +2261,7 @@ fun awaitAnswer(wid: Int): salvo.platform.std.runtime.Dyn {
             salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
         }
     }
-    throw AssertionError("salvo: unreachable at std.runtime:1888:5")
+    throw AssertionError("salvo: unreachable at std.runtime:2051:5")
     return salvo.std.runtime.unerasePlatform(salvo.std.runtime.erasePlatform(0))
 }
 
@@ -2320,7 +2320,7 @@ fun servePool(pool: Int) {
             salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
         }
     }
-    throw AssertionError("salvo: unreachable at std.runtime:1936:5")
+    throw AssertionError("salvo: unreachable at std.runtime:2099:5")
 }
 
 fun tokenToActor(addr: Int, slot: Long): Token {

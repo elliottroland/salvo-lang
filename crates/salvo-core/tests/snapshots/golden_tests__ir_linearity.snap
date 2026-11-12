@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-core/tests/golden_tests.rs
+assertion_line: 29
 expression: text
 ---
 module main
@@ -85,7 +86,7 @@ fn a_queue_of_tickets@main(lent console: Console) -> None {
     arm#1 (none) {
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:134:5
+      unreachable("unhandled union arm") at main:133:5
     }
   }
   loop#5 {

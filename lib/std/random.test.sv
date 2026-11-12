@@ -10,7 +10,7 @@ test "draws lie in [0, 1) and differ" {
     expect(a != b, "two draws differ")
 }
 
-test actor(seed=11) "the seed decides the draws" {
+test actor(seed = 11) "the seed decides the draws" {
     use DefaultRandom()
     let a = random()
     let b = random()

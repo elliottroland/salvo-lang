@@ -70,7 +70,7 @@ export linear platform type HostOut canbe Mut
 // What one host read answers: the bytes read, or what failed.
 export struct HostRead {
     // Up to the number of bytes asked for; none at the end of the stream.
-    data: Bytes,
+    data: Bytes
     // The host's message when the read failed.
     error: Str?
 }
@@ -111,7 +111,7 @@ platform fn not_ours(handle: Long) [] -> Never => handle
 // @compilerrules [stream-table]
 export struct Fault {
     // `true` when the failure is bytes that did not decode as UTF-8.
-    utf8: Bool,
+    utf8: Bool
     // The host's message; empty for a decoding failure.
     message: Str
 }
@@ -124,15 +124,15 @@ export struct Fault {
 // @compilerrules [stream-table]
 export linear struct InEntry canbe Mut {
     // What the stream is, for error messages: a path, or a description.
-    source: Str,
+    source: Str
     // The host stream.
-    host: Mut HostIn,
+    host: Mut HostIn
     // Bytes handed to the reader so far. Bytes read ahead for a line do not
     // count until they are taken, so for a file this is exactly the offset
     // `open_read_at` would resume at.
-    position: Long,
+    position: Long
     // Bytes read from the host and not yet handed out.
-    ahead: Mut Bytes,
+    ahead: Mut Bytes
     // The failure recorded on the stream, if any.
     failed: Fault?
 }
@@ -142,22 +142,22 @@ export linear struct InEntry canbe Mut {
 // @compilerrules [stream-table]
 export linear struct OutEntry canbe Mut {
     // What the stream is, for error messages: a path, or a description.
-    source: Str,
+    source: Str
     // The host stream.
-    host: Mut HostOut,
+    host: Mut HostOut
     // Bytes accepted so far.
-    position: Long,
+    position: Long
     // The failure recorded on the stream, if any.
     failed: Fault?
 }
 
 fn drop_in_entry(e: Mut InEntry) [] -> None => !e {
-    let {source, host, position, ahead, failed} = e
+    let { source, host, position, ahead, failed } = e
     host_close_in(host)
 }
 
 fn drop_out_entry(e: Mut OutEntry) [] -> None => !e {
-    let {source, host, position, failed} = e
+    let { source, host, position, failed } = e
     let _closed = host_close_out(host)
 }
 
@@ -170,10 +170,13 @@ struct Unknown {}
 // A receive in flight: the reply to answer, kept until the reader thread
 // has read. One dropped unanswered is answered with the end of the stream.
 // @compilerrules [stream-receive]
-linear struct Pending { handle: Long, done: Reply<Chunk> }
+linear struct Pending {
+    handle: Long
+    done: Reply<Chunk>
+}
 
 fn drop_pending(p: Pending) [] -> None => !p {
-    let {handle, done} = p
+    let { handle, done } = p
     send(done, Chunk { data: bytes_of(), end: true, fault: None, source: "" })
 }
 
@@ -316,7 +319,10 @@ export fn fresh_handle() [] -> Long {
 //                  file opened part-way)
 export fn register_in(source: Str, host: Mut HostIn, position: Long) [] -> Long => !source, !host, !position {
     let handle = fresh_handle()
-    put_in(copy(handle), Mut InEntry { source: source, host: host, position: position, ahead: mut_bytes(), failed: None })
+    put_in(
+        copy(handle),
+        Mut InEntry { source: source, host: host, position: position, ahead: mut_bytes(), failed: None }
+    )
     return handle
 }
 
@@ -393,7 +399,7 @@ export fn checkin_out(handle: Long, e: Mut OutEntry) [] -> None => !handle, !e {
 // recorded on it, if any. The handle is unknown to the table afterwards.
 export fn close_in(handle: Long, e: Mut InEntry) [] -> Fault? => !handle, !e {
     forget(handle)
-    let {source, host, position, ahead, failed} = e
+    let { source, host, position, ahead, failed } = e
     host_close_in(host)
     return failed
 }
@@ -406,7 +412,7 @@ export fn close_in(handle: Long, e: Mut InEntry) [] -> Fault? => !handle, !e {
 // failed.
 export fn close_out(handle: Long, e: Mut OutEntry) [] -> Fault? => !handle, !e {
     forget(handle)
-    let {source, host, position, failed} = e
+    let { source, host, position, failed } = e
     let flushing = host_flush(host)
     let closing = host_close_out(host)
     if failed is Fault f {
@@ -444,9 +450,9 @@ fn take_ahead(e: Mut InEntry, n: Int) [] -> Bytes => e: Mut, n {
 // failure that stopped it.
 export struct Read {
     // A line, everything left, or a chunk, depending on the read.
-    data: Bytes,
+    data: Bytes
     // `true` when there was nothing left to read, or a failure stopped it.
-    end: Bool,
+    end: Bool
     // The failure recorded on the stream, by this read or an earlier one.
     fault: Fault?
 }
@@ -598,11 +604,11 @@ export fn flush(e: Mut OutEntry) [] -> Fault? => e: Mut {
 // What [receive] answers: one chunk of a stream, or its end.
 export struct Chunk {
     // Up to 64 KiB; never empty unless [end] is `true`.
-    data: Bytes,
+    data: Bytes
     // `true` when the stream ended or failed; it has been closed.
-    end: Bool,
+    end: Bool
     // The failure that stopped the stream, if one did.
-    fault: Fault?,
+    fault: Fault?
     // What the stream is, for error messages.
     source: Str
 }
@@ -631,7 +637,9 @@ export fn receive(handle: Long, done: Reply<Chunk>) [] -> None => !handle, !done
 }
 
 fn start_reader(handle: Long) [] -> None => !handle {
-    start_thread(() -> { read_and_answer(copy(handle)) })
+    start_thread(() -> {
+        read_and_answer(copy(handle))
+    })
 }
 
 fn read_and_answer(handle: Long) [] -> None => !handle {
@@ -645,7 +653,7 @@ fn read_and_answer(handle: Long) [] -> None => !handle {
     }
     let p = take_pending(handle)
     if p is Pending found {
-        let {handle: _h, done} = found
+        let { handle: _h, done } = found
         send(done, Chunk { data: got.data, end: got.end, fault: got.fault, source: source })
     }
     external_end()

@@ -125,7 +125,7 @@ fun toStr(kind: Union7<NotFound, PermissionDenied, AlreadyExists, NotADirectory,
             return salvo.std.stream.toStr(kind_7.error)
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs:176:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs:202:5"))
         }
     }
 }

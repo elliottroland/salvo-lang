@@ -76,7 +76,7 @@ fun aQueueOfTickets(console: salvo.std.core.console.Console) {
         (first == null) -> {
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:134:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:133:5"))
         }
     }
     while (true) {

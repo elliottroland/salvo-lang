@@ -146,8 +146,7 @@ handler Deadlines() for DeadlineTable {
         while remove_first(dones) is Reply<Fired> r {
             add(forgotten, r)
         }
-        while remove_first(ats) is Long {
-        }
+        while remove_first(ats) is Long {}
         running = false
     }
 }

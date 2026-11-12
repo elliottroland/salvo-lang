@@ -280,7 +280,7 @@ pub fn describe(t: &crate::Tool) -> String {
             let mut s_7 = match &s { crate::unions::Union3::U3(__v) => __v, _ => unreachable!() };
             String::from("standard input")
         } else {
-            panic!("salvo: unhandled union arm at main:104:24");
+            panic!("salvo: unhandled union arm at main:108:24");
         };
         return format!("fetch {} with {} header(s)", from, crate::std_core_list::size_platform::<String>(&c_4.header));
     } else if c.is_none() {
@@ -314,7 +314,7 @@ pub fn show(console: &crate::std_core_console::Console, line: &Vec<String>) {
             };
         }
     } else {
-        panic!("salvo: unhandled union arm at main:120:5");
+        panic!("salvo: unhandled union arm at main:132:5");
     };
 }
 

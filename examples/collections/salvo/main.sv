@@ -23,7 +23,7 @@
 // no sorted container consults equality. Both clauses are checked here, at the
 // declaration: a `canbe Mut` struct or a float field is refused.
 struct Point : Ordered<self> by auto, Hashed<self> by auto {
-    x: Int,
+    x: Int
     y: Int
 }
 
@@ -65,7 +65,7 @@ fn main() [use] -> None {
     // A brace whose first entry is `name:` is a *struct* literal — the one
     // brace form that remains, which is why a map takes its entries as `k: v`
     // *arguments* and a struct takes `name:` *fields*.
-    let note: Note = {text: "still a struct literal"}
+    let note: Note = { text: "still a struct literal" }
     println("1. struct ${note.text}")
 
     let seen: Mut Set<Str> = Mut Set<Str>()

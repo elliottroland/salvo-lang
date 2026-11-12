@@ -818,7 +818,7 @@ impl Gathering {
                 crate::scheduler::salvo_reply_wire::<i32>(out_1, self.total);
             } else if out.is_none() {
             } else {
-                panic!("salvo: unhandled union arm at main:146:13");
+                panic!("salvo: unhandled union arm at main:148:13");
             };
         };
     }
@@ -1031,7 +1031,7 @@ impl Racing {
             crate::scheduler::salvo_reply_wire::<String>(out_1, answer);
         } else if out.is_none() {
         } else {
-            panic!("salvo: unhandled union arm at main:182:9");
+            panic!("salvo: unhandled union arm at main:188:9");
         };
     }
 }
@@ -1157,7 +1157,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
                 let mut __pick1_1 = __pick1.unwrap();
                 (__pick1_1).clone()
             } else {
-                panic!("salvo: unreachable at main:233:43")
+                panic!("salvo: unreachable at main:247:43")
             }
         });
         crate::std_core_console::println__Str(console, &format!("  {}: {} reserved on its shard so far", sku, {
@@ -1166,7 +1166,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
                 let mut __pick2_2 = __pick2.unwrap();
                 __pick2_2
             } else {
-                panic!("salvo: unreachable at main:234:47")
+                panic!("salvo: unreachable at main:248:47")
             }
         }));
     }
@@ -1176,7 +1176,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick3_3 = __pick3.unwrap();
             __pick3_3
         } else {
-            panic!("salvo: unreachable at main:236:69")
+            panic!("salvo: unreachable at main:250:69")
         }
     }[..] == &{
         let mut __pick4: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 2i32);
@@ -1184,7 +1184,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick4_4 = __pick4.unwrap();
             __pick4_4
         } else {
-            panic!("salvo: unreachable at main:236:103")
+            panic!("salvo: unreachable at main:250:103")
         }
     }[..])));
     crate::std_core_console::println__Str(console, &format!("  apple and fig on one shard: {}", (&{
@@ -1193,7 +1193,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick5_5 = __pick5.unwrap();
             __pick5_5
         } else {
-            panic!("salvo: unreachable at main:237:67")
+            panic!("salvo: unreachable at main:251:67")
         }
     }[..] == &{
         let mut __pick6: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 3i32);
@@ -1201,7 +1201,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick6_6 = __pick6.unwrap();
             __pick6_6
         } else {
-            panic!("salvo: unreachable at main:237:101")
+            panic!("salvo: unreachable at main:251:101")
         }
     }[..])));
     crate::std_core_console::println__Str(console, &format!("  apple and pear on one shard: {}", (&{
@@ -1210,7 +1210,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick7_7 = __pick7.unwrap();
             __pick7_7
         } else {
-            panic!("salvo: unreachable at main:238:68")
+            panic!("salvo: unreachable at main:252:68")
         }
     }[..] == &{
         let mut __pick8: Option<&String> = crate::std_core_list::get_platform::<String>(&shards, 1i32);
@@ -1218,7 +1218,7 @@ pub fn checkout(inventory: &crate::Inventory, console: &crate::std_core_console:
             let mut __pick8_8 = __pick8.unwrap();
             __pick8_8
         } else {
-            panic!("salvo: unreachable at main:238:102")
+            panic!("salvo: unreachable at main:252:102")
         }
     }[..])));
 }
@@ -1749,7 +1749,7 @@ impl crate::__Stateful_Sequencer for Elected__Sequencer {
             };
             wait = crate::std_net::route_wait(self.group, &view, wait, &self.config);
         }
-        panic!("salvo: unreachable at std.net:1835:9");
+        panic!("salvo: unreachable at std.net:1893:9");
     }
 }
 
@@ -1848,7 +1848,7 @@ impl crate::__Stateful_Inventory for Sharded__Inventory {
                         let mut __pick2_2 = __pick2.unwrap();
                         __pick2_2
                     } else {
-                        panic!("salvo: unreachable at std.net:1735:83")
+                        panic!("salvo: unreachable at std.net:1793:83")
                     }
                 };
                 let mut __fwd_to_m1: usize = picked.addr;
@@ -1858,7 +1858,7 @@ impl crate::__Stateful_Inventory for Sharded__Inventory {
             };
             wait = crate::std_net::route_wait(self.group, &view, wait, &self.config);
         }
-        panic!("salvo: unreachable at std.net:1731:9");
+        panic!("salvo: unreachable at std.net:1789:9");
     }
 }
 

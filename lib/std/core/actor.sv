@@ -213,15 +213,15 @@
 // depth.
 // @compilerrules [actor-kind, actor-types, actor-spawn-expr, actor-replyto, actor-waitfor, waitfor-pump, task-mint, actor-watch]
 
+import std.runtime
+import std.runtime.Token
 import std.runtime.addr_index
-import std.runtime.pool_of
-import std.runtime.pool_index
 import std.runtime.new_pool_of
+import std.runtime.pool_index
+import std.runtime.pool_of
+import std.runtime.reply_token
 import std.runtime.routing.adopt
 import std.runtime.routing.same_actor
-import std.runtime.Token
-import std.runtime.reply_token
-import std.runtime
 
 // Each type here is a handle into the scheduler (`std.runtime`): an addr
 // and a pool are indices into its tables, a reply wraps its token, and
@@ -491,7 +491,9 @@ export provenance qualifier ShardKeyOrdered for Effect
 // ```
 // @compilerrules [actor-mailbox]
 // @compilerknown
-export struct Mailbox { capacity: Int }
+export struct Mailbox {
+    capacity: Int
+}
 
 // A set of worker threads that actors and tasks run on: what a spawn's
 // `on` clause names.
@@ -545,7 +547,9 @@ export provenance qualifier Dedicated for Pool
 // backends. Print it; do not branch on it.
 // @compilerrules [actor-pool-fault-sink]
 // @compilerknown
-export struct Fault { reason: Str }
+export struct Fault {
+    reason: Str
+}
 
 // The protocol a pool's fault sink serves: spawn a handler of it and pass
 // its address to [pool], and every uncaught fault on that pool arrives as a
@@ -642,7 +646,9 @@ export intrinsic fn thread() [spawn] -> Dedicated Pool
 // a panic message on the Rust backend and an exception's on the Kotlin
 // one, so its text differs between backends. Print it; do not branch on it.
 // @compilerrules [actor-watch]
-export struct Exit { reason: Str }
+export struct Exit {
+    reason: Str
+}
 
 // Watches [target]: when it dies, an [Exit] is sent to [on_exit].
 //
@@ -703,7 +709,7 @@ export fn watch<E>(target: eff[E], on_exit: Reply<Exit>) [spawn] -> None => targ
 export struct Idle {
     // Actors on the pool held by a gated mint (`replyto!`) whose answer
     // has not come, so their mailbox is closed to everything else.
-    parked_gates: Int,
+    parked_gates: Int
     // Replies aimed at work on the pool (an actor's continuation, a task,
     // a waiting frame) that nobody has answered. Every gated actor is also
     // owed one, so this includes the gates.

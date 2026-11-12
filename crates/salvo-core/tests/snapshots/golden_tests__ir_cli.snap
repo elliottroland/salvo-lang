@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-core/tests/golden_tests.rs
+assertion_line: 29
 expression: text
 ---
 module main
@@ -83,7 +84,7 @@ fn describe@main(lent t: Tool@main) -> Str {
           value "standard input"
         }
         arm#3 (else) {
-          unreachable("unhandled union arm") at main:104:24
+          unreachable("unhandled union arm") at main:108:24
         }
       }
       return concat("fetch ", read from, " with ", call to_str(Int)@std.core.basic(call size@std.core.list<Str>(read c~4.header)), " header(s)")
@@ -124,7 +125,7 @@ fn show@main(lent console: Console; lent line: List<Str>) -> None {
       }
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:120:5
+      unreachable("unhandled union arm") at main:132:5
     }
   }
 }

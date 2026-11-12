@@ -66,11 +66,19 @@ import std.stream
 // when it was opened, and a description for errors — how far the reader has
 // consumed, and whether a strict decode has already failed on it (which ends
 // iteration and surfaces at `close`).
-struct MemRead { source: Str, data: Bytes, at: Int, failed: Bool }
+struct MemRead {
+    source: Str
+    data: Bytes
+    at: Int
+    failed: Bool
+}
 
 // What an open write stream is: which file, and the bytes written so far.
 // Closing (or flushing) publishes the buffer.
-struct MemWrite { path: Str, buffer: Bytes }
+struct MemWrite {
+    path: Str
+    buffer: Bytes
+}
 
 // A filesystem in memory, providing `Fs` and `Streams` together: what a
 // test binds, with `use MemFs()`, instead of the machine's filesystem. The
@@ -98,7 +106,7 @@ struct MemWrite { path: Str, buffer: Bytes }
 //     }
 // }
 // ```
-export handler MemFs for Fs, Streams {
+export handler MemFs() for Fs, Streams {
     state {
         files: Mut Map<Str, Bytes> = Mut Map()
         reads: Mut Map<Long, MemRead> = Mut Map()
@@ -288,7 +296,9 @@ export handler MemFs for Fs, Streams {
                 buf.append(line)
                 return true
             }
-            is None { return false }
+            is None {
+                return false
+            }
         }
     }
 
@@ -407,7 +417,6 @@ fn mem_append(writes: Mut Map<Long, MemWrite>, handle: Long, data: Bytes) [] -> 
     return to_long(size(data))
 }
 
-
 // The state of an open stream, or a trap: a handle this
 // table never minted is a stream from another provider — a host stream handed
 // to `MemFs` — which is a program bug, not a condition to report.
@@ -463,7 +472,10 @@ fn mem_read_line(reads: Mut Map<Long, MemRead>, handle: Long) [] -> Str | None =
 }
 
 // Everything left in the stream, decoded strictly.
-fn mem_read_all(reads: Mut Map<Long, MemRead>, handle: Long) [] -> Ok Str | Err Checked<StreamError> => reads: Mut, handle {
+fn mem_read_all(
+    reads: Mut Map<Long, MemRead>,
+    handle: Long
+) [] -> Ok Str | Err Checked<StreamError> => reads: Mut, handle {
     let open = mem_read_state(reads, handle)
     let source: Str = copy(open.source)
     if open.failed {
@@ -482,7 +494,11 @@ fn mem_read_all(reads: Mut Map<Long, MemRead>, handle: Long) [] -> Ok Str | Err 
 }
 
 // Up to [max] bytes from the stream's position, undecoded.
-fn mem_read_bytes(reads: Mut Map<Long, MemRead>, handle: Long, max: Int) [] -> Ok Bytes | Err Checked<StreamError> => reads: Mut, handle {
+fn mem_read_bytes(
+    reads: Mut Map<Long, MemRead>,
+    handle: Long,
+    max: Int
+) [] -> Ok Bytes | Err Checked<StreamError> => reads: Mut, handle {
     let open = mem_read_state(reads, handle)
     let source: Str = copy(open.source)
     if open.failed {

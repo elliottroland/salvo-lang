@@ -20,16 +20,36 @@ import aws.ddb
 // `AttributeValue.S`, unambiguous because only one arm ends in `S`.
 fn show(v: AttributeValue) [] -> Str => v {
     when v {
-        is .S { return "\"${v.value}\"" }
-        is .N { return v.value }
-        is .Bool { return "${v.value}" }
-        is .Null { return "null" }
-        is .Ss { return "{${join(v.value, ", ")}}" }
-        is .Ns { return "{${join(v.value, ", ")}}" }
-        is .B { return "<${size(v.value)} bytes>" }
-        is .Bs { return "<${size(v.value)} blobs>" }
-        is .L { return "[${size(v.value)} items]" }
-        is .M { return "{${size(v.value)} attrs}" }
+        is .S {
+            return "\"${v.value}\""
+        }
+        is .N {
+            return v.value
+        }
+        is .Bool {
+            return "${v.value}"
+        }
+        is .Null {
+            return "null"
+        }
+        is .Ss {
+            return "{${join(v.value, ", ")}}"
+        }
+        is .Ns {
+            return "{${join(v.value, ", ")}}"
+        }
+        is .B {
+            return "<${size(v.value)} bytes>"
+        }
+        is .Bs {
+            return "<${size(v.value)} blobs>"
+        }
+        is .L {
+            return "[${size(v.value)} items]"
+        }
+        is .M {
+            return "{${size(v.value)} attrs}"
+        }
     }
 }
 
@@ -105,8 +125,12 @@ fn round_trip(table: Str) [Ddb, Console] => table {
         }, r)
     }
     when made {
-        is Ok { println("created table ${table}") }
-        is Err { println("create_table: ${describe(detach(made))}") }
+        is Ok {
+            println("created table ${table}")
+        }
+        is Err {
+            println("create_table: ${describe(detach(made))}")
+        }
     }
 
     // Put an item: a map of named `AttributeValue`s.
@@ -123,7 +147,9 @@ fn round_trip(table: Str) [Ddb, Console] => table {
     }
     when put {
         is Ok {}
-        is Err { println("put_item: ${describe(detach(put))}") }
+        is Err {
+            println("put_item: ${describe(detach(put))}")
+        }
     }
 
     // Get it back by key.
@@ -139,7 +165,9 @@ fn round_trip(table: Str) [Ddb, Console] => table {
                 println("got ${show_item(found)}")
             }
         }
-        is Err { println("get_item: ${describe(detach(got))}") }
+        is Err {
+            println("get_item: ${describe(detach(got))}")
+        }
     }
 
     // Delete it.
@@ -147,8 +175,12 @@ fn round_trip(table: Str) [Ddb, Console] => table {
         delete_item(DeleteItemInput { table_name: copy(table), key: Map(("id", s("user-42"))) }, r)
     }
     when gone {
-        is Ok { println("deleted user-42") }
-        is Err { println("delete_item: ${describe(detach(gone))}") }
+        is Ok {
+            println("deleted user-42")
+        }
+        is Err {
+            println("delete_item: ${describe(detach(gone))}")
+        }
     }
 }
 
@@ -244,16 +276,36 @@ fn key_text(item: Map<Str, AttributeValue>, name: Str) [] -> Str => item, !name 
     }
     let v: AttributeValue = copy(found)
     when v {
-        is .S { return copy(v.value) }
-        is .N { return copy(v.value) }
-        is .B { return "" }
-        is .Ss { return "" }
-        is .Ns { return "" }
-        is .Bs { return "" }
-        is .M { return "" }
-        is .L { return "" }
-        is .Bool { return "" }
-        is .Null { return "" }
+        is .S {
+            return copy(v.value)
+        }
+        is .N {
+            return copy(v.value)
+        }
+        is .B {
+            return ""
+        }
+        is .Ss {
+            return ""
+        }
+        is .Ns {
+            return ""
+        }
+        is .Bs {
+            return ""
+        }
+        is .M {
+            return ""
+        }
+        is .L {
+            return ""
+        }
+        is .Bool {
+            return ""
+        }
+        is .Null {
+            return ""
+        }
     }
 }
 
@@ -279,8 +331,12 @@ fn main() [use] {
             get_item(GetItemInput { table_name: "nowhere", key: Map(("id", s("x"))) }, r)
         }
         when missing {
-            is Ok { println("unexpected ok") }
-            is Err { println("get_item: ${describe(detach(missing))}") }
+            is Ok {
+                println("unexpected ok")
+            }
+            is Err {
+                println("get_item: ${describe(detach(missing))}")
+            }
         }
     }
 }

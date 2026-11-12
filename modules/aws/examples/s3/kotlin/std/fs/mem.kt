@@ -207,7 +207,7 @@ class MemFs : salvo.std.fs.Fs, salvo.std.stream.Streams {
                 return false
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.mem:286:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.mem:294:9"))
             }
         }
     }
@@ -307,7 +307,7 @@ fun memFindNewline(data: salvo.platform.std.core.bytes.Bytes, from: Int): Int {
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.fs.mem:390:35")
+                    throw AssertionError("salvo: unreachable at std.fs.mem:400:35")
                 }
             }
         }).toInt() == 10)) {
@@ -330,7 +330,7 @@ fun memAppend(writes: salvo.platform.std.core.map.MutMap<Long, MemWrite>, handle
 fun memReadState(reads: salvo.platform.std.core.map.Map<Long, MemRead>, handle: Long): MemRead {
     val open: MemRead? = salvo.std.core.map.getPlatform(reads, handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     if ((open == null)) {
-        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at std.fs.mem:418:9"))
+        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at std.fs.mem:427:9"))
     }
     val open_1: MemRead = open!!
     return MemRead(source = open_1.source, data = open_1.data, at = open_1.at, failed = open_1.failed)
@@ -339,7 +339,7 @@ fun memReadState(reads: salvo.platform.std.core.map.Map<Long, MemRead>, handle: 
 fun memWriteState(writes: salvo.platform.std.core.map.Map<Long, MemWrite>, handle: Long): MemWrite {
     val open: MemWrite? = salvo.std.core.map.getPlatform(writes, handle, { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
     if ((open == null)) {
-        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at std.fs.mem:426:9"))
+        throw AssertionError(("salvo: " + ("stream handle ${handle} was not opened by this MemFs: a stream belongs to the provider that minted it [stream-provider]") + " at std.fs.mem:435:9"))
     }
     val open_1: MemWrite = open!!
     return MemWrite(path = open_1.path, buffer = open_1.buffer)
@@ -365,7 +365,7 @@ fun memReadLine(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle
                 __pick2_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.fs.mem:450:42")
+                throw AssertionError("salvo: unreachable at std.fs.mem:459:42")
             }
         }
     }
@@ -399,7 +399,7 @@ fun memReadAll(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handle:
                 __pick3_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.fs.mem:474:46")
+                throw AssertionError("salvo: unreachable at std.fs.mem:486:46")
             }
         }
     }
@@ -436,7 +436,7 @@ fun memReadBytes(reads: salvo.platform.std.core.map.MutMap<Long, MemRead>, handl
                 __pick4_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.fs.mem:500:48")
+                throw AssertionError("salvo: unreachable at std.fs.mem:516:48")
             }
         }
     }

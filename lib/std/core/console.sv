@@ -52,7 +52,7 @@ export effect Console {
 // several threads at once, so the handler is shared without a lock around
 // each call.
 // @compilerrules [std-console]
-export threadsafe platform handler StdConsole() for Console
+export threadsafe platform handler StdConsole for Console
 
 // Prints to standard output, followed by a newline.
 //

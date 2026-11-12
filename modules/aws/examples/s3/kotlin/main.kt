@@ -69,7 +69,7 @@ fun upload(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.con
             salvo.std.core.console.println__Str(console, "put ${key}: ${salvo.main.describe(salvo.std.core.checked.detach(put_5))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:58:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:60:5"))
         }
     }
 }
@@ -130,7 +130,7 @@ fun download(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.c
             salvo.std.core.console.println__Str(console, "pipe: ${salvo.std.stream.toStr(salvo.std.core.checked.detach(copied_9))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:88:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:94:5"))
         }
     }
 }
@@ -151,7 +151,7 @@ fun roundTrip(s3: salvo.aws.s3.S3, fs: salvo.std.fs.Fs, console: salvo.std.core.
             salvo.std.core.console.println__Str(console, "back.txt: ${salvo.std.fs.toStr(salvo.std.core.checked.detach(back_2))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:99:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:109:5"))
         }
     }
 }

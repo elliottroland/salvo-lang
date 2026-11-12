@@ -20,7 +20,7 @@
 // `linear` on the struct is the whole declaration. Nothing else in the
 // program has to opt in.
 linear struct Ticket {
-    id: Int,
+    id: Int
     seat: Str
 }
 
@@ -98,7 +98,7 @@ fn read_a_field() [Console] -> None {
 // The callback is `once`: it may be called at most once, which is exactly
 // what a consuming callback needs to be. Without `once` the body could call
 // it twice and discharge the same obligation twice.
-fn hand_over<T canbe linear>(value: T, to: once (t: T) [Console] -> None) [Console] -> None
+fn hand_over<T canbe linear>(value: T, to: once ((t: T) [Console] -> None)) [Console] -> None
 => !value, !to =>[to] !t {
     to(value)
 }
@@ -117,8 +117,7 @@ fn generic_handoff() [Console] -> None {
 //
 // A second discharger, and a quiet one: a `drain` callback is a *pure*
 // position, so a discharger that prints cannot fill it.
-fn scrap(ticket: Ticket) [] -> None => !ticket {
-}
+fn scrap(ticket: Ticket) [] -> None => !ticket {}
 
 fn a_queue_of_tickets() [Console] -> None {
     let queue: Mut Deque<Ticket> = mut_deque_of()
@@ -132,7 +131,9 @@ fn a_queue_of_tickets() [Console] -> None {
     // cannot be given away.
     let first = remove_first(queue)
     when first {
-        is Ticket { redeem(first) }
+        is Ticket {
+            redeem(first)
+        }
         is None {}
     }
 

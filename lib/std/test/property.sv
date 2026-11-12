@@ -32,33 +32,33 @@
 
 import std.runtime
 import std.runtime.timers
-import std.throw
 import std.test
 import std.test.random
+import std.throw
 
 // The state of one property test's runs: the live runs, then the shrinking
 // of the first failure, then the final replay.
 // @compilerrules [test-property]
 export struct PropertyRun canbe Mut {
-    runs: Int,
-    seed: Long,
+    runs: Int
+    seed: Long
     // Live runs that passed.
-    done: Int,
+    done: Int
     // 0 live, 1 shrinking, 2 the final replay, 3 over.
-    phase: Int,
+    phase: Int
     // The simplest failing draws so far, and that run's message.
-    best: List<Long>,
-    message: Str,
+    best: List<Long>
+    message: Str
     // Which live run failed first.
-    found_at: Int,
+    found_at: Int
     // The replays still to try, simpler than `best`.
-    queue: Mut List<List<Long>>,
+    queue: Mut List<List<Long>>
     // What the replay in flight replays.
-    current: List<Long>,
-    shrinks: Int,
-    steps: Int,
+    current: List<Long>
+    shrinks: Int
+    steps: Int
     // The final replay's parameters and outcome.
-    shown: List<Str>,
+    shown: List<Str>
     last: Str?
 }
 
@@ -166,7 +166,11 @@ export fn verdict(run: PropertyRun) [] -> List<Str> => run {
         return out
     }
     add(out, copy(run.last ?: run.message))
-    let times = if run.shrinks == 1 { "once" } else { "${run.shrinks} times" }
+    let times = if run.shrinks == 1 {
+        "once"
+    } else {
+        "${run.shrinks} times"
+    }
     add(out, "falsified after ${run.found_at} of ${run.runs} runs, shrunk ${times}")
     for line in run.shown {
         add(out, "  ${line}")
@@ -250,7 +254,12 @@ export fn begin_property_attempt(seed: Long) [] -> None => !seed {
 // @param gen  found at the call site: the parameter type's generator
 // @param to_str  found at the call site: how the failing value is shown
 // @compilerrules [test-property]
-export fn check<T>(runs: Int, property: (value: T) [Throw<Failure>] -> None, ?gen: () -> Gen<T>, ?to_str: (value: T) -> Str) [Throw<Failure>] -> None
+export fn check<T>(
+    runs: Int,
+    property: (value: T) [Throw<Failure>] -> None,
+    ?gen: () -> Gen<T>,
+    ?to_str: (value: T) -> Str
+) [Throw<Failure>] -> None
 => property {
     let lines = checked(runs, property, gen(), to_str)
     if size(lines) > 0 {
@@ -260,7 +269,12 @@ export fn check<T>(runs: Int, property: (value: T) [Throw<Failure>] -> None, ?ge
 
 // [check]'s runs: the report's lines, none when the property held. Its own
 // effect list is empty, since it catches every throw of [property] itself.
-fn checked<T>(runs: Int, property: (value: T) [Throw<Failure>] -> None, g: Gen<T>, show: (value: T) -> Str) [] -> List<Str>
+fn checked<T>(
+    runs: Int,
+    property: (value: T) [Throw<Failure>] -> None,
+    g: Gen<T>,
+    show: (value: T) -> Str
+) [] -> List<Str>
 => property, !g {
     let run = property_run(runs, 0L)
     while next_attempt(run) {

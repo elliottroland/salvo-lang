@@ -36,7 +36,8 @@ Ownership on the Rust side is derived mechanically from deductions — no
 lifetimes in emitted signatures except the one deliberate exception
 ([proj-readonly-return]). Around it: `salvo analyze` (with `type?(place)` and
 `type!(place: T)` to show and pin a place's type), `salvo fmt` (a formatter
-over the parsed tree, also the language server's), a language server, a VS Code
+over the parsed tree, also the language server's, and the layout std and the
+examples are written in), a language server, a VS Code
 extension (Salvo and its platform templates), worked [examples/](examples/), and `salvo test` — `test "name" { … }`
 blocks in `*.test.sv` annexes, run by a generated Salvo harness with one report
 on both backends, which is how std's own modules are tested.
@@ -150,6 +151,63 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 (`<m>.sv.<ext>`). ROADMAP §0j is shrinking what is left of that list.
 
 ## Decision log — newest first
+
+### 2026-11-12 — std, the examples and the modules formatted with `salvo fmt`
+
+Stage H of the formatter record below (scope confirmed with the user: std,
+the examples, `bench/` and the hand-written sources of `modules/`; test data,
+the parser corpus, the print fixtures, `demo/`, `tmp/` and generated `.sv`
+left as written).
+
+- **Formatted**: 67 of 92 files. `lib/std` 47 of 71 (+1,873 −914 lines), the
+  examples' sources 11 of 12 (+234 −94), `modules/aws` 7 of 7 (`salvo/aws.sv`,
+  the four examples and the two live demos; +206 −70; the generated
+  `aws/{s3,sqs,ddb}*.sv` are the generator's), `bench/` 2 of 2 (+2: a blank
+  line between each file's leading comment and its first import). `bench/`'s
+  two programs are ordinary sources: `tools/bench-*.sh` compile and run them
+  and read nothing of their layout. `fmt` refused none of them; `salvo fmt
+  --check` over the scope now reports nothing.
+- **What changed, checked**: the comment lines of every file are the same
+  lines in the same order (a script over the diff), so no comment moved and
+  no doc comment changed; std analyzes with no errors (`salvo analyze` in
+  `lib/`, which checks the doc examples). Beyond whitespace and the import
+  sort, the printing changed spellings the tree does not keep: a struct's
+  fields print one per line without commas, even where they were written on
+  one line, a handler's empty
+  parameter list (`handler H for E` gains `()`, `platform handler H() for
+  E` loses it), the order of a fn's and an implicit's deduction clauses and
+  of a deduction entry's `Mut` (ROADMAP §0av, to decide), and 17 pairs of
+  parentheses the parser does not need (`(proj(c) T)?`, `once (() ->
+  None)`, `Ok ((A, B))`; ROADMAP §0av: the formatter keeps them from now on,
+  as written ones). Bodies one line long (`if c { return x }`, `(f) -> {
+  return f.hp > 10 }`) print as blocks, and a list the author broke prints
+  one item per line, `|`s ending lines.
+- **Regenerated** (each diff checked to be line and column numbers only):
+  the host project `lib/platform` (10 files: `std.<module>:LINE:COL` in the
+  `unreachable`/assertion messages of the host files' generated parts), every
+  example's `rust/` and `kotlin/` (82 files), `modules/aws`'s examples (48
+  files), the codegen goldens that carry std (three per backend: `loops`,
+  `qualifiers`, `unions`), the IR dumps of six examples
+  (`golden_tests__ir_{actors,borrowing,cli,cluster,files,linearity}`), and
+  eight std parser snapshots (byte offsets, plus the parentheses counted on
+  the spans of the added pairs in `list` and `result`). No expected output
+  changed, and no doc quotes a std line that moved (`Testing.md`'s `value is
+  absent at std.core.list:153:12` is illustrative; no std line produces it).
+- **`modules/aws`'s host project was stale before this change** (std host
+  files it copies: `append_char`, `trap_boundary_once`, the `Faulted` codec,
+  `Eff` renamed `Addr` in two doc comments); regenerated with `salvo platform
+  generate --backend '*'` (20 files), and `modules/aws/check.sh` passes
+  whole: examples, host (the Rust crate and the Gradle project compile) and
+  glue.
+- **`tools/check-doc-examples.py`** has only the `--code-unchanged` mode,
+  which is for doc-only edits and fails by design on a reformatting; it was
+  not the check here.
+- 804 tests under `cargo nextest run`, all green. The first run (every std
+  stamp missing) took 3m56 wall and failed only `example_ir_is_stable`,
+  whose loop stops at its first stale snapshot (the skip-e2e pass had shown
+  `ir_actors` alone; `INSTA_FORCE_PASS=1 INSTA_UPDATE=new` writes them all);
+  the run after it took 2m02 wall (nextest's own 120s), load averages
+  151–261.
 
 ### 2026-11-12 — `salvo fmt`, the editor's formatting, and one import sort ([cli-fmt] [lsp-format] [fmt-imports])
 

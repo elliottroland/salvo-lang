@@ -98,13 +98,17 @@ export platform handler HostRawFs for RawFs
 // reports is answered as `Err Checked<FsError>`. The dependency on [RawFs]
 // is supplied where the handler is bound, so no function that uses files
 // mentions it.
-export handler DefaultFs [RawFs] for Fs {
+export handler DefaultFs() [RawFs] for Fs {
     fn open_read(path: Path) -> Ok InStream | Err Checked<FsError> => path {
         let path_text = to_str(path)
         let r = raw_open_read(path_text)
         when r {
-            is Ok { return ok(InStream { handle: r }) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(InStream { handle: r })
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -112,8 +116,12 @@ export handler DefaultFs [RawFs] for Fs {
         let path_text = to_str(path)
         let r = raw_open_read_at(path_text, offset)
         when r {
-            is Ok { return ok(InStream { handle: r }) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(InStream { handle: r })
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -121,8 +129,12 @@ export handler DefaultFs [RawFs] for Fs {
         let path_text = to_str(path)
         let r = raw_open_write(path_text)
         when r {
-            is Ok { return ok(OutStream { handle: r }) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(OutStream { handle: r })
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -130,8 +142,12 @@ export handler DefaultFs [RawFs] for Fs {
         let path_text = to_str(path)
         let r = raw_open_append(path_text)
         when r {
-            is Ok { return ok(OutStream { handle: r }) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(OutStream { handle: r })
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -144,8 +160,12 @@ export handler DefaultFs [RawFs] for Fs {
         let path_text = to_str(path)
         let r = raw_metadata(path_text)
         when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(r)
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -153,8 +173,12 @@ export handler DefaultFs [RawFs] for Fs {
         let path_text = to_str(path)
         let r = raw_list_dir(path_text)
         when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(r)
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -162,8 +186,12 @@ export handler DefaultFs [RawFs] for Fs {
         let path_text = to_str(path)
         let r = raw_create_dirs(path_text)
         when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(None)
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -171,8 +199,12 @@ export handler DefaultFs [RawFs] for Fs {
         let path_text = to_str(path)
         let r = raw_delete(path_text)
         when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(None)
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 
@@ -181,8 +213,12 @@ export handler DefaultFs [RawFs] for Fs {
         let to_text = to_str(to)
         let r = raw_rename_path(from_text, to_text)
         when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<FsError>(r)) }
+            is Ok {
+                return ok(None)
+            }
+            is Err {
+                return err(checked<FsError>(r))
+            }
         }
     }
 }

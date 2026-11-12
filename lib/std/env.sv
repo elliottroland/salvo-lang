@@ -34,4 +34,4 @@ export effect Env {
 // the variables with `System.getenv` on the JVM and `std::env::var` on
 // Rust. It holds no state, so threads share it without synchronization.
 // @compilerrules [cli-env, platform-threadsafe]
-export threadsafe platform handler HostEnv() for Env
+export threadsafe platform handler HostEnv for Env

@@ -235,7 +235,12 @@ export fn to_str<A, B>(value: (A, B), ?to_str: (x: A) -> Str, ?to_str: (x: B) ->
 
 // The text of a triple, each part by its own `to_str`: `(1, "a", true)` is
 // `(1, a, true)`.
-export fn to_str<A, B, C>(value: (A, B, C), ?to_str: (x: A) -> Str, ?to_str: (x: B) -> Str, ?to_str: (x: C) -> Str) [] -> Str => value {
+export fn to_str<A, B, C>(
+    value: (A, B, C),
+    ?to_str: (x: A) -> Str,
+    ?to_str: (x: B) -> Str,
+    ?to_str: (x: C) -> Str
+) [] -> Str => value {
     return "(${to_str(value.0)}, ${to_str(value.1)}, ${to_str(value.2)})"
 }
 
@@ -388,13 +393,25 @@ export fn cmp<A, B>(a: (A, B), b: (A, B), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B
 
 // Whether two triples are equal: every part equal, each by its own type's
 // `eq`.
-export fn eq<A, B, C>(a: (A, B, C), b: (A, B, C), ?eq: (x: A, y: A) -> Bool, ?eq: (x: B, y: B) -> Bool, ?eq: (x: C, y: C) -> Bool) [] -> Bool => a, b {
+export fn eq<A, B, C>(
+    a: (A, B, C),
+    b: (A, B, C),
+    ?eq: (x: A, y: A) -> Bool,
+    ?eq: (x: B, y: B) -> Bool,
+    ?eq: (x: C, y: C) -> Bool
+) [] -> Bool => a, b {
     return eq(a.0, b.0) && eq(a.1, b.1) && eq(a.2, b.2)
 }
 
 // Orders two triples lexicographically, part by part, each by its own
 // type's `cmp`.
-export fn cmp<A, B, C>(a: (A, B, C), b: (A, B, C), ?cmp: (x: A, y: A) -> Int, ?cmp: (x: B, y: B) -> Int, ?cmp: (x: C, y: C) -> Int) [] -> Int => a, b {
+export fn cmp<A, B, C>(
+    a: (A, B, C),
+    b: (A, B, C),
+    ?cmp: (x: A, y: A) -> Int,
+    ?cmp: (x: B, y: B) -> Int,
+    ?cmp: (x: C, y: C) -> Int
+) [] -> Int => a, b {
     let c = cmp(a.0, b.0)
     if c != 0 {
         return c

@@ -2,7 +2,7 @@
 // against a description written by hand (the derive writes the same one).
 
 struct Serve {
-    port: Int,
+    port: Int
     files: List<Str>
 }
 
@@ -60,12 +60,17 @@ test "after -- everything is positional" {
 }
 
 test "every error is reported" {
-    expect_eq(found(List("--prot", "1", "-x", "--verbose=yes", "--output", "xml", "-p")),
-        "output=xml;files=1; !unknown option '--prot' !unknown option '-x' !invalid value 'yes' for '--verbose': the option takes no value !option '-p' needs a value !'--port' is required !invalid value 'xml' for '--output': expected one of json, text")
+    expect_eq(
+        found(List("--prot", "1", "-x", "--verbose=yes", "--output", "xml", "-p")),
+        "output=xml;files=1; !unknown option '--prot' !unknown option '-x' !invalid value 'yes' for '--verbose': the option takes no value !option '-p' needs a value !'--port' is required !invalid value 'xml' for '--output': expected one of json, text"
+    )
 }
 
 test "a repeated option is an error unless it repeats" {
-    expect_eq(found(List("-p1", "-p2", "--tag", "a", "--tag", "b", "f")), "port=1;port=2;tag=a;tag=b;files=f; !option '--port' was given more than once")
+    expect_eq(
+        found(List("-p1", "-p2", "--tag", "a", "--tag", "b", "f")),
+        "port=1;port=2;tag=a;tag=b;files=f; !option '--port' was given more than once"
+    )
 }
 
 test "help is asked for with --help or -h" {

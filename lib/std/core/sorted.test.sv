@@ -35,7 +35,10 @@ test "a sorted map keeps its keys in order; a repeated key takes the last value"
     let m = Mut SortedMap(("b", 2), ("a", 1), ("b", 20))
     put(m, "c", 3)
     let gone = remove(m, "a")
-    expect_eq("${m} ${gone ?: unreachable!()} ${first_key_opt(m) ?: unreachable!()} ${last_key_opt(m) ?: unreachable!()}", "{b: 20, c: 3} 1 b c")
+    expect_eq(
+        "${m} ${gone ?: unreachable!()} ${first_key_opt(m) ?: unreachable!()} ${last_key_opt(m) ?: unreachable!()}",
+        "{b: 20, c: 3} 1 b c"
+    )
     expect((get(m, "c") ?: unreachable!()) == 3 && get(m, "a") is None, "found and absent")
 }
 

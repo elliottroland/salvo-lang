@@ -136,30 +136,56 @@ import std.stream
 // }
 // ```
 // @compilerrules [type-checked]
-export type FsError = NotFound | PermissionDenied | AlreadyExists | NotADirectory
-                 | PathEscapes | IoError | Streaming
+export type FsError = NotFound |
+    PermissionDenied |
+    AlreadyExists |
+    NotADirectory |
+    PathEscapes |
+    IoError |
+    Streaming
 
 // Nothing exists at the path.
-export struct NotFound { path: Str }
+export struct NotFound {
+    path: Str
+}
+
 // Something exists at the path, but the operation was not permitted on it.
-export struct PermissionDenied { path: Str }
+export struct PermissionDenied {
+    path: Str
+}
+
 // Something exists at the path where the operation needed nothing to be.
-export struct AlreadyExists { path: Str }
+export struct AlreadyExists {
+    path: Str
+}
+
 // A part of the path that had to be a directory is not one, such as a file
 // passed to [list_dir].
-export struct NotADirectory { path: Str }
+export struct NotADirectory {
+    path: Str
+}
+
 // [RestrictedFs] refused the path, because it resolves outside the
 // directory the handler is confined to.
-export struct PathEscapes { path: Str }
+export struct PathEscapes {
+    path: Str
+}
+
 // Any other failure the filesystem reported, with its own description in
 // [message].
-export struct IoError { path: Str, message: Str }
+export struct IoError {
+    path: Str
+    message: Str
+}
+
 // Reading or writing the file's stream failed: [error] says why. A one-call
 // function such as [read_to_str] reports a failed read this way. It wraps
 // the `StreamError` rather than adding its kinds to this union, so each
 // error has exactly one text form.
 // @compilerrules [interp-to-str]
-export struct Streaming { error: StreamError }
+export struct Streaming {
+    error: StreamError
+}
 
 // An error that must be acknowledged: `ignore` it, `detach` it, or narrow the
 // result that carries it to its `Ok` arm — which is what "it was fine" costs.
@@ -174,13 +200,27 @@ export struct Streaming { error: StreamError }
 // @compilerrules [interp-to-str]
 export fn to_str(kind: FsError) [] -> Str => kind {
     when kind {
-        is NotFound { return "no such file or directory: ${kind.path}" }
-        is PermissionDenied { return "permission denied: ${kind.path}" }
-        is AlreadyExists { return "already exists: ${kind.path}" }
-        is NotADirectory { return "not a directory: ${kind.path}" }
-        is PathEscapes { return "path escapes the root: ${kind.path}" }
-        is IoError { return "io error: ${kind.path}: ${kind.message}" }
-        is Streaming { return to_str(kind.error) }
+        is NotFound {
+            return "no such file or directory: ${kind.path}"
+        }
+        is PermissionDenied {
+            return "permission denied: ${kind.path}"
+        }
+        is AlreadyExists {
+            return "already exists: ${kind.path}"
+        }
+        is NotADirectory {
+            return "not a directory: ${kind.path}"
+        }
+        is PathEscapes {
+            return "path escapes the root: ${kind.path}"
+        }
+        is IoError {
+            return "io error: ${kind.path}: ${kind.message}"
+        }
+        is Streaming {
+            return to_str(kind.error)
+        }
     }
 }
 
@@ -194,7 +234,10 @@ fn fs_stream_error(e: Checked<StreamError>) [] -> Checked<FsError> => !e {
 
 // What [metadata] reports about a path: its [size] in bytes, and [is_dir],
 // whether it is a directory.
-export struct FileInfo { size: Long, is_dir: Bool }
+export struct FileInfo {
+    size: Long
+    is_dir: Bool
+}
 
 // The filesystem, as an effect: the operations on paths. Declare `[Fs]` on
 // a function that uses files.

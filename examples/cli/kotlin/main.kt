@@ -145,7 +145,7 @@ fun describe(t: Tool): String {
                     "standard input"
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:104:24"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:108:24"))
                 }
             }
             return "fetch ${from} with ${salvo.std.core.list.sizePlatform(c_4.header)} header(s)"
@@ -187,7 +187,7 @@ fun show(console: salvo.std.core.console.Console, line: List<String>) {
             }
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:120:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:132:5"))
         }
     }
 }

@@ -45,8 +45,12 @@ fn round_trip(name: Str) [Sqs, Console] => name {
         send_message(SendMessageInput { queue_url: copy(url), message_body: "hello from Salvo" }, r)
     }
     when sent {
-        is Ok { println("sent ${sent.message_id ?: "?"}") }
-        is Err { println("send_message: ${describe(detach(sent))}") }
+        is Ok {
+            println("sent ${sent.message_id ?: "?"}")
+        }
+        is Err {
+            println("send_message: ${describe(detach(sent))}")
+        }
     }
 
     let got = waitfor r: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>> {
@@ -60,15 +64,21 @@ fn round_trip(name: Str) [Sqs, Console] => name {
                 println("  ${m.body ?: ""}")
             }
         }
-        is Err { println("receive_message: ${describe(detach(got))}") }
+        is Err {
+            println("receive_message: ${describe(detach(got))}")
+        }
     }
 
     let gone = waitfor r: Reply<Ok None | Err Checked<SqsFailure>> {
         delete_queue(DeleteQueueInput { queue_url: copy(url) }, r)
     }
     when gone {
-        is Ok { println("deleted") }
-        is Err { println("delete_queue: ${describe(detach(gone))}") }
+        is Ok {
+            println("deleted")
+        }
+        is Err {
+            println("delete_queue: ${describe(detach(gone))}")
+        }
     }
 }
 
@@ -122,7 +132,10 @@ handler MemSqs() for Sqs {
         reply.send(ok(SendMessageOutput { message_id: id }))
     }
 
-    fn receive_message(input: ReceiveMessageInput, reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>>) -> None
+    fn receive_message(
+        input: ReceiveMessageInput,
+        reply: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>>
+    ) -> None
     => !input, !reply {
         let held = get(queues, input.queue_url)
         if held is None {
@@ -177,8 +190,12 @@ fn main() [use] {
             get_queue_url(GetQueueUrlInput { queue_name: "nowhere" }, r)
         }
         when missing {
-            is Ok { println("unexpected: ${missing.queue_url ?: "?"}") }
-            is Err { println("get_queue_url: ${describe(detach(missing))}") }
+            is Ok {
+                println("unexpected: ${missing.queue_url ?: "?"}")
+            }
+            is Err {
+                println("get_queue_url: ${describe(detach(missing))}")
+            }
         }
     }
 }

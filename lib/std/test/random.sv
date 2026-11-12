@@ -53,11 +53,11 @@
 // reason to.
 // @compilerrules [prop-rng]
 export struct Rng canbe Mut {
-    bits: Long,
-    live: Bool,
-    stream: List<Long>,
-    pos: Int,
-    log: Mut List<Long>,
+    bits: Long
+    live: Bool
+    stream: List<Long>
+    pos: Int
+    log: Mut List<Long>
     depth: Int
 }
 
@@ -403,7 +403,17 @@ export fn gen() [] -> Gen<Str> {
                 append(out, to_str(draw_char(rng)))
             } else {
                 let k = choose(rng, 5)
-                let piece = if k == 0 { "\t" } elif k == 1 { "\n" } elif k == 2 { "é" } elif k == 3 { "中" } else { "😀" }
+                let piece = if k == 0 {
+                    "\t"
+                } elif k == 1 {
+                    "\n"
+                } elif k == 2 {
+                    "é"
+                } elif k == 3 {
+                    "中"
+                } else {
+                    "😀"
+                }
                 append(out, piece)
             }
             n = n + 1
@@ -497,7 +507,13 @@ export fn gen<T>(?gen: () -> Gen<T>) [] -> Gen<NonEmpty List<T>> {
 export fn gen(lo: Int, hi: Int) [] -> Gen<InRange(lo, hi) Int> {
     return Gen<InRange(lo, hi) Int> { run: (rng: Mut Rng) -> {
         let e = choose(rng, 8)
-        let n = if e == 0 { lo } elif e == 1 { hi } else { int_in(rng, lo, hi) }
+        let n = if e == 0 {
+            lo
+        } elif e == 1 {
+            hi
+        } else {
+            int_in(rng, lo, hi)
+        }
         if n is InRange(lo, hi) {
             return n
         }
@@ -527,9 +543,7 @@ export fn gen<T>(list: NonEmpty List<T>) [] -> Gen<Idx(list) Int> => list {
 export comptime fn gen<T is Struct>() [] -> Gen<T> {
     return Gen<T> { run: (rng: Mut Rng) -> {
         return T {
-            [...for field in T.fields] {
-                [field]: draw@random(rng)
-            }
+            [...for field in T.fields] { [field]: draw@random(rng) }
         }
     } }
 }
@@ -546,7 +560,11 @@ export comptime fn gen<T is Union>() [] -> Gen<T> {
             n = n + 1
         }
         rng.depth = rng.depth + 1
-        let k = if rng.depth >= 8 || choose@random(rng, 8) < rng.depth { 0 } else { choose@random(rng, n) }
+        let k = if rng.depth >= 8 || choose@random(rng, 8) < rng.depth {
+            0
+        } else {
+            choose@random(rng, n)
+        }
         let i = 0
         [for arm in T.arms] {
             if k == i {

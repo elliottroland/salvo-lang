@@ -141,8 +141,8 @@ iter fn iter(bag: Bag) -> Emitted Int | Finished {
 // them and the `for` that drives supplies the handler, once per turn.
 iter fn fibs(count: Int) [Console] -> Emitted Int | Finished {
     state Fibs {
-        a: Int = 0,
-        b: Int = 1,
+        a: Int = 0
+        b: Int = 1
         made: Int = 0
     }
     if made >= count {

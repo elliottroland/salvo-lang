@@ -188,7 +188,7 @@ export fn iter(buf: IntBuffer) [] -> Mut IntBufferIter => buf {
 export struct IntBufferIter : Next<self, Int> canbe Mut {
     // The buffer being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    buf: proj IntBuffer,
+    buf: proj IntBuffer
     // The next slot to emit.
     at: Int
 }
@@ -214,7 +214,7 @@ export fn iter(buf: LongBuffer) [] -> Mut LongBufferIter => buf {
 export struct LongBufferIter : Next<self, Long> canbe Mut {
     // The buffer being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    buf: proj LongBuffer,
+    buf: proj LongBuffer
     // The next slot to emit.
     at: Int
 }

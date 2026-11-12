@@ -207,7 +207,7 @@ pub fn main() {
             let mut __pick2_3 = __pick2.unwrap();
             __pick2_3
         } else {
-            panic!("salvo: unreachable at main:191:39")
+            panic!("salvo: unreachable at main:192:39")
         }
     };
     crate::std_core_console::println__Str(&__handle_2, &format!("1. found {}, hp {}", ada.name, ada.hp));
@@ -223,7 +223,7 @@ pub fn main() {
                 let mut __pick3_4 = __pick3.unwrap();
                 __pick3_4
             } else {
-                panic!("salvo: unreachable at main:205:50")
+                panic!("salvo: unreachable at main:206:50")
             }
         };
         __proj_5.name.clone()
@@ -246,13 +246,13 @@ pub fn main() {
                 let mut __pick4_6 = __pick4.unwrap();
                 __pick4_6
             } else {
-                panic!("salvo: unreachable at main:220:65")
+                panic!("salvo: unreachable at main:223:65")
             }
         };
         __proj_7.name.clone()
     }));
     let mut squad: Vec<crate::Fighter> = crate::std_core_list::List__T_TArray::<crate::Fighter>(crate::Fighter { name: String::from("Ada"), hp: 30i32, energy: 4i32 }, vec![crate::Fighter { name: String::from("Bo"), hp: 8i32, energy: 9i32 }]);
-    let __h3: usize = crate::std_core_list::at_platform(&squad, 0i32).expect("salvo: value is absent at main:231:32");
+    let __h3: usize = crate::std_core_list::at_platform(&squad, 0i32).expect("salvo: value is absent at main:235:32");
     squad[__h3].hp = i32::wrapping_add(squad[__h3].hp, 1i32);
     let mut n: i32 = crate::std_core_list::size_platform::<crate::Fighter>(&squad);
     squad[__h3].hp = i32::wrapping_add(squad[__h3].hp, n);
@@ -263,7 +263,7 @@ pub fn main() {
                 let mut __pick6_9 = __pick6.unwrap();
                 __pick6_9
             } else {
-                panic!("salvo: unreachable at main:235:37")
+                panic!("salvo: unreachable at main:239:37")
             }
         };
         __proj_10.name.clone()
@@ -274,7 +274,7 @@ pub fn main() {
                 let mut __pick7_11 = __pick7.unwrap();
                 __pick7_11
             } else {
-                panic!("salvo: unreachable at main:235:82")
+                panic!("salvo: unreachable at main:239:82")
             }
         };
         __proj_12.hp
@@ -285,7 +285,7 @@ pub fn main() {
             let __h5 = __h4.expect("salvo: value is absent");
             &mut squad[__h5]
         } else {
-            panic!("salvo: unreachable at main:238:28")
+            panic!("salvo: unreachable at main:242:28")
         }
     });
     crate::rally_at::<i32>(&mut squad, &1i32, &mut |__a0: &Vec<crate::Fighter>, __a1: &i32| crate::std_core_list::at_platform(__a0, *__a1));
@@ -296,7 +296,7 @@ pub fn main() {
                 let mut __pick9_14 = __pick9.unwrap();
                 __pick9_14
             } else {
-                panic!("salvo: unreachable at main:243:57")
+                panic!("salvo: unreachable at main:247:57")
             }
         };
         __proj_15.hp
@@ -307,15 +307,15 @@ pub fn main() {
                 let mut __pick10_16 = __pick10.unwrap();
                 __pick10_16
             } else {
-                panic!("salvo: unreachable at main:243:97")
+                panic!("salvo: unreachable at main:247:97")
             }
         };
         __proj_17.hp
     }));
     let mut i: i32 = 0i32;
     let mut j: i32 = 1i32;
-    let __h6: usize = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:259:29");
-    let __h7: usize = crate::std_core_list::at_platform(&squad, j).expect("salvo: value is absent at main:260:29");
+    let __h6: usize = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:263:29");
+    let __h7: usize = crate::std_core_list::at_platform(&squad, j).expect("salvo: value is absent at main:264:29");
     if crate::std_core_ref::NotSame_qualifies::<crate::Fighter>(&squad[__h7], &squad[__h6]) {
         squad[__h6].hp = i32::wrapping_add(squad[__h6].hp, 1i32);
         squad[__h7].hp = i32::wrapping_add(squad[__h7].hp, 1i32);
@@ -337,8 +337,8 @@ pub fn main() {
             }));
         };
     };
-    { let __q12 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:282:35"); let __c13 = __q12; let __q14 = crate::std_core_list::at_platform(&squad, j).expect("salvo: value is absent at main:282:67"); let __c15 = __q14; crate::strike(&mut squad, __c13, __c15) };
-    { let __q16 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:285:35"); let __c17 = __q16; let __q18 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:285:67"); let __c19 = __q18; crate::strike(&mut squad, __c17, __c19) };
+    { let __q12 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:288:35"); let __c13 = __q12; let __q14 = crate::std_core_list::at_platform(&squad, j).expect("salvo: value is absent at main:288:67"); let __c15 = __q14; crate::strike(&mut squad, __c13, __c15) };
+    { let __q16 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:291:35"); let __c17 = __q16; let __q18 = crate::std_core_list::at_platform(&squad, i).expect("salvo: value is absent at main:291:67"); let __c19 = __q18; crate::strike(&mut squad, __c17, __c19) };
     crate::std_core_console::println__Str(&__handle_2, &format!("4. {} hp / {} energy after striking itself", {
         let mut __proj_27: &crate::Fighter = {
             let mut __pick17: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&squad, 0i32);
@@ -346,7 +346,7 @@ pub fn main() {
                 let mut __pick17_26 = __pick17.unwrap();
                 __pick17_26
             } else {
-                panic!("salvo: unreachable at main:286:37")
+                panic!("salvo: unreachable at main:292:37")
             }
         };
         __proj_27.hp
@@ -357,13 +357,13 @@ pub fn main() {
                 let mut __pick18_28 = __pick18.unwrap();
                 __pick18_28
             } else {
-                panic!("salvo: unreachable at main:286:82")
+                panic!("salvo: unreachable at main:292:82")
             }
         };
         __proj_29.energy
     }));
     let mut team: crate::Squad = crate::Squad { banner: String::from("Red"), members: crate::std_core_list::List__T_TArray::<crate::Fighter>(crate::Fighter { name: String::from("Cy"), hp: 12i32, energy: 2i32 }, vec![crate::Fighter { name: String::from("Dee"), hp: 6i32, energy: 7i32 }]) };
-    { let __q20 = crate::std_core_list::at_platform(&team.members, i).expect("salvo: value is absent at main:293:49"); let __c21 = __q20; let __q22 = crate::std_core_list::at_platform(&team.members, j).expect("salvo: value is absent at main:293:88"); let __c23 = __q22; crate::rotate(&mut team.members, __c21, __c23) };
+    { let __q20 = crate::std_core_list::at_platform(&team.members, i).expect("salvo: value is absent at main:300:49"); let __c21 = __q20; let __q22 = crate::std_core_list::at_platform(&team.members, j).expect("salvo: value is absent at main:300:88"); let __c23 = __q22; crate::rotate(&mut team.members, __c21, __c23) };
     crate::std_core_console::println__Str(&__handle_2, &format!("4. {}: {} {}", team.banner, {
         let mut __proj_33: &crate::Fighter = {
             let mut __pick21: Option<&crate::Fighter> = crate::std_core_list::get_platform::<crate::Fighter>(&team.members, 0i32);
@@ -371,7 +371,7 @@ pub fn main() {
                 let mut __pick21_32 = __pick21.unwrap();
                 __pick21_32
             } else {
-                panic!("salvo: unreachable at main:294:60")
+                panic!("salvo: unreachable at main:301:60")
             }
         };
         __proj_33.energy
@@ -382,7 +382,7 @@ pub fn main() {
                 let mut __pick22_34 = __pick22.unwrap();
                 __pick22_34
             } else {
-                panic!("salvo: unreachable at main:294:111")
+                panic!("salvo: unreachable at main:301:111")
             }
         };
         __proj_35.energy

@@ -1005,7 +1005,8 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
   printer writes it back [ast-print], breaking lines at 120 and where the
   author broke them [fmt-width] [fmt-author-breaks] (stage F), and `salvo
   fmt`, the language server's document formatting and the shared import
-  sort run it [cli-fmt] [lsp-format] [fmt-imports] (stage G) — every `.sv`
+  sort run it [cli-fmt] [lsp-format] [fmt-imports] (stage G), and std, the
+  examples, `bench/` and `modules/aws` are formatted with it (stage H) — every `.sv`
   file of the repository that parses prints keeping every comment, parses
   back to the same tree and prints the same again, and the fixtures
   (`crates/salvo-core/tests/print/{sugar,spellings,comments,breaks}.sv`)
@@ -1077,12 +1078,40 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     server answers an unparseable document with a null result rather than
     an error, and organize-imports now sorts imports that have comments
     (it used to leave such a run unsorted).
-  * **H.** Reformat the repository's own `.sv` files with it (`salvo fmt
-    --check crates lib examples bench modules`, measured 2026-11-12: 414 of
-    586 files would change, 43 do not parse (test data meant not to), and
-    `fmt` refuses the four `DOCS_ON_A_SHARED_LINE` files, whose printing
-    repeats their docs, until the item below is fixed). `demo/` is the
-    user's.
+  * **Test data is not formatted yet** (stage H, 2026-11-12, formatted
+    std, the examples, `bench/` and `modules/aws`'s hand-written sources,
+    COMPLETED.md's stage-H entry): `salvo fmt --check crates` lists 344 of
+    482 files and leaves 41 as written (the test data meant not to parse,
+    and the four `DOCS_ON_A_SHARED_LINE` files, refused until the item
+    below is fixed). The checker data's `//~` annotations name the line
+    below them and the corpus and print fixtures are the printer's own
+    expectations, so formatting them is a sweep with the tests that read
+    them, file by file; the print fixtures
+    (`crates/salvo-core/tests/print/**`) stay as written by design.
+    `demo/` is the user's.
+  * **Parentheses the printer adds that the parser does not need** (found
+    by stage H): a qualified named type under `?` or `[]` (`proj(c) T?`
+    prints `(proj(c) T)?`: `parse_type_postfix` wraps the whole qualified
+    atom, so the pair changes nothing), a qualified group's tuple base
+    (`Ok(A, B)` prints `Ok ((A, B))`) and a qualified fn type (`once () ->
+    None` prints `once (() -> None)`); `Printer::ty_inner`'s
+    `Array`/`Nullable` and `QualifiedGroup` arms. 17 sites in std and the
+    examples carry them now, and since written parentheses are kept
+    [expr-group], fixing the printer will not take them out again: that
+    takes a hand edit of those sites after the fix. `type_text` prints
+    through the same arms, so diagnostics and hovers that show such a type
+    change with it.
+  * **DECISION: orders the printer does not keep** (found by stage H; the
+    tree does not record them, so the output check passes): a fn's
+    deduction clause prints before an implicit's (`=>[add] dest: Mut, !elem
+    => !dest, it: Mut, f` became `=> !dest, it: Mut, f =>[add] dest: Mut,
+    !elem` in `seq.sv`'s `map_to` and `filter_to`), a deduction entry's
+    `Mut` prints before the claims it establishes (`list: +Heap<T>(?cmp)
+    Mut` became `list: Mut +Heap<T>(?cmp)`, four sites in `heap.sv`), and a
+    handler's empty parameter list is normalized (`handler H for E` gains
+    `()`, `platform handler H() for E` loses it, as most of the language
+    pages write them). Keep the canonical forms, or record the written
+    order and spelling in the tree as the literals' are.
   * **Spellings not kept yet** [lit-spelling]: a literal type's
     (`InRange(-1_000, 5)`, `x is "a\'b"`: `TypeLit` and the `is` chain's
     type-ref name hold the value only) and a compile-time expression's

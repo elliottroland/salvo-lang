@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-core/tests/golden_tests.rs
+assertion_line: 29
 expression: text
 ---
 module main
@@ -112,7 +113,7 @@ fn main@main() -> None {
         value !read __pick2~3
       }
       arm#1 (else) {
-        value unreachable() at main:191:39
+        value unreachable() at main:192:39
       }
     }
   }
@@ -131,7 +132,7 @@ fn main@main() -> None {
           value !read __pick3~4
         }
         arm#1 (else) {
-          value unreachable() at main:205:50
+          value unreachable() at main:206:50
         }
       }
     }
@@ -155,7 +156,7 @@ fn main@main() -> None {
           value !read __pick4~6
         }
         arm#1 (else) {
-          value unreachable() at main:220:65
+          value unreachable() at main:223:65
         }
       }
     }
@@ -170,7 +171,7 @@ fn main@main() -> None {
         value !read __pick5~8
       }
       arm#1 (else) {
-        value unreachable() at main:231:32
+        value unreachable() at main:235:32
       }
     }
   }
@@ -186,7 +187,7 @@ fn main@main() -> None {
           value !read __pick6~9
         }
         arm#1 (else) {
-          value unreachable() at main:235:37
+          value unreachable() at main:239:37
         }
       }
     }
@@ -200,7 +201,7 @@ fn main@main() -> None {
           value !read __pick7~11
         }
         arm#1 (else) {
-          value unreachable() at main:235:82
+          value unreachable() at main:239:82
         }
       }
     }
@@ -214,7 +215,7 @@ fn main@main() -> None {
         value !read __pick8~13
       }
       arm#1 (else) {
-        value unreachable() at main:238:28
+        value unreachable() at main:242:28
       }
     }
   }))
@@ -228,7 +229,7 @@ fn main@main() -> None {
           value !read __pick9~14
         }
         arm#1 (else) {
-          value unreachable() at main:243:57
+          value unreachable() at main:247:57
         }
       }
     }
@@ -242,7 +243,7 @@ fn main@main() -> None {
           value !read __pick10~16
         }
         arm#1 (else) {
-          value unreachable() at main:243:97
+          value unreachable() at main:247:97
         }
       }
     }
@@ -258,7 +259,7 @@ fn main@main() -> None {
         value !read __pick11~18
       }
       arm#1 (else) {
-        value unreachable() at main:259:29
+        value unreachable() at main:263:29
       }
     }
   }
@@ -270,7 +271,7 @@ fn main@main() -> None {
         value !read __pick12~19
       }
       arm#1 (else) {
-        value unreachable() at main:260:29
+        value unreachable() at main:264:29
       }
     }
   }
@@ -303,7 +304,7 @@ fn main@main() -> None {
         value !read __pick13~22
       }
       arm#1 (else) {
-        value unreachable() at main:282:35
+        value unreachable() at main:288:35
       }
     }
   }, branch#87 cond#0 true {
@@ -314,7 +315,7 @@ fn main@main() -> None {
         value !read __pick14~23
       }
       arm#1 (else) {
-        value unreachable() at main:282:67
+        value unreachable() at main:288:67
       }
     }
   })
@@ -326,7 +327,7 @@ fn main@main() -> None {
         value !read __pick15~24
       }
       arm#1 (else) {
-        value unreachable() at main:285:35
+        value unreachable() at main:291:35
       }
     }
   }, branch#95 cond#0 true {
@@ -337,7 +338,7 @@ fn main@main() -> None {
         value !read __pick16~25
       }
       arm#1 (else) {
-        value unreachable() at main:285:67
+        value unreachable() at main:291:67
       }
     }
   })
@@ -350,7 +351,7 @@ fn main@main() -> None {
           value !read __pick17~26
         }
         arm#1 (else) {
-          value unreachable() at main:286:37
+          value unreachable() at main:292:37
         }
       }
     }
@@ -364,7 +365,7 @@ fn main@main() -> None {
           value !read __pick18~28
         }
         arm#1 (else) {
-          value unreachable() at main:286:82
+          value unreachable() at main:292:82
         }
       }
     }
@@ -379,7 +380,7 @@ fn main@main() -> None {
         value !read __pick19~30
       }
       arm#1 (else) {
-        value unreachable() at main:293:49
+        value unreachable() at main:300:49
       }
     }
   }, branch#116 cond#0 true {
@@ -390,7 +391,7 @@ fn main@main() -> None {
         value !read __pick20~31
       }
       arm#1 (else) {
-        value unreachable() at main:293:88
+        value unreachable() at main:300:88
       }
     }
   })
@@ -403,7 +404,7 @@ fn main@main() -> None {
           value !read __pick21~32
         }
         arm#1 (else) {
-          value unreachable() at main:294:60
+          value unreachable() at main:301:60
         }
       }
     }
@@ -417,7 +418,7 @@ fn main@main() -> None {
           value !read __pick22~34
         }
         arm#1 (else) {
-          value unreachable() at main:294:111
+          value unreachable() at main:301:111
         }
       }
     }

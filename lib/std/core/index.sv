@@ -126,9 +126,9 @@ export fn indices<T>(list: List<T>) [] -> Mut IndicesIter<T> => list {
 export struct IndicesIter<T> : Next<self, Idx(self.list) Int> canbe Mut {
     // The list whose indices are emitted, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    list: proj List<T>,
+    list: proj List<T>
     // The index the next turn emits.
-    at: Int,
+    at: Int
     // `1` front to back, `-1` back to front.
     step: Int
 }

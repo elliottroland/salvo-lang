@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-core/tests/golden_tests.rs
+assertion_line: 29
 expression: text
 ---
 module main
@@ -134,7 +135,7 @@ impl Gathering() for Gather@main stateful {
         arm#1 (none) {
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:146:13
+          unreachable("unhandled union arm") at main:148:13
         }
       }
     }
@@ -184,7 +185,7 @@ impl Racing() for Race@main stateful {
       arm#1 (none) {
       }
       arm#2 (else) {
-        unreachable("unhandled union arm") at main:182:9
+        unreachable("unhandled union arm") at main:188:9
       }
     }
   }
@@ -234,7 +235,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
           value !read __pick1~1
         }
         arm#1 (else) {
-          value unreachable() at main:233:43
+          value unreachable() at main:247:43
         }
       }
     }))
@@ -246,7 +247,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
           value !read __pick2~2
         }
         arm#1 (else) {
-          value unreachable() at main:234:47
+          value unreachable() at main:248:47
         }
       }
     }, " reserved on its shard so far"))
@@ -259,7 +260,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick3~3
       }
       arm#1 (else) {
-        value unreachable() at main:236:69
+        value unreachable() at main:250:69
       }
     }
   }), borrow_as[proj Str -> Str](branch#20 cond#0 true {
@@ -270,7 +271,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick4~4
       }
       arm#1 (else) {
-        value unreachable() at main:236:103
+        value unreachable() at main:250:103
       }
     }
   })))))
@@ -282,7 +283,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick5~5
       }
       arm#1 (else) {
-        value unreachable() at main:237:67
+        value unreachable() at main:251:67
       }
     }
   }), borrow_as[proj Str -> Str](branch#28 cond#0 true {
@@ -293,7 +294,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick6~6
       }
       arm#1 (else) {
-        value unreachable() at main:237:101
+        value unreachable() at main:251:101
       }
     }
   })))))
@@ -305,7 +306,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick7~7
       }
       arm#1 (else) {
-        value unreachable() at main:238:68
+        value unreachable() at main:252:68
       }
     }
   }), borrow_as[proj Str -> Str](branch#36 cond#0 true {
@@ -316,7 +317,7 @@ fn checkout@main(lent inventory: Inventory@main, lent console: Console; lent sku
         value !read __pick8~8
       }
       arm#1 (else) {
-        value unreachable() at main:238:102
+        value unreachable() at main:252:102
       }
     }
   })))))

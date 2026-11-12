@@ -309,7 +309,7 @@ impl crate::std_runtime_timers::__Stateless_Wheel for Wheeling {
                 crate::std_runtime::park_nanos_platform(&crate::std_runtime::this_parker_platform(), wait);
             };
         }
-        panic!("salvo: unreachable at std.runtime.timers:172:9");
+        panic!("salvo: unreachable at std.runtime.timers:171:9");
     }
 }
 

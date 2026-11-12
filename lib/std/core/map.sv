@@ -85,7 +85,11 @@
 // ```
 // @compilerrules [type-canbe-mut, col-key-eligible, obligation-by, linear-container, mod-used-only, qual-refn-type]
 // @compilerknown
-export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<self, MapKeyIter<K>, K> {
+export iterable platform type Map<K, V canbe linear>(?hash: (K) -> Long, ?eq: (K, K) -> Bool) canbe Mut : Iter<
+    self,
+    MapKeyIter<K>,
+    K
+> {
     // `put` is the operation that makes a map non-empty, and it cannot say
     // so itself.
     refn put(map: Mut Map<K, V>, key: K, value: V) => map: +NonEmpty
@@ -118,7 +122,10 @@ export platform fn Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -
 // let seen: Mut Map<Str, Int> = Mut Map()
 // put(seen, "a", 1)
 // ```
-export platform fn Mut Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) [] -> Mut Map<K, V>(?hash, ?eq) => !entries
+export platform fn Mut Map<K, V canbe linear>(
+    ...entries: (K, V)[],
+    ?Hashed<K>
+) [] -> Mut Map<K, V>(?hash, ?eq) => !entries
 
 // Builds a map from a given number of entries, each computed from its index.
 //
@@ -130,11 +137,19 @@ export platform fn Mut Map<K, V canbe linear>(...entries: (K, V)[], ?Hashed<K>) 
 // let squares = map_by(3, (i) -> (i, i * i))   // {0: 0, 1: 1, 2: 4}
 // ```
 // @compilerrules [col-by]
-export platform fn map_by<K, V canbe linear, [E]>(size: Int, init: (Int) [E] -> (K, V), ?Hashed<K>) -> Map<K, V>(?hash, ?eq)
+export platform fn map_by<K, V canbe linear, [E]>(
+    size: Int,
+    init: (Int) [E] -> (K, V),
+    ?Hashed<K>
+) -> Map<K, V>(?hash, ?eq)
 => size, init
 
 // [map_by], answering a mutable map.
-export platform fn mut_map_by<K, V canbe linear, [E]>(size: Int, init: (Int) [E] -> (K, V), ?Hashed<K>) -> Mut Map<K, V>(?hash, ?eq)
+export platform fn mut_map_by<K, V canbe linear, [E]>(
+    size: Int,
+    init: (Int) [E] -> (K, V),
+    ?Hashed<K>
+) -> Mut Map<K, V>(?hash, ?eq)
 => size, init
 
 // Builds a map from a list of `(key, value)` pairs, in list order.
@@ -205,7 +220,7 @@ export platform fn get<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (proj(map
 // ```
 // @compilerrules [col-locate, ref-handle, fate-poison]
 // @compilerknown
-export platform fn at<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> ref(map) V? => map, key
+export platform fn at<K, V>(map: Map<K, V>(?hash, ?eq), key: K) [] -> (ref(map) V)? => map, key
 
 // Stores a value under a key, replacing any value already there.
 //
@@ -337,7 +352,7 @@ export platform fn size<K, V canbe linear>(map: Map<K, V>) [] -> Int => map
 // ```
 // @compilerrules [linear-container]
 export fn drain<K, V canbe linear, [E]>(map: Map<K, V>, each: (x: V) [E] -> None) -> None
-=>[each] !x => !map, each {
+=> !map, each =>[each] !x {
     drain(into_values(map), each)
 }
 
@@ -370,7 +385,6 @@ export fn to_str<K, V>(map: Map<K, V>(?hash, ?eq), ?to_str: (k: K) -> Str, ?to_s
     append(out, "}")
     return out
 }
-
 
 // Whether two maps hold the same keys with equal values, in any order:
 // what `a == b` means for maps.
@@ -444,7 +458,7 @@ export fn iter<K, V>(map: Map<K, V>) [] -> Mut MapKeyIter<K> => map {
 // @compilerrules [iter-protocol]
 export struct MapKeyIter<K> : Next<self, K> canbe Mut {
     // The keys, in insertion order, owned by this iterator.
-    items: List<K>,
+    items: List<K>
     // The index of the next key to emit.
     at: Int
 }
@@ -475,7 +489,7 @@ platform fn value_at<K, V>(map: Map<K, V>, at: Int) [] -> proj(map) V => map, at
 // @compilerrules [col-map-entries]
 export struct MapEntry<K, V> {
     // The entry's key, borrowed.
-    key: proj K,
+    key: proj K
     // The entry's value, borrowed.
     value: proj V
 }
@@ -499,7 +513,7 @@ export fn entries<K, V>(map: Map<K, V>) [] -> Mut MapEntriesIter<K, V> => map {
 export struct MapEntriesIter<K, V> : Next<self, MapEntry<K, V>> canbe Mut {
     // The map being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    map: proj Map<K, V>,
+    map: proj Map<K, V>
     // The next slot to look at.
     at: Int
 }
@@ -540,7 +554,7 @@ export fn values<K, V>(map: Map<K, V>) [] -> Mut MapValuesIter<K, V> => map {
 export struct MapValuesIter<K, V> : Next<self, proj V> canbe Mut {
     // The map being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    map: proj Map<K, V>,
+    map: proj Map<K, V>
     // The next slot to look at.
     at: Int
 }

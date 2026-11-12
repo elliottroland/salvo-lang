@@ -119,17 +119,27 @@ export type StreamError = InvalidUtf8 | StreamFailed
 
 // The bytes read are not valid UTF-8; `source` is the stream they were read
 // from. Decoding is strict on both backends.
-export struct InvalidUtf8 { source: Str }
+export struct InvalidUtf8 {
+    source: Str
+}
+
 // Anything else the provider reported, such as an I/O error or a dropped
 // connection: `source` is the stream, `message` the provider's account.
-export struct StreamFailed { source: Str, message: Str }
+export struct StreamFailed {
+    source: Str
+    message: Str
+}
 
 // The text of a failure, naming its stream: what `${e}` renders.
 // @compilerrules [interp-to-str]
 export fn to_str(kind: StreamError) [] -> Str => kind {
     when kind {
-        is InvalidUtf8 { return "not valid UTF-8: ${kind.source}" }
-        is StreamFailed { return "stream failed: ${kind.source}: ${kind.message}" }
+        is InvalidUtf8 {
+            return "not valid UTF-8: ${kind.source}"
+        }
+        is StreamFailed {
+            return "stream failed: ${kind.source}: ${kind.message}"
+        }
     }
 }
 
@@ -146,14 +156,18 @@ export fn to_str(kind: StreamError) [] -> Str => kind {
 // A token is a handle into this process's stream table, so it cannot be
 // sent to another process, and neither can anything holding one.
 // @compilerrules [linear-group, net-noremote]
-export noremote linear struct InStream { handle: Long }
+export noremote linear struct InStream {
+    handle: Long
+}
 
 // A stream open for writing.
 //
 // Linear like [InStream]; its `close` flushes what was written and then
 // releases the stream.
 // @compilerrules [linear-group, net-noremote]
-export noremote linear struct OutStream { handle: Long }
+export noremote linear struct OutStream {
+    handle: Long
+}
 
 // ===== a non-blocking read's answer =====
 
@@ -185,7 +199,10 @@ export noremote linear struct OutStream { handle: Long }
 //     }
 // }
 // ```
-export linear struct Packet { bytes: Bytes, stream: InStream }
+export linear struct Packet {
+    bytes: Bytes
+    stream: InStream
+}
 
 // What `receive` answers: a [Packet] with the bytes and the stream back,
 // or [End], or a failure. At the end or on a failure the provider has
@@ -197,7 +214,7 @@ export struct End {}
 
 // Closes a packet's stream before its end, dropping the bytes.
 export fn close(p: Packet) [Streams] -> Ok None | Err Checked<StreamError> => !p {
-    let {bytes, stream} = p
+    let { bytes, stream } = p
     return close(stream)
 }
 
@@ -342,22 +359,28 @@ send fn pipe_step(to: OutStream, done: Reply<Ok Long | Err Checked<StreamError>>
 => !to, !done, !moved, !got {
     when got {
         is Ok {
-            let {bytes, stream} = got
+            let { bytes, stream } = got
             let written = write_bytes(to, bytes)
             receive(stream, replyto pipe_step(to, done, moved + written))
         }
         is End {
             let closed = close(to)
             when closed {
-                is Ok { done.send(ok(moved)) }
-                is Err { done.send(closed) }
+                is Ok {
+                    done.send(ok(moved))
+                }
+                is Err {
+                    done.send(closed)
+                }
             }
         }
         is Err {
             let closed = close(to)
             when closed {
                 is Ok {}
-                is Err { ignore(closed) }
+                is Err {
+                    ignore(closed)
+                }
             }
             done.send(got)
         }
@@ -411,8 +434,12 @@ export fn lines(s: InStream) [] -> Mut Lines => !s {
 export fn next(p: Mut Lines) [Streams] -> Emitted Str | Finished => p: Mut {
     let line = read_line(p.s)
     when line {
-        is Str { return emitted(line) }
-        is None { return finished() }
+        is Str {
+            return emitted(line)
+        }
+        is None {
+            return finished()
+        }
     }
 }
 
@@ -431,7 +458,7 @@ export fn close(p: Lines) [Streams] -> Ok None | Err Checked<StreamError> => !p 
 // closes the stream.
 // @compilerrules [linear-group]
 export linear struct Chunks : Next<self, Bytes, [Streams]> canbe Mut {
-    s: InStream,
+    s: InStream
     // How many bytes a step asks for.
     size: Int
 }
@@ -632,7 +659,7 @@ export fn write_long(s: OutStream, v: Long) [Streams] -> Long => s {
 // @param encode  found at the call site: the value's encoding
 // @compilerrules [stream-values, net-noremote, net-wire-format]
 export fn write_value<T>(s: OutStream, v: T, ?encode: (v: T) -> Bytes) [Streams] -> Long
-=>[encode] !v => s, !v {
+=> s, !v =>[encode] !v {
     let data = encode(v)
     let n = write_int(s, size(data))
     return n + write_bytes(s, data)
@@ -644,9 +671,15 @@ export fn write_value<T>(s: OutStream, v: T, ?encode: (v: T) -> Bytes) [Streams]
 export fn read_int(s: InStream) [Streams] -> Ok Int | End | Err Checked<StreamError> => s {
     let r = read_fixed(s, 4)
     when r {
-        is Ok { return ok(to_int(r)) }
-        is End { return End {} }
-        is Err { return r }
+        is Ok {
+            return ok(to_int(r))
+        }
+        is End {
+            return End {}
+        }
+        is Err {
+            return r
+        }
     }
 }
 
@@ -720,11 +753,17 @@ export fn read_value<T>(s: InStream, ?decode: (data: Bytes) -> T?) [Streams] -> 
     }
     let bytes: Bytes = data
     if size(bytes) < n {
-        return err(checked<StreamError>(StreamFailed { source: "read_value", message: "the stream ended inside a value" }))
+        return err(
+            checked<StreamError>(StreamFailed { source: "read_value", message: "the stream ended inside a value" })
+        )
     }
     let v = decode(bytes)
     if v is None {
-        return err(checked<StreamError>(StreamFailed { source: "read_value", message: "the bytes are not a value of the type asked for" }))
+        return err(
+            checked<
+                StreamError
+            >(StreamFailed { source: "read_value", message: "the bytes are not a value of the type asked for" })
+        )
     }
     return ok(v)
 }

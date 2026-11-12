@@ -22,6 +22,13 @@ fun byteSizePlatform(str: String): Long = salvo.platform.std.core.string.byteSiz
 
 fun charAtPlatform(str: String, index: Int): Char? = salvo.platform.std.core.string.charAt(str, index)
 
+fun charAt(str: String, index: Int): Char {
+    val char: Char? = salvo.std.core.string.charAtPlatform(str, index)
+    (if (!((char != null))) throw AssertionError("salvo: assertion failed at std.core.string:166:5") else Unit)
+    val char_1: Char = char!!
+    return char_1
+}
+
 fun iter(str: String): StrIter {
     return StrIter(text = str, at = 0)
 }
@@ -99,7 +106,7 @@ fun substr(str: String, at: Span): String {
                 __pick1_1
             }
             else -> {
-                throw AssertionError("salvo: unreachable at std.core.string:323:45")
+                throw AssertionError("salvo: unreachable at std.core.string:351:45")
             }
         }
     }
@@ -148,6 +155,12 @@ fun fromStr__Str_BoolOpt(s: String): Boolean? {
 }
 
 fun appendPlatform(str: salvo.platform.std.core.string.MutStr, text: String) = salvo.platform.std.core.string.append(str, text)
+
+fun append(str: salvo.platform.std.core.string.MutStr, char: Char) {
+    salvo.std.core.string.appendCharPlatform(str, char)
+}
+
+fun appendCharPlatform(str: salvo.platform.std.core.string.MutStr, char: Char) = salvo.platform.std.core.string.appendChar(str, char)
 
 fun setPlatform(str: salvo.platform.std.core.string.MutStr, index: Int, chr: Char): Boolean = salvo.platform.std.core.string.set(str, index, chr)
 

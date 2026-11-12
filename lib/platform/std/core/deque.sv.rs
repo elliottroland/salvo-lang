@@ -137,7 +137,7 @@ pub fn drain<T, E: Clone>(e: &E, mut d: std::collections::VecDeque<T>, each: &mu
                 let mut __pick1_1 = __pick1.unwrap();
                 __pick1_1
             } else {
-                panic!("salvo: unreachable at std.core.deque:287:33")
+                panic!("salvo: unreachable at std.core.deque:291:33")
             }
         }; each(e, __arg1) };
     }

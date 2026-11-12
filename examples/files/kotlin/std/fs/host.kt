@@ -187,7 +187,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.stream.InStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:114:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:118:9"))
             }
         }
     }
@@ -205,7 +205,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:123:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:131:9"))
             }
         }
     }
@@ -223,7 +223,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.stream.OutStream, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:132:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:144:9"))
             }
         }
     }
@@ -245,7 +245,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<salvo.std.fs.FileInfo, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:146:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:162:9"))
             }
         }
     }
@@ -263,7 +263,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<List<String>, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:155:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:175:9"))
             }
         }
     }
@@ -281,7 +281,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:164:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:188:9"))
             }
         }
     }
@@ -299,7 +299,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:173:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:201:9"))
             }
         }
     }
@@ -318,7 +318,7 @@ class DefaultFs(private val __dep0: RawFs, private val __dep1: salvo.std.stream.
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union7<salvo.std.fs.NotFound, salvo.std.fs.PermissionDenied, salvo.std.fs.AlreadyExists, salvo.std.fs.NotADirectory, salvo.std.fs.PathEscapes, salvo.std.fs.IoError, salvo.std.fs.Streaming>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:183:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.fs.host:215:9"))
             }
         }
     }

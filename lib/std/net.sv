@@ -119,13 +119,13 @@
 // more length.
 // @compilerrules [net-transport, net-host, net-mem, net-wire-format, net-noremote, actor-protocol-hash, net-addr-routable, net-addr-capability, net-remote-backpressure, net-connect, node-group, actor-group, effect-claim, actor-router, time-timer, platform-threadsafe]
 
-import std.time.Duration
-import std.codec.encode
 import std.codec.decode
-import std.runtime.routing
+import std.codec.encode
 import std.runtime.addr_index
 import std.runtime.addr_of
 import std.runtime.pool_of
+import std.runtime.routing
+import std.time.Duration
 
 // An address a transport can reach: a host and a port.
 //
@@ -141,7 +141,7 @@ import std.runtime.pool_of
 // println(to_str(e))                                   // 10.0.0.5:7000
 // ```
 export struct NodeEndpoint : Ordered<self> by auto, Hashed<self> by auto {
-    host: Str,
+    host: Str
     port: Int
 }
 
@@ -151,9 +151,16 @@ export fn to_str(e: NodeEndpoint) [] -> Str => e {
 }
 
 // Nobody could be reached at the endpoint.
-export struct Unreachable { to: NodeEndpoint }
+export struct Unreachable {
+    to: NodeEndpoint
+}
+
 // The connection to the endpoint failed: [reason] is the transport's account.
-export struct WireFailed { to: NodeEndpoint, reason: Str }
+export struct WireFailed {
+    to: NodeEndpoint
+    reason: Str
+}
+
 // Why a transport could not take a frame, or could not listen.
 //
 // [Unreachable] means nobody could be reached at the endpoint: over TCP, the
@@ -182,8 +189,12 @@ export type NetError = Unreachable | WireFailed
 // `wire failed to b:1: ` and the transport's reason.
 export fn to_str(e: NetError) [] -> Str => e {
     when e {
-        is Unreachable { return "unreachable: ${to_str(e.to)}" }
-        is WireFailed { return "wire failed to ${to_str(e.to)}: ${e.reason}" }
+        is Unreachable {
+            return "unreachable: ${to_str(e.to)}"
+        }
+        is WireFailed {
+            return "wire failed to ${to_str(e.to)}: ${e.reason}"
+        }
     }
 }
 
@@ -388,7 +399,7 @@ fn forward_frame(out: Int, to: Bytes, frame: Bytes) [] -> None => out, to, !fram
 // with [out]: the host keeps the named fn and calls it for each frame.
 // @compilerrules [platform-fn-value]
 platform fn bind_outbound(node: Long, out: Int, hook: (out: Int, to: Bytes, frame: Bytes) -> None) [] -> None
-=>[hook] !frame => node, out, !hook
+=> node, out, !hook =>[hook] !frame
 
 // Hands one frame that arrived on the wire to the runtime:
 // a message into an actor's mailbox, a reply to its waiter, a credit to a
@@ -545,7 +556,7 @@ export fn connect(me: NodeEndpoint, on: Pool) [Transport, spawn] -> Bool => !me,
 // nodes learn of each other when they meet.
 // @compilerrules [node-group]
 export struct Node : Hashed<self> by auto {
-    id: NodeId,
+    id: NodeId
     at: NodeEndpoint
 }
 
@@ -633,10 +644,24 @@ export actor effect NodeGroupWatcher {
 // which keeps gossip out of the deadlock graph's send-cycle warning.
 // @compilerrules [actor-private-send, net-wire-format, actor-deadlock-cycle]
 
-struct Hello { group: Str, at: NodeEndpoint, protocols: List<(Str, Str)> }
-struct Ack { group: Str, at: NodeEndpoint, protocols: List<(Str, Str)> }
+struct Hello {
+    group: Str
+    at: NodeEndpoint
+    protocols: List<(Str, Str)>
+}
+
+struct Ack {
+    group: Str
+    at: NodeEndpoint
+    protocols: List<(Str, Str)>
+}
+
 struct Leaving {}
-struct Intro { peers: List<NodeEndpoint> }
+
+struct Intro {
+    peers: List<NodeEndpoint>
+}
+
 type Handshake = Hello | Ack | Leaving | Intro
 
 // The current node's control frames on [channel]
@@ -710,9 +735,18 @@ fn hello_frame(group: Str) [Transport] -> Bytes => group {
 
 // What a mechanism learns from one handshake message.
 // @compilerrules [node-group]
-struct PeerHello { node: NodeId, at: NodeEndpoint }
-struct PeerGone { node: NodeId }
-struct PeerIntro { peers: List<NodeEndpoint> }
+struct PeerHello {
+    node: NodeId
+    at: NodeEndpoint
+}
+
+struct PeerGone {
+    node: NodeId
+}
+
+struct PeerIntro {
+    peers: List<NodeEndpoint>
+}
 
 // The handshake, common to every mechanism: a [Hello] of the
 // same group records the peer's route and protocol table and is answered with
@@ -722,7 +756,7 @@ struct PeerIntro { peers: List<NodeEndpoint> }
 // (malformed, or of another group).
 // @compilerrules [node-group]
 fn handshake(group: Str, from: NodeId, data: Bytes) [Transport] -> PeerHello | PeerGone | PeerIntro | None
-    => group, !from, !data {
+=> group, !from, !data {
     let msg = decode<Handshake>(data)
     when msg {
         is Hello {
@@ -804,8 +838,7 @@ fn leave_group(known: Map<NodeId, Node>) [] -> None => known {
 // other. [all] lists every node's endpoint; this node's own may be in it,
 // and is skipped.
 // @compilerrules [node-group]
-export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, spawn]
-    for NodeGroup {
+export handler StaticNodeGroup(name: Str, all: List<NodeEndpoint>) [Transport, spawn] for NodeGroup {
     mailbox { capacity: 64 }
 
     state {
@@ -922,8 +955,7 @@ fn known_nodes(known: Map<NodeId, Node>) [] -> List<Node> => known {
 // other. [seeds] are some nodes to start from; this node's own endpoint may
 // be among them, and is skipped.
 // @compilerrules [node-group]
-export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport, spawn]
-    for NodeGroup {
+export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport, spawn] for NodeGroup {
     mailbox { capacity: 64 }
 
     state {
@@ -1009,7 +1041,7 @@ export handler GossipNodeGroup(name: Str, seeds: List<NodeEndpoint>) [Transport,
 // transport could not deliver — the peer's node not on the wire yet — is
 // forgotten, so the next introduction of that endpoint dials it again.
 fn dial(dialed: Mut Set<Str>, group: Str, e: NodeEndpoint) [Transport] -> None
-    => dialed: Mut, group, !e {
+=> dialed: Mut, group, !e {
     if eq(e, local_endpoint()) || contains(dialed, to_str(e)) {
         return
     }
@@ -1036,7 +1068,7 @@ fn dial(dialed: Mut Set<Str>, group: Str, e: NodeEndpoint) [Transport] -> None
 // @compilerrules [actor-protocol-hash, effect-generic-decl]
 // @compilerknown
 export struct Protocol<E> {
-    name: Str,
+    name: Str
     hash: Str
 }
 
@@ -1165,7 +1197,7 @@ export actor effect ActorGroupWatcher<E> {
 // [node], stamped with this side's [hash] of the protocol.
 // @compilerrules [actor-group]
 fn share_members<E>(name: Str, hash: Str, node: NodeId, members: List<eff[E]>) [] -> None
-    => name, hash, node, members {
+=> name, hash, node, members {
     send_control(copy(node), copy(name), encode((copy(hash), copy(members))))
 }
 
@@ -1229,7 +1261,7 @@ export fn pending<E>(a: eff[E]) [] -> Int => a {
 // @param protocol  found at the call site: the protocol's name and hash
 // @compilerrules [actor-group, net-noremote, effect-generic-decl, actor-protocol-hash, implicit-resolve, implicit-forward]
 export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> eff[ActorGroup<E>]
-    => !nodes {
+=> !nodes {
     // An ordinary fn: the protocol's name and hash are constants of the
     // *written* `E`, and an effect-only generic is erased in the output, so
     // this body cannot produce them. The implicit `protocol` is filled at the
@@ -1246,7 +1278,7 @@ export fn actor_group<E>(nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [s
 // `actor_group<Ping>("west", nodes)` are two groups.
 // @compilerrules [actor-group, actor-deadlock-cycle]
 export fn actor_group<E>(name: Str, nodes: eff[NodeGroup], ?protocol: () -> Protocol<E>) [spawn] -> eff[ActorGroup<E>]
-    => !name, !nodes {
+=> !name, !nodes {
     // The subscription to the node group is sent from here rather than from
     // the replica's `init`: sent by the replica it would be a
     // `NodeGroupWatcher -> NodeGroup -> NodeGroupWatcher` edge in the deadlock
@@ -1286,8 +1318,7 @@ export fn join<E>(group: eff[ActorGroup<E>], member: eff[E]) [] -> None => group
 // node that leaves. A program opens groups with [actor_group] rather than
 // spawning this itself.
 // @compilerrules [actor-group, actor-router]
-export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn]
-    for ActorGroup<E>, NodeGroupWatcher {
+export handler ActorGrouping<E>(name: Str, proto: Protocol<E>) [spawn] for ActorGroup<E>, NodeGroupWatcher {
     // State: members as a list of addrs (an addr has no `hash` yet, so
     // membership is checked by `eq`), the peer replicas, the subscribers. A
     // node's arrival is where the replica first shares with that node's
@@ -1478,13 +1509,14 @@ export fn node_of<E>(a: eff[E]) [] -> NodeId => a {
 // `refresh`; a waiting send wakes when it moves.
 // @compilerrules [actor-router]
 fn view_set<E>(group: eff[ActorGroup<E>], members: List<eff[E]>) [] -> None
-    => !group, !members {
+=> !group, !members {
     let ixs = Mut List<Int>()
     for m in members {
         add(ixs, addr_index(m))
     }
     view_set(addr_index(group), ixs)
 }
+
 fn view_members<E>(group: eff[ActorGroup<E>]) [] -> List<eff[E]> => group {
     let out: Mut List<eff[E]> = Mut List()
     for ix in view_members(addr_index(group)) {
@@ -1492,14 +1524,17 @@ fn view_members<E>(group: eff[ActorGroup<E>]) [] -> List<eff[E]> => group {
     }
     return out
 }
+
 fn view_version<E>(group: eff[ActorGroup<E>]) [] -> Long => group {
     return view_version(addr_index(group))
 }
+
 fn view_refresh<E>(group: eff[ActorGroup<E>]) [] -> None => group {
     view_refresh(addr_index(group))
 }
+
 fn view_wait<E>(group: eff[ActorGroup<E>], seen: Long, nanos: Long) [] -> None
-    => group, !seen, !nanos {
+=> group, !seen, !nanos {
     view_wait(addr_index(group), seen, nanos)
 }
 
@@ -1509,7 +1544,7 @@ fn view_wait<E>(group: eff[ActorGroup<E>], seen: Long, nanos: Long) [] -> None
 // wanted, with [pending].
 // @compilerrules [actor-router]
 export struct RouteMember<E> {
-    addr: eff[E],
+    addr: eff[E]
     local: Bool
 }
 
@@ -1523,7 +1558,7 @@ export struct RouteMember<E> {
 // it out again when the version differs.
 // @compilerrules [actor-router]
 export struct RouteView<E> {
-    members: List<RouteMember<E>>,
+    members: List<RouteMember<E>>
     version: Long
 }
 
@@ -1569,7 +1604,12 @@ export fn route_view<E>(group: eff[ActorGroup<E>]) [] -> RouteView<E> => group {
 // }
 // ```
 // @compilerrules [actor-router]
-export fn route_wait<E>(group: eff[ActorGroup<E>], view: RouteView<E>, wait: Duration, config: RouteConfig) [] -> Duration
+export fn route_wait<E>(
+    group: eff[ActorGroup<E>],
+    view: RouteView<E>,
+    wait: Duration,
+    config: RouteConfig
+) [] -> Duration
 => group, view, !wait, config {
     view_wait(copy(group), copy(view.version), copy(wait.nanos))
     let next = wait.nanos * 2L
@@ -1608,7 +1648,7 @@ export fn default_route_config() [] -> RouteConfig {
 // ```
 // @compilerrules [actor-router]
 export struct RouteConfig {
-    first_wait: Duration = Duration { nanos: 1000000L },
+    first_wait: Duration = Duration { nanos: 1000000L }
     max_wait: Duration = Duration { nanos: 5000000000L }
 }
 
@@ -1639,9 +1679,15 @@ export fn least_loaded<E>(view: RouteView<E>, prefer_local: Bool) [] -> eff[E]? 
             // otherwise, or between two of the same locality, the lighter
             // queue wins.
             let take = when {
-                prefer_local && a.local && !b.local { true }
-                prefer_local && !a.local && b.local { false }
-                else { load < best_pending }
+                prefer_local && a.local && !b.local {
+                    true
+                }
+                prefer_local && !a.local && b.local {
+                    false
+                }
+                else {
+                    load < best_pending
+                }
             }
             if take {
                 best = copy(a)
@@ -1649,7 +1695,7 @@ export fn least_loaded<E>(view: RouteView<E>, prefer_local: Bool) [] -> eff[E]? 
             }
         }
     }
-    let chosen: RouteMember<E> = best ?: return None
+    let chosen: RouteMember<E> = best ?: (return None)
     return copy(chosen.addr)
 }
 
@@ -1674,7 +1720,11 @@ export fn least_loaded<E>(view: RouteView<E>, prefer_local: Bool) [] -> eff[E]? 
 // }
 // ```
 // @compilerrules [actor-router, actor-sent]
-export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, config: RouteConfig = default_route_config()) for E {
+export handler LeastLoaded<E>(
+    group: eff[ActorGroup<E>],
+    prefer_local: Bool,
+    config: RouteConfig = default_route_config()
+) for E {
     mailbox { capacity: 16 }
 
     send fn sent(m: message[E]) => !m {
@@ -1721,12 +1771,20 @@ export handler LeastLoaded<E>(group: eff[ActorGroup<E>], prefer_local: Bool, con
 // ```
 // @param key found at the use: the message's key, or `None`.
 // @compilerrules [actor-router, actor-sent, effect-claim]
-export handler Sharded<E>(group: eff[ActorGroup<E>], config: RouteConfig = default_route_config(), ?key: (m: message[E]) -> Long?) for ShardKeyOrdered E {
+export handler Sharded<E>(
+    group: eff[ActorGroup<E>],
+    config: RouteConfig = default_route_config(),
+    ?key: (m: message[E]) -> Long?
+) for ShardKeyOrdered E {
     mailbox { capacity: 16 }
 
     send fn sent(m: message[E]) => !m {
         let k = key(m) ?: 0L
-        let magnitude = if k < 0L { 0L - k } else { k }
+        let magnitude = if k < 0L {
+            0L - k
+        } else {
+            k
+        }
         let wait = copy(config.first_wait)
         while true {
             let view = route_view(group)
@@ -1788,7 +1846,7 @@ export handler StaticLeader(node: NodeId) for Leader {
 // [Elected] picks.
 // @compilerrules [actor-router]
 export fn on_leader<E>(view: RouteView<E>) [Leader] -> eff[E]? => view {
-    let l = leader() ?: return None
+    let l = leader() ?: (return None)
     for a in view.members {
         if eq(node_of(copy(a.addr)), l) {
             return copy(a.addr)
@@ -1826,7 +1884,7 @@ export handler Elected<E>(group: eff[ActorGroup<E>], config: RouteConfig = defau
     mailbox { capacity: 16 }
 
     state {
-        seen: Long = -1L,
+        seen: Long = -1L
         chosen: eff[E]? = None
     }
 
@@ -2077,7 +2135,9 @@ export handler MemTransport(me: NodeEndpoint, net: eff[MemNet]) for Transport {
     }
 
     fn deliver(to: NodeEndpoint, frame: Bytes) -> Ok None | Err NetError => to, !frame {
-        let sink = waitfor out: Reply<eff[Inbound]?> { net.route(copy(me), copy(to), out) }
+        let sink = waitfor out: Reply<eff[Inbound]?> {
+            net.route(copy(me), copy(to), out)
+        }
         if sink is None {
             return err(Unreachable { to: copy(to) })
         }
@@ -2095,4 +2155,3 @@ export handler MemTransport(me: NodeEndpoint, net: eff[MemNet]) for Transport {
 fn cut_key(a: NodeEndpoint, b: NodeEndpoint) [] -> Str => a, b {
     return "${to_str(a)}>${to_str(b)}"
 }
-

@@ -23,8 +23,7 @@ test "reversed of an empty list emits nothing" {
 
 test "reversed is an iterator, so the list is still usable after it" {
     let xs = List("a", "b")
-    for _x in reversed(xs) {
-    }
+    for _x in reversed(xs) {}
     expect_eq(size(xs), 2)
 }
 
@@ -168,7 +167,9 @@ test "an Idx claim applied by `is`, or the fall-through" {
     let i = 0
     while i < 10 {
         let child = i * 2 + 1
-        if child !is Idx(xs) { break }
+        if child !is Idx(xs) {
+            break
+        }
         sum = sum + get(xs, child)
         i = i + 1
     }

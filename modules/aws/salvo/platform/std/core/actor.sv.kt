@@ -40,6 +40,16 @@ object __Codec_Fault : salvo.WireCodec<Fault> {
 
 interface Faults {
     fun faulted(fault: Fault)
+    data class Faulted(
+        val fault: Fault,
+    )
+}
+
+object __Codec_Faults_Faulted : salvo.WireCodec<Faults.Faulted> {
+    override fun enc(v: Faults.Faulted, out: salvo.WireOut) {
+        __Codec_Fault.enc(v.fault, out)
+    }
+    override fun dec(inp: salvo.WireIn): Faults.Faulted = Faults.Faulted(__Codec_Fault.dec(inp))
 }
 
 class __Mon_Faults(

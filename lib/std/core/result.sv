@@ -186,19 +186,31 @@ export fn Errs<T canbe linear>(value: T) [] -> +Errs T => !value {
 // @param copy  found at the call site: copies one error
 // @returns     `Ok((a, b))` when both succeeded; otherwise the errors
 // @compilerrules [type-result-errs]
-export fn both<A, B, E>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty List<E>, ?copy: (v: E) -> E) [] -> Ok (A, B) | Errs NonEmpty List<E>
+export fn both<A, B, E>(
+    a: Ok A | Errs NonEmpty List<E>,
+    b: Ok B | Errs NonEmpty List<E>,
+    ?copy: (v: E) -> E
+) [] -> Ok ((A, B)) | Errs NonEmpty List<E>
 => !a, !b {
     when a {
         is Ok {
             when b {
-                is Ok { return Ok((a, b)) }
-                is Errs { return Errs(b) }
+                is Ok {
+                    return Ok((a, b))
+                }
+                is Errs {
+                    return Errs(b)
+                }
             }
         }
         is Errs {
             when b {
-                is Ok { return Errs(a) }
-                is Errs { return Errs(joined(a, b)) }
+                is Ok {
+                    return Errs(a)
+                }
+                is Errs {
+                    return Errs(joined(a, b))
+                }
             }
         }
     }
@@ -214,19 +226,32 @@ export fn both<A, B, E>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty
 // @param copy  found at the call site: copies one error
 // @returns     `Ok(f(a, b))` when both succeeded; otherwise the errors
 // @compilerrules [type-result-errs]
-export fn map2<A, B, C, E, [Fx]>(a: Ok A | Errs NonEmpty List<E>, b: Ok B | Errs NonEmpty List<E>, f: (x: A, y: B) [Fx] -> C, ?copy: (v: E) -> E) -> Ok C | Errs NonEmpty List<E>
-=>[f] !x, !y => !a, !b, f {
+export fn map2<A, B, C, E, [Fx]>(
+    a: Ok A | Errs NonEmpty List<E>,
+    b: Ok B | Errs NonEmpty List<E>,
+    f: (x: A, y: B) [Fx] -> C,
+    ?copy: (v: E) -> E
+) -> Ok C | Errs NonEmpty List<E>
+=> !a, !b, f =>[f] !x, !y {
     when a {
         is Ok {
             when b {
-                is Ok { return Ok(f(a, b)) }
-                is Errs { return Errs(b) }
+                is Ok {
+                    return Ok(f(a, b))
+                }
+                is Errs {
+                    return Errs(b)
+                }
             }
         }
         is Errs {
             when b {
-                is Ok { return Errs(a) }
-                is Errs { return Errs(joined(a, b)) }
+                is Ok {
+                    return Errs(a)
+                }
+                is Errs {
+                    return Errs(joined(a, b))
+                }
             }
         }
     }

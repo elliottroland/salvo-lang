@@ -95,7 +95,7 @@ fun<T, E> drain(e: E, d: kotlin.collections.ArrayDeque<T>, each: (E, T) -> Unit)
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.deque:287:33")
+                    throw AssertionError("salvo: unreachable at std.core.deque:291:33")
                 }
             }
         })

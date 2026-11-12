@@ -42,4 +42,4 @@ export effect Process {
 // both standard streams, then calls `exitProcess` on the JVM or
 // `std::process::exit` on Rust.
 // @compilerrules [cli-process]
-export threadsafe platform handler HostProcess() for Process
+export threadsafe platform handler HostProcess for Process

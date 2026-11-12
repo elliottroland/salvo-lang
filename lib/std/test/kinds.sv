@@ -29,10 +29,10 @@
 // ```
 // @compilerrules [test-kind]
 
-import std.throw
 import std.test.actor
 import std.test.property
 import std.test.random
+import std.throw
 
 // A test with no kind written: its body, in the threaded runtime, a failed
 // expectation or a trap its failure.

@@ -9,6 +9,7 @@
 // dependency's own layout — `aws.sv` is module `aws`, with no prefix. Hovering
 // `aws` on the import line below shows the module's own documentation, the
 // comment at the top of its file.
+
 import aws.ProfileCredentials
 
 fn main() [use] {
@@ -23,6 +24,6 @@ fn main() [use] {
     // The struct prints in its literal's shape — `ToStr<self> by auto` in the
     // dependency stamped a `to_str` over its fields, and interpolation finds it
     // here through the import.
-    let staging = ProfileCredentials {profile: "staging", path: "/etc/aws/credentials"}
+    let staging = ProfileCredentials { profile: "staging", path: "/etc/aws/credentials" }
     println("${staging}")
 }

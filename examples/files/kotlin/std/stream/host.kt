@@ -304,7 +304,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<String, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:361:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:367:9"))
             }
         }
     }
@@ -321,7 +321,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<salvo.platform.std.core.bytes.Bytes, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:369:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:379:9"))
             }
         }
     }
@@ -338,7 +338,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Int, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:377:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:391:9"))
             }
         }
     }
@@ -355,7 +355,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Long, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:385:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:403:9"))
             }
         }
     }
@@ -378,7 +378,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:401:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:423:9"))
             }
         }
     }
@@ -415,7 +415,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:438:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:464:9"))
             }
         }
     }
@@ -432,7 +432,7 @@ class DefaultStreams(private val __dep0: RawStreams) : salvo.std.stream.Streams 
                 return Union2.U2<Unit, salvo.std.core.checked.Checked<Union2<salvo.std.stream.InvalidUtf8, salvo.std.stream.StreamFailed>>>(salvo.std.core.result.err(salvo.std.core.checked.checked(r_2)))
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:446:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.stream.host:476:9"))
             }
         }
     }

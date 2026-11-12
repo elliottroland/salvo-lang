@@ -80,7 +80,7 @@ fun<K, V> toStr(map: salvo.platform.std.core.map.Map<K, V>, toStr: (K) -> String
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.map:367:43")
+                    throw AssertionError("salvo: unreachable at std.core.map:382:43")
                 }
             }
         }))
@@ -108,7 +108,7 @@ fun<K, V> eq(a: salvo.platform.std.core.map.Map<K, V>, b: salvo.platform.std.cor
                     __pick2_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.core.map:395:29")
+                    throw AssertionError("salvo: unreachable at std.core.map:409:29")
                 }
             }
         }, theirs_2))) {

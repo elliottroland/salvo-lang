@@ -48,9 +48,9 @@
 // @compilerrules [iter-protocol]
 export struct RangeIter : Next<self, Int> canbe Mut {
     // Where the range stops, exclusive.
-    end: Int,
+    end: Int
     // What each turn adds; zero is the empty range.
-    step: Int,
+    step: Int
     // The value the next turn emits.
     i: Int
 }
@@ -94,9 +94,15 @@ export fn next(p: Mut RangeIter) [] -> Emitted Int | Finished => p: Mut {
 // ```
 export fn range(start: Int, end: Int) -> Mut RangeIter {
     let step = when {
-        start < end { 1 }
-        start > end { -1 }
-        else { 0 }
+        start < end {
+            1
+        }
+        start > end {
+            -1
+        }
+        else {
+            0
+        }
     }
     return range(start, end, step)
 }
@@ -112,7 +118,6 @@ export fn range(start: Int, end: Int) -> Mut RangeIter {
 export fn range(end: Int) -> Mut RangeIter {
     return range(0, end)
 }
-
 
 // The claim that an `Int` lies between two constants, **both inclusive**:
 // `InRange(0, 65535) Int` is a port, `InRange(0, 100) Int` a percentage.

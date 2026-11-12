@@ -70,9 +70,9 @@
 // @compilerrules [test-decl, test-fail, test-implicit-import, throw, throw-try, test-run]
 // @compilerknown
 
-import std.throw
 import std.runtime.trap_boundary
 import std.runtime.trap_boundary_once
+import std.throw
 
 // `Failure` is a struct rather than a bare `Str` so that it can grow fields
 // (a property test's seed, a shrink count) without changing the channel it
@@ -194,7 +194,7 @@ export fn trapped_by(body: () -> Str?) [] -> Str? => body {
 // @param body  answers `None` on success or a message on failure
 // @returns     that answer, or the trap's message if [body] trapped
 // @compilerrules [test-recover, test-property]
-export fn trapped_by_once(body: once () -> Str?) [] -> Str? => !body {
+export fn trapped_by_once(body: once (() -> Str?)) [] -> Str? => !body {
     return trap_boundary_once(body)
 }
 
@@ -293,7 +293,7 @@ export struct Passed {}
 // under it (where it was found, its parameters, how to run it again).
 // @compilerrules [test-kind]
 export struct Failed {
-    message: Str,
+    message: Str
     detail: List<Str>
 }
 
@@ -301,7 +301,7 @@ export struct Failed {
 // besides what the test controls decided it. Counted as a failure.
 // @compilerrules [test-kind]
 export struct Flaky {
-    message: Str,
+    message: Str
     detail: List<Str>
 }
 
@@ -319,10 +319,10 @@ export type Verdict = Passed | Failed | Flaky
 // [run_seed] is for a kind that wants randomness fixed per run.
 // @compilerrules [test-kind]
 export struct TestConfig {
-    flag_keys: List<Str>,
-    flag_values: List<Str>,
-    manifest_keys: List<Str>,
-    manifest_values: List<Str>,
+    flag_keys: List<Str>
+    flag_values: List<Str>
+    manifest_keys: List<Str>
+    manifest_values: List<Str>
     seed: Long
 }
 

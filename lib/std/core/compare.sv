@@ -179,7 +179,12 @@ export fn hash<A, B>(value: (A, B), ?hash: (x: A) -> Long, ?hash: (x: B) -> Long
 }
 
 // The hash of a triple, from its elements' own hashes.
-export fn hash<A, B, C>(value: (A, B, C), ?hash: (x: A) -> Long, ?hash: (x: B) -> Long, ?hash: (x: C) -> Long) [] -> Long => value {
+export fn hash<A, B, C>(
+    value: (A, B, C),
+    ?hash: (x: A) -> Long,
+    ?hash: (x: B) -> Long,
+    ?hash: (x: C) -> Long
+) [] -> Long => value {
     return mix_hash(mix_hash(mix_hash(7L, hash(value.0)), hash(value.1)), hash(value.2))
 }
 

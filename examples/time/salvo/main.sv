@@ -5,6 +5,7 @@
 // the timer, and the fake. Nothing here is built into the language: `Duration`
 // is a struct, `Ticker` is an effect, `Timer` is an actor effect, and
 // `ManualTime` is ordinary Salvo you could have written yourself.
+
 import std.time
 
 // What this program is chosen to show, in the order it needs it:
@@ -50,7 +51,7 @@ handler SteppingTicker(step: Duration) for Ticker {
 
     fn tick() -> Tick {
         at = at + step.nanos
-        return Tick {nanos: at}
+        return Tick { nanos: at }
     }
 }
 
@@ -171,8 +172,8 @@ fn main() [use, spawn] -> None {
     //
     // No handler, no effect, no fake: two ticks and a span, called like
     // arithmetic.
-    println(verdict(Tick {nanos: 0}, Tick {nanos: 1000000000}, budget))
-    println(verdict(Tick {nanos: 0}, Tick {nanos: 2000000000}, budget))
+    println(verdict(Tick { nanos: 0 }, Tick { nanos: 1000000000 }, budget))
+    println(verdict(Tick { nanos: 0 }, Tick { nanos: 2000000000 }, budget))
 
     // ===== 4 and 5. virtual time =====
     //
@@ -189,7 +190,7 @@ fn main() [use, spawn] -> None {
     // everything sent has settled, so the advance cannot arrive early. Time then
     // moves 2.5s, past the 1.5s budget's 2.5s deadline, and fires it.
     let outcome = waitfor answer: Reply<Str> {
-        sessions.open(Tick {nanos: 0}, budget, answer)
+        sessions.open(Tick { nanos: 0 }, budget, answer)
         waitfor settled: Reply<Idle> {
             on_idle(p, settled)
         }

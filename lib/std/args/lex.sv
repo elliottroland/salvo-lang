@@ -36,7 +36,7 @@
 // A long option: `--port`, or `--port=8080` with its value attached.
 export struct LongToken {
     // The name, without the dashes: `port`.
-    name: Str,
+    name: Str
     // The text after the first `=`, or `None` when there is no `=`
     // (`--x=` has the value `""`, and `--a=b=c` the value `b=c`).
     value: Str?
@@ -77,7 +77,9 @@ export fn lex(args: List<Str>) [] -> List<Token> => args {
     for arg in args {
         let a = copy(arg)
         when {
-            ended { add(out, WordToken { value: a }) }
+            ended {
+                add(out, WordToken { value: a })
+            }
             a == "--" {
                 ended = true
                 add(out, EndToken {})
@@ -95,7 +97,9 @@ export fn lex(args: List<Str>) [] -> List<Token> => args {
             starts_with(a, "-") && a != "-" && !is_number(a) {
                 add(out, ShortToken { letters: trim_prefix(a, "-") })
             }
-            else { add(out, WordToken { value: a }) }
+            else {
+                add(out, WordToken { value: a })
+            }
         }
     }
     return out

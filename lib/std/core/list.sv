@@ -380,7 +380,7 @@ export platform fn replace<T canbe linear>(list: Mut List<T>, index: Idx(list) I
 // ```
 // @compilerrules [col-locate, implicit-group, ref-handle]
 export fns Ref<C, L, T> {
-    fn at(c: C, l: L) -> ref(c) Mut T?
+    fn at(c: C, l: L) -> (ref(c) Mut T)?
 }
 
 // A handle to the element at an index, through which it can be changed in
@@ -405,7 +405,7 @@ export fns Ref<C, L, T> {
 // ```
 // @compilerrules [col-locate, ref-handle, cmp-groups, rs-path]
 // @compilerknown
-export platform fn at<T canbe linear>(list: List<T>, index: Int) [] -> ref(list) T?
+export platform fn at<T canbe linear>(list: List<T>, index: Int) [] -> (ref(list) T)?
 => list, index
 
 // [at] at an index proven in range: answers the handle itself, with no
@@ -600,7 +600,7 @@ platform fn swap_at<T canbe linear>(list: Mut List<T>, i: Int, j: Int) [] -> Boo
 // @param each  receives each element, moved in, in list order
 // @compilerrules [linear-container, fn-effects]
 export fn drain<T canbe linear, [E]>(list: List<T>, each: (x: T) [E] -> None) -> None
-=>[each] !x => !list, each {
+=> !list, each =>[each] !x {
     let m = into_mut(list)
     reverse(m)
     while size(m) > 0 {
@@ -638,7 +638,7 @@ export platform fn remove_last<T canbe linear>(list: Mut List<T>) [] -> T? => li
 // let ys = List(1, 2)
 // let one = first(ys)                      // 1, an Int
 // ```
-export platform fn first<T canbe linear>(list: List<T>) [] -> proj(list) T? => list
+export platform fn first<T canbe linear>(list: List<T>) [] -> (proj(list) T)? => list
 
 // [first] of a list known non-empty: answers the element itself.
 // @compilerrules [col-nonempty, fn-overload-rank]
@@ -661,7 +661,7 @@ export platform fn size<T canbe linear>(list: List<T>) [] -> Int => list
 
 // The last element, borrowed, or `None` when the list is empty.
 // @compilerrules [col-salvo]
-export fn last<T canbe linear>(list: List<T>) [] -> proj(list) T? => list {
+export fn last<T canbe linear>(list: List<T>) [] -> (proj(list) T)? => list {
     return get(list, size(list) - 1)
 }
 
@@ -980,7 +980,7 @@ export fn iter<T>(list: List<T>) [] -> Mut ListIter<T> => list {
 export struct ListIter<T> : Next<self, proj T> canbe Mut {
     // The list being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    items: proj List<T>,
+    items: proj List<T>
     // The index of the next element to emit.
     at: Int
 }
@@ -1026,7 +1026,7 @@ export fn reversed<T>(list: List<T>) [] -> Mut ListReversedIter<T> => list {
 export struct ListReversedIter<T> : Next<self, proj T> canbe Mut {
     // The list being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    items: proj List<T>,
+    items: proj List<T>
     // The index of the next element to emit; `-1` is the end.
     at: Int
 }
@@ -1056,7 +1056,7 @@ export fn next<T>(p: Mut ListReversedIter<T>) [] -> Emitted (proj(p) T) | Finish
 // @compilerrules [col-enumerate, fate-derived-readonly, proj-field]
 export struct Enumerated<T> {
     // The element's index in the list.
-    index: Int,
+    index: Int
     // The element, borrowed.
     elem: proj T
 }
@@ -1100,9 +1100,9 @@ export fn enumerate_rev<T>(list: List<T>) [] -> Mut ListEnumerateIter<T> => list
 export struct ListEnumerateIter<T> : Next<self, Enumerated<T>> canbe Mut {
     // The list being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    items: proj List<T>,
+    items: proj List<T>
     // The index of the next element to emit.
-    at: Int,
+    at: Int
     // `1` front to back, `-1` back to front.
     step: Int
 }
@@ -1145,7 +1145,6 @@ export fn to_str<T>(list: List<T>, ?to_str: (x: T) -> Str) [] -> Str => list {
     append(out, "]")
     return out
 }
-
 
 // The claim that a list's elements are in order, under a named ordering.
 //
@@ -1301,7 +1300,7 @@ export fn binary_search<T>(list: Sorted<T>(?cmp) List<T>, elem: T) [] -> (Idx(li
 => list, elem {
     // The host's search answers an index in range or nothing; the test is
     // what proves it here, since `Idx` is established only in `std.core.index`.
-    let found = search_sorted_by(list, elem, cmp) ?: return None
+    let found = search_sorted_by(list, elem, cmp) ?: (return None)
     if found is Idx(list) {
         return found
     }

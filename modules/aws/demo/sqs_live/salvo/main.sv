@@ -33,7 +33,9 @@ fn main() [use] {
         create_queue(CreateQueueInput { queue_name: "salvo-demo" }, r)
     }
     when created {
-        is Err { say("create_queue", detach(created)) }
+        is Err {
+            say("create_queue", detach(created))
+        }
         is Ok {
             let url = created.queue_url ?: "?"
             println("created ${url}")
@@ -41,8 +43,12 @@ fn main() [use] {
                 send_message(SendMessageInput { queue_url: copy(url), message_body: "hello from Salvo" }, r)
             }
             when sent {
-                is Ok { println("sent ${sent.message_id ?: "?"}") }
-                is Err { say("send_message", detach(sent)) }
+                is Ok {
+                    println("sent ${sent.message_id ?: "?"}")
+                }
+                is Err {
+                    say("send_message", detach(sent))
+                }
             }
             let got = waitfor r: Reply<Ok ReceiveMessageOutput | Err Checked<SqsFailure>> {
                 receive_message(ReceiveMessageInput { queue_url: copy(url), wait_time_seconds: 1 }, r)
@@ -53,22 +59,32 @@ fn main() [use] {
                         println("received: ${m.body ?: ""}")
                     }
                 }
-                is Err { say("receive_message", detach(got)) }
+                is Err {
+                    say("receive_message", detach(got))
+                }
             }
             let gone = waitfor r: Reply<Ok None | Err Checked<SqsFailure>> {
                 delete_queue(DeleteQueueInput { queue_url: copy(url) }, r)
             }
             when gone {
-                is Ok { println("deleted the queue") }
-                is Err { say("delete_queue", detach(gone)) }
+                is Ok {
+                    println("deleted the queue")
+                }
+                is Err {
+                    say("delete_queue", detach(gone))
+                }
             }
             // A modeled error arrives as its own arm of `SqsError`.
             let missing = waitfor r: Reply<Ok GetQueueUrlOutput | Err Checked<SqsFailure>> {
                 get_queue_url(GetQueueUrlInput { queue_name: "salvo-demo" }, r)
             }
             when missing {
-                is Ok { println("unexpected: ${missing.queue_url ?: "?"}") }
-                is Err { say("get_queue_url", detach(missing)) }
+                is Ok {
+                    println("unexpected: ${missing.queue_url ?: "?"}")
+                }
+                is Err {
+                    say("get_queue_url", detach(missing))
+                }
             }
         }
     }

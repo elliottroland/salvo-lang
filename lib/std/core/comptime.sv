@@ -50,14 +50,14 @@
 // @compilerknown
 export comptime struct Struct {
     // The declared name, as a `Str` literal in each copy (`T.name`).
-    name: Str,
+    name: Str
     // The fields, in declaration order: what `[for field in T.fields]`
     // unrolls.
-    fields: List<Field>,
+    fields: List<Field>
     // Whether the declaration says `canbe Mut`. The structural `hash` of
     // `std.core.auto` refuses a mutable struct.
     // @compilerrules [col-hashed-ordered]
-    mutable: Bool,
+    mutable: Bool
     // The doc comment above the declaration, as text, or `None`. Tested with
     // `[if T.docs is None]`.
     // @compilerrules [comptime-docs]
@@ -70,10 +70,10 @@ export comptime struct Struct {
 // @compilerknown
 export comptime struct Union {
     // The declared name, as a `Str` literal in each copy.
-    name: Str,
+    name: Str
     // The arms: what `[for arm in T.arms]` unrolls, and what a
     // `[when value] { [arm] { … } }` dispatches over.
-    arms: List<Arm>,
+    arms: List<Arm>
     // The doc comment above the declaration, or `None`.
     // @compilerrules [comptime-docs]
     docs: Str?
@@ -104,7 +104,7 @@ export comptime struct Union {
 // @compilerknown
 export comptime struct Tuple {
     // The element types, in order.
-    elems: List<Type>,
+    elems: List<Type>
     // The element positions, in order: what `[for index in T.indices]`
     // unrolls.
     indices: List<Index>
@@ -190,13 +190,13 @@ export comptime struct Type {
 // @compilerknown
 export comptime struct Literal {
     // The member itself, a literal of the union in each copy.
-    value: Value,
+    value: Value
     // Its text: a literal of the union of the members' texts.
-    name: Str,
+    name: Str
     // Its position among the members, from zero.
-    index: Int,
+    index: Int
     // Whether it is the first member.
-    first: Bool,
+    first: Bool
     // Whether it is the last member.
     last: Bool
 }
@@ -215,22 +215,22 @@ export comptime struct Field {
     // (`"x" | "y"` for `Point`), tested with `field.name is "x"` or an
     // exhaustive `[when field.name]`, and a `Str` literal in each copy.
     // @compilerrules [comptime-name]
-    name: Str,
+    name: Str
     // The declared type; usable as a type inside the body as `[field.type]`,
     // and what kind of type it is as `field.type.kind`.
-    type: Type,
+    type: Type
     // The declared position, from zero.
-    index: Int,
+    index: Int
     // Whether it is the first field.
-    first: Bool,
+    first: Bool
     // Whether it is the last field.
-    last: Bool,
+    last: Bool
     // The declared default (`port: Int = 8080`), or `None` when the field
     // has none: read as an expression in a copy (`field.default`), evaluated
     // where the struct is declared, and tested with
     // `[if field.default is None]`. A declared `= None` is a default.
     // @compilerrules [comptime-default]
-    default: Value?,
+    default: Value?
     // The doc comment above the field, its lines joined, or `None`: a `Str`
     // literal in a copy that has one, tested with `[if field.docs is None]`.
     // @compilerrules [comptime-docs]
@@ -246,11 +246,11 @@ export comptime struct Field {
 // @compilerknown
 export comptime struct Index {
     // The position, from zero: `1` in the copy that reads `t.1`.
-    index: Int,
+    index: Int
     // Whether it is the first element.
-    first: Bool,
+    first: Bool
     // Whether it is the last element.
-    last: Bool,
+    last: Bool
     // The element's type; usable as a type inside the body as `[index.type]`,
     // and what kind of type it is as `index.type.kind`.
     type: Type
@@ -262,17 +262,17 @@ export comptime struct Index {
 export comptime struct Arm {
     // The struct's name for a struct arm, otherwise the type's text (`None`):
     // a literal of the union of the arm names.
-    name: Str,
+    name: Str
     // The arm's type; usable as a type inside the body as `[arm.type]`, and
     // what kind of type it is as `arm.type.kind`.
-    type: Type,
+    type: Type
     // The declared position, from zero. Arms order by it in the structural
     // `cmp`.
-    index: Int,
+    index: Int
     // Whether it is the first arm.
-    first: Bool,
+    first: Bool
     // Whether it is the last arm.
-    last: Bool,
+    last: Bool
     // The doc comment of the declaration the arm names (a struct, or a
     // `type`), or `None`.
     // @compilerrules [comptime-docs]

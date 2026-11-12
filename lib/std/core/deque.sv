@@ -91,12 +91,14 @@ platform fn end_empty<T canbe linear>(d: Mut Deque<T>) [] -> None => !d
 export fn deque_of<T canbe linear>() [] -> Deque<T> {
     return empty_deque<T>()
 }
+
 // [deque_of] with at least one element: the answer is known non-empty.
 export fn deque_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty Deque<T> => !first, !rest {
     // The host's `deque_from` is trusted with the claim here, in the file
     // that declares `Deque`.
     return deque_from(first, rest)
 }
+
 // [deque_of], answering a mutable deque: `mut_deque_of()` is an empty one
 // to fill.
 //
@@ -107,6 +109,7 @@ export fn deque_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty Deque
 export fn mut_deque_of<T canbe linear>() [] -> Mut Deque<T> {
     return empty_deque<T>()
 }
+
 // [mut_deque_of] with at least one element: the answer is known non-empty.
 export fn mut_deque_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty Mut Deque<T> => !first, !rest {
     return deque_from(first, rest)
@@ -125,6 +128,7 @@ export fn mut_deque_of<T canbe linear>(first: T, ...rest: T[]) [] -> +NonEmpty M
 export fn deque_by<T, [E]>(size: Int, init: (Int) [E] -> T) -> Deque<T> => size, init {
     return mut_deque_by(size, init)
 }
+
 // [deque_by], answering a mutable deque.
 export fn mut_deque_by<T, [E]>(size: Int, init: (Int) [E] -> T) -> Mut Deque<T> => size, init {
     let d = empty_deque<T>()
@@ -220,7 +224,7 @@ platform fn get_at<T canbe linear>(d: Deque<T>, index: Int) [] -> proj(d) T => d
 // writable when the element type is `Mut X`.
 // @compilerrules [col-locate, ref-handle, fate-poison]
 // @compilerknown
-export platform fn at<T canbe linear>(d: Deque<T>, index: Int) [] -> ref(d) T? => d, index
+export platform fn at<T canbe linear>(d: Deque<T>, index: Int) [] -> (ref(d) T)? => d, index
 
 // [at] at an index proven in range: answers the handle itself, with no
 // `None` to handle.
@@ -252,10 +256,10 @@ export platform fn replace<T canbe linear>(d: Mut Deque<T>, index: Idx(d) Int, v
 => d: Mut, index, !value
 
 // The front element, borrowed, or `None` when the deque is empty.
-export platform fn first<T canbe linear>(d: Deque<T>) [] -> proj(d) T? => d
+export platform fn first<T canbe linear>(d: Deque<T>) [] -> (proj(d) T)? => d
 
 // The back element, borrowed, or `None` when the deque is empty.
-export platform fn last<T canbe linear>(d: Deque<T>) [] -> proj(d) T? => d
+export platform fn last<T canbe linear>(d: Deque<T>) [] -> (proj(d) T)? => d
 
 // The number of elements in the deque.
 export platform fn size<T canbe linear>(d: Deque<T>) [] -> Int => d
@@ -281,7 +285,7 @@ export platform fn size<T canbe linear>(d: Deque<T>) [] -> Int => d
 // ```
 // @compilerrules [linear-container]
 export fn drain<T canbe linear, [E]>(d: Deque<T>, each: (x: T) [E] -> None) -> None
-=>[each] !x => !d, each {
+=> !d, each =>[each] !x {
     let m = into_mut(d)
     while size(m) > 0 {
         each(remove_first(m) ?: unreachable!())
@@ -323,6 +327,7 @@ export fn to_list<T>(d: Deque<T>, ?copy: (v: T) -> T) [] -> List<T> => d {
     }
     return out
 }
+
 // The elements of a list as a new deque, front to back.
 //
 // Each element is copied with its type's `copy`, found at the call site.
@@ -354,7 +359,7 @@ export fn iter<T>(d: Deque<T>) [] -> Mut DequeIter<T> => d {
 // @compilerrules [iter-protocol]
 export struct DequeIter<T> : Next<self, proj T> canbe Mut {
     // The deque being walked, borrowed.
-    items: proj Deque<T>,
+    items: proj Deque<T>
     // The index of the next element to emit.
     at: Int
 }
@@ -388,7 +393,7 @@ export fn reversed<T>(d: Deque<T>) [] -> Mut DequeReversedIter<T> => d {
 export struct DequeReversedIter<T> : Next<self, proj T> canbe Mut {
     // The deque being walked, borrowed.
     // @compilerrules [proj-field, proj-infer]
-    items: proj Deque<T>,
+    items: proj Deque<T>
     // The index of the next element; `-1` is the end.
     at: Int
 }

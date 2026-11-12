@@ -449,7 +449,7 @@ class Gathering : Gather {
                 (out == null) -> {
                 }
                 else -> {
-                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:146:13"))
+                    throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:148:13"))
                 }
             }
         }
@@ -594,7 +594,7 @@ class Racing : Race {
             (out == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:182:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:188:9"))
             }
         }
     }
@@ -689,7 +689,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                     __pick1_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at main:233:43")
+                    throw AssertionError("salvo: unreachable at main:247:43")
                 }
             }
         })
@@ -701,7 +701,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                     __pick2_2
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at main:234:47")
+                    throw AssertionError("salvo: unreachable at main:248:47")
                 }
             }
         }} reserved on its shard so far")
@@ -714,7 +714,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick3_3
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:236:69")
+                throw AssertionError("salvo: unreachable at main:250:69")
             }
         }
     }) == (kotlin.run {
@@ -725,7 +725,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick4_4
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:236:103")
+                throw AssertionError("salvo: unreachable at main:250:103")
             }
         }
     }))}")
@@ -737,7 +737,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick5_5
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:237:67")
+                throw AssertionError("salvo: unreachable at main:251:67")
             }
         }
     }) == (kotlin.run {
@@ -748,7 +748,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick6_6
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:237:101")
+                throw AssertionError("salvo: unreachable at main:251:101")
             }
         }
     }))}")
@@ -760,7 +760,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick7_7
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:238:68")
+                throw AssertionError("salvo: unreachable at main:252:68")
             }
         }
     }) == (kotlin.run {
@@ -771,7 +771,7 @@ fun checkout(inventory: Inventory, console: salvo.std.core.console.Console, skus
                 __pick8_8
             }
             else -> {
-                throw AssertionError("salvo: unreachable at main:238:102")
+                throw AssertionError("salvo: unreachable at main:252:102")
             }
         }
     }))}")
@@ -1030,7 +1030,7 @@ class Elected__Sequencer(private val group: Int, private val config: salvo.std.n
             }
             wait = salvo.std.net.routeWait(group, view, wait, config)
         }
-        throw AssertionError("salvo: unreachable at std.net:1835:9")
+        throw AssertionError("salvo: unreachable at std.net:1893:9")
     }
 }
 
@@ -1103,7 +1103,7 @@ class Sharded__Inventory(private val group: Int, private val config: salvo.std.n
                             __pick2_2
                         }
                         else -> {
-                            throw AssertionError("salvo: unreachable at std.net:1735:83")
+                            throw AssertionError("salvo: unreachable at std.net:1793:83")
                         }
                     }
                 }
@@ -1114,7 +1114,7 @@ class Sharded__Inventory(private val group: Int, private val config: salvo.std.n
             }
             wait = salvo.std.net.routeWait(group, view, wait, config)
         }
-        throw AssertionError("salvo: unreachable at std.net:1731:9")
+        throw AssertionError("salvo: unreachable at std.net:1789:9")
     }
 }
 

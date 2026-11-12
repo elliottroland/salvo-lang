@@ -31,7 +31,9 @@ test "the module's own binding answers without being declared" {
 test "a thread the runtime starts runs its body" {
     let me = this_parker()
     let waker = copy(me)
-    start_thread(() -> { unpark(waker) })
+    start_thread(() -> {
+        unpark(waker)
+    })
     park(me)
     expect(true, "the thread woke the test")
 }
@@ -97,7 +99,7 @@ test "an actor that faults dies and later sends are dropped" {
     }))
     // Watched, so the death is answered here rather than reported.
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     watch(copy(fragile), token)
     send_dyn(copy(fragile), erase(1))
     send_dyn(copy(fragile), erase(2))
@@ -121,11 +123,11 @@ test "an actor answers a token, and a waiting frame receives it" {
         answer(t, erase(copy(sum)))
     }))
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     send_dyn(copy(counter), erase(token))
     let first: Int = unerase(await_answer(wid))
     let w2 = waiter()
-    let {token: t2, wid: wid2} = w2
+    let { token: t2, wid: wid2 } = w2
     send_dyn(counter, erase(t2))
     let second: Int = unerase(await_answer(wid2))
     expect_eq(first, 10)
@@ -141,7 +143,7 @@ test "an actor on the main pool runs while main waits" {
         answer(t, erase(here_pool() * 100 + 7))
     }))
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     send_dyn(echo, erase(token))
     let got: Int = unerase(await_answer(wid))
     expect_eq(got, 7)
@@ -151,16 +153,19 @@ test "an actor on the main pool runs while main waits" {
 // for — here `main`'s, served by the wait. The answer carries the token the
 // task answers in turn.
 // @compilerrules [task-mint]
-linear struct Req { n: Int, out: Token }
+linear struct Req {
+    n: Int
+    out: Token
+}
 
 fn finish_req(r: Req) [] -> None => !r {
-    let {n, out} = r
+    let { n, out } = r
     answer(out, erase(n * 2))
 }
 
 test "a task runs when its token is answered" {
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     let task = mint_task_on(main_pool(), body_of((kind, slot, value) -> {
         let r: Req = unerase(value)
         finish_req(r)
@@ -173,14 +178,19 @@ test "a task runs when its token is answered" {
 // The gate: while a gated continuation is outstanding, the
 // actor serves only the awaited answer — a message that arrived first waits.
 // @compilerrules [actor-replyto]
-linear struct GateMsg { code: Int, me: Int, peer: Int, out: Token? }
+linear struct GateMsg {
+    code: Int
+    me: Int
+    peer: Int
+    out: Token?
+}
 
 fn gate_msg(code: Int, me: Int, peer: Int) [] -> GateMsg => !code, !me, !peer {
     return GateMsg { code: code, me: me, peer: peer, out: None }
 }
 
 fn drop_gate_msg(m: GateMsg) [] -> None => !m {
-    let {code, me, peer, out} = m
+    let { code, me, peer, out } = m
     if out is Token t {
         answer(t, erase(""))
     }
@@ -207,7 +217,7 @@ test "a gated actor serves its awaited answer before older messages" {
                 add(log, "late")
                 drop_gate_msg(m)
             } else {
-                let {code, me, peer, out} = m
+                let { code, me, peer, out } = m
                 if out is Token t {
                     answer(t, erase(to_str(log)))
                 }
@@ -217,7 +227,7 @@ test "a gated actor serves its awaited answer before older messages" {
     send_dyn(copy(gated), erase(gate_msg(0, copy(gated), copy(slow))))
     send_dyn(copy(gated), erase(gate_msg(1, copy(gated), copy(slow))))
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     send_dyn(copy(gated), erase(GateMsg { code: 2, me: copy(gated), peer: copy(slow), out: token }))
     let order: Str = unerase(await_answer(wid))
     expect_eq(order, "[reply, late]")
@@ -233,7 +243,7 @@ test "a watch is answered when the actor dies" {
         let _boom = get(xs, 0) ?: unreachable!()
     }))
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     watch(copy(fragile), token)
     send_dyn(fragile, erase(1))
     let exit: Exit = unerase(await_answer(wid))
@@ -245,7 +255,7 @@ test "a watch is answered when the actor dies" {
 // @compilerrules [actor-pool-fault-sink]
 test "an unwatched death reaches the pool's sink" {
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     let sink = spawn_body(main_pool(), 4, body_of((kind, slot, msg) -> {
         let _reason: Str = unerase(msg)
     }))
@@ -266,9 +276,9 @@ test "an unwatched death reaches the pool's sink" {
 // @compilerrules [actor-on-idle]
 test "an idle hook reports the tokens still owed" {
     let held = waiter()
-    let {token: kept, wid: kept_wid} = held
+    let { token: kept, wid: kept_wid } = held
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     on_idle(main_pool(), token)
     let idle: Idle = unerase(await_answer(wid))
     answer(kept, erase(0))
@@ -288,7 +298,7 @@ test "a dedicated pool retires when its actor dies" {
         let _boom = get(xs, 0) ?: unreachable!()
     }))
     let w = waiter()
-    let {token, wid} = w
+    let { token, wid } = w
     watch(copy(doomed), token)
     send_dyn(doomed, erase(1))
     let _exit: Exit = unerase(await_answer(wid))
@@ -303,7 +313,7 @@ test "a dedicated pool retires when its actor dies" {
 
 // The virtual runtime's randomness repeats from its seed.
 // @compilerrules [test-actor]
-test actor(seed=7) "the seed decides the identity bits" {
+test actor(seed = 7) "the seed decides the identity bits" {
     enter_virtual(7L)
     let a = identity_bits()
     let b = identity_bits()
@@ -322,14 +332,14 @@ test "a loop of waits reuses one waiter record" {
         answer(t, erase(1))
     }))
     let w0 = waiter()
-    let {token: t0, wid: wid0} = w0
+    let { token: t0, wid: wid0 } = w0
     send_dyn(copy(echo), erase(t0))
     let _first: Int = unerase(await_answer(wid0))
     let before = waiter_record_count()
     let i = 0
     while i < 50 {
         let w = waiter()
-        let {token, wid} = w
+        let { token, wid } = w
         send_dyn(copy(echo), erase(token))
         let _n: Int = unerase(await_answer(wid))
         i = i + 1

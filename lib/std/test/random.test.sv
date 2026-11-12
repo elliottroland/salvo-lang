@@ -3,7 +3,7 @@
 // zero draw, and within the claims their types make.
 
 struct Point : ToStr<self> by auto {
-    x: Int,
+    x: Int
     y: Int
 }
 
@@ -14,7 +14,7 @@ struct Leaf {
 }
 
 struct Pair {
-    left: Int,
+    left: Int
     right: Str
 }
 
@@ -125,7 +125,11 @@ test "doubles include the special values" {
 
 test "combinators" {
     let doubled: Gen<Int> = map(ints_in(0, 4), (n) -> n * 2)
-    let evens: Gen<Int> = map_not_null(ints_in(0, 4), (n) -> if n % 2 == 0 { n } else { None })
+    let evens: Gen<Int> = map_not_null(ints_in(0, 4), (n) -> if n % 2 == 0 {
+        n
+    } else {
+        None
+    })
     let either = one_of(ints_in(0, 4), ints_in(100, 104))
     let mostly: Gen<Int> = weighted((9, ints_in(0, 4)), (1, ints_in(100, 104)))
     let rng = live_rng(4L)
@@ -166,11 +170,11 @@ test "a derived union draws each arm" {
 }
 
 // std's generators under the property runner itself.
-test property(runs=50) "a range's values lie in it" (n: InRange(-3, 3) Int) {
+test property(runs = 50) "a range's values lie in it"(n: InRange(-3, 3) Int) {
     expect(n + 0 >= -3 && n + 0 <= 3, "${n} is in range")
 }
 
-test property(runs=50) "a derived struct's fields are drawn" (p: Point, xs: NonEmpty List<Int>, i: Idx(xs) Int) {
+test property(runs = 50) "a derived struct's fields are drawn"(p: Point, xs: NonEmpty List<Int>, i: Idx(xs) Int) {
     expect_eq(p.x + p.y, p.y + p.x)
     expect(i < size(xs), "an index of the list")
 }

@@ -208,7 +208,11 @@ export fn stem(p: Path) [] -> Str? => p {
 export fn with_extension(p: Path, ext: Str) [] -> Path => p, ext {
     let s = stem(p)
     if s is Str base {
-        let name = if is_empty(ext) { base } else { "${base}.${ext}" }
+        let name = if is_empty(ext) {
+            base
+        } else {
+            "${base}.${ext}"
+        }
         let up = parent(p)
         if up is Path dir {
             return join(dir, name)

@@ -170,7 +170,6 @@ export fn to_str<T>(set: Set<T>, ?to_str: (x: T) -> Str) [] -> Str => set {
     return out
 }
 
-
 // Whether two sets hold the same elements, in any order: what `a == b`
 // means for sets.
 //
@@ -266,7 +265,7 @@ export fn iter<T>(set: Set<T>) [] -> Mut SetIter<T> => set {
 // @compilerrules [iter-protocol]
 export struct SetIter<T> : Next<self, T> canbe Mut {
     // The elements, in insertion order, owned by this iterator.
-    items: List<T>,
+    items: List<T>
     // The index of the next element to emit.
     at: Int
 }

@@ -183,7 +183,7 @@ export fn iter(str: Str) [] -> Mut StrIter => str {
 // @compilerrules [iter-protocol]
 export struct StrIter : Next<self, Char> canbe Mut {
     // The string being walked.
-    text: proj Str,
+    text: proj Str
     // The index of the next character to emit.
     at: Int
 }
@@ -316,7 +316,7 @@ export platform fn substr(str: Str, start: Int, end: Int) [] -> Str? => str, sta
 // @compilerrules [col-span, qual-union-arm]
 export struct Span {
     // The first index in the range.
-    start: Int,
+    start: Int
     // The index just past the range.
     end: Int
 }

@@ -96,19 +96,31 @@ fn describe(t: Tool) [] -> Str => t {
     when c {
         is Serve {
             let tls = c.tls
-            let secure = if tls is None { "plain" } else { "tls ${tls.cert}" }
+            let secure = if tls is None {
+                "plain"
+            } else {
+                "tls ${tls.cert}"
+            }
             return "serve ${join(c.files, ",")} on ${c.net.host}:${c.port} as ${c.output}, ${secure}, ${c.net.workers ?: 1} worker(s)"
         }
         is Fetch {
             let s = c.source
             let from = when s {
-                is FromUrl { "${s.url} (timeout ${s.timeout}s)" }
-                is FromFile { "file ${s.file}" }
-                is FromStdin { "standard input" }
+                is FromUrl {
+                    "${s.url} (timeout ${s.timeout}s)"
+                }
+                is FromFile {
+                    "file ${s.file}"
+                }
+                is FromStdin {
+                    "standard input"
+                }
             }
             return "fetch ${from} with ${size(c.header)} header(s)"
         }
-        is None { return "nothing to do" }
+        is None {
+            return "nothing to do"
+        }
     }
 }
 
@@ -119,7 +131,11 @@ fn show(line: List<Str>) [Console] -> None => line {
     let r: Ok Tool | Errs NonEmpty List<ArgError> = parse_args(line)
     when r {
         is Ok {
-            let loud = if r.verbose { " (verbose)" } else { "" }
+            let loud = if r.verbose {
+                " (verbose)"
+            } else {
+                ""
+            }
             println("  ${describe(r)}${loud}")
         }
         is Errs {
@@ -140,7 +156,22 @@ fn main() [use] -> None {
     use HostArgs()
     use HostProcess()
     show(List("serve", "-p", "80", "index.html", "app.js"))
-    show(List("-v", "serve", "--host=0.0.0.0", "--workers", "4", "--cert", "c.pem", "--key", "k.pem", "--output", "json", "site"))
+    show(
+        List(
+            "-v",
+            "serve",
+            "--host=0.0.0.0",
+            "--workers",
+            "4",
+            "--cert",
+            "c.pem",
+            "--key",
+            "k.pem",
+            "--output",
+            "json",
+            "site"
+        )
+    )
     show(List("fetch", "--url", "https://example.com", "--header", "Accept: text/html", "--header", "X-Id: 7"))
     show(List("fetch", "--from-stdin"))
     show(List("serve", "-p", "0", "--output", "xml", "--cert", "c.pem"))

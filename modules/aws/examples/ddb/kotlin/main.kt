@@ -118,7 +118,7 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
             salvo.std.core.console.println__Str(console, "create_table: ${salvo.main.describe(salvo.std.core.checked.detach(made_2))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:107:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:127:5"))
         }
     }
     val item: salvo.platform.std.core.map.Map<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>> = salvo.std.core.map.Map_platform(arrayOf<kotlin.Pair<String, Union10<salvo.aws.ddb.AttributeValue.S, salvo.aws.ddb.AttributeValue.N, salvo.aws.ddb.AttributeValue.B, salvo.aws.ddb.AttributeValue.Ss, salvo.aws.ddb.AttributeValue.Ns, salvo.aws.ddb.AttributeValue.Bs, salvo.aws.ddb.AttributeValue.M, salvo.aws.ddb.AttributeValue.L, salvo.aws.ddb.AttributeValue.Bool, salvo.aws.ddb.AttributeValue.Null>>>(kotlin.Pair("id", salvo.main.s("user-42")), kotlin.Pair("name", salvo.main.s("Ada")), kotlin.Pair("age", salvo.main.n("37")), kotlin.Pair("active", salvo.main.boolean(true))), { __a0 -> (__a0).hashCode().toLong() }, { __a0, __a1 -> ((__a0) == (__a1)) })
@@ -138,7 +138,7 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
             salvo.std.core.console.println__Str(console, "put_item: ${salvo.main.describe(salvo.std.core.checked.detach(put_4))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:124:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:148:5"))
         }
     }
     val got: Union2<salvo.aws.ddb.GetItemOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
@@ -163,7 +163,7 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
             salvo.std.core.console.println__Str(console, "get_item: ${salvo.main.describe(salvo.std.core.checked.detach(got_7))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:133:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:159:5"))
         }
     }
     val gone: Union2<salvo.aws.ddb.DeleteItemOutput, salvo.std.core.checked.Checked<Union2<salvo.aws.ddb.DdbError, salvo.aws.AwsError>>> = kotlin.run {
@@ -182,7 +182,7 @@ fun roundTrip(ddb: salvo.aws.ddb.Ddb, console: salvo.std.core.console.Console, t
             salvo.std.core.console.println__Str(console, "delete_item: ${salvo.main.describe(salvo.std.core.checked.detach(gone_9))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:149:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:177:5"))
         }
     }
 }
@@ -310,7 +310,7 @@ fun keyText(item: salvo.platform.std.core.map.Map<String, Union10<salvo.aws.ddb.
             return ""
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:246:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:278:5"))
         }
     }
 }
@@ -351,7 +351,7 @@ fun main() {
                 salvo.std.core.console.println__Str(__handle_2, "get_item: ${salvo.main.describe(salvo.std.core.checked.detach(missing_9))}")
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:281:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:333:9"))
             }
         }
     }

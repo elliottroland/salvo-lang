@@ -116,7 +116,9 @@ handler Desking(room: Int) for Ordered Desk {
     send fn serve(name: Str) {
         let next = remove_first(waiting)
         when next {
-            is Reply<Str> { next.send("served ${name}") }
+            is Reply<Str> {
+                next.send("served ${name}")
+            }
             is None {}
         }
     }

@@ -38,6 +38,13 @@ pub fn char_at_platform(str: &String, mut index: i32) -> Option<char> {
     crate::platform_std_core_string::char_at(str, index)
 }
 
+pub fn char_at(str: &String, mut index: i32) -> char {
+    let mut char: Option<char> = crate::std_core_string::char_at_platform(str, index);
+    if !(char.is_some()) { panic!("salvo: assertion failed at std.core.string:166:5") };
+    let mut char_1 = char.unwrap();
+    return char_1;
+}
+
 pub fn iter(str: &String) -> crate::std_core_string::StrIter<'_> {
     return crate::std_core_string::StrIter { text: str, at: 0i32 };
 }
@@ -148,7 +155,7 @@ pub fn substr(str: &String, at: &crate::std_core_string::Span) -> String {
             let mut __pick1_1 = __pick1.unwrap();
             __pick1_1
         } else {
-            panic!("salvo: unreachable at std.core.string:323:45")
+            panic!("salvo: unreachable at std.core.string:351:45")
         }
     };
 }
@@ -209,6 +216,14 @@ pub fn from_str__Str_BoolOpt(s: &String) -> Option<bool> {
 
 pub fn append_platform(str: &mut String, text: &String) {
     crate::platform_std_core_string::append(str, text)
+}
+
+pub fn append(str: &mut String, mut char: char) {
+    crate::std_core_string::append_char_platform(&mut *str, char);
+}
+
+pub fn append_char_platform(str: &mut String, mut char: char) {
+    crate::platform_std_core_string::append_char(str, char)
 }
 
 pub fn set_platform(str: &mut String, mut index: i32, mut chr: char) -> bool {

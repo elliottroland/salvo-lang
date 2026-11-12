@@ -1,10 +1,10 @@
 // [test-file] The tests of module `stream`.
 
+import std.codec.decode
+import std.codec.encode
 import std.fs
 import std.fs.mem
 import std.fs.path
-import std.codec.encode
-import std.codec.decode
 
 test "fresh handles never repeat" {
     let a = fresh_handle()
@@ -21,10 +21,12 @@ fn drain(s: InStream, seen: Long, chunks: Int) [Streams] -> (Long, Int) => !s {
     }
     when got {
         is Ok {
-            let {bytes, stream} = got
+            let { bytes, stream } = got
             return drain(stream, seen + to_long(size(bytes)), chunks + 1)
         }
-        is End { return (seen, chunks) }
+        is End {
+            return (seen, chunks)
+        }
         is Err {
             ignore(got)
             return (-1, chunks)
@@ -56,7 +58,9 @@ test "pipe copies a stream into a file" {
                 pipe(from_bytes(to_bytes("a\nb\n")), out, done)
             }
             when moved {
-                is Ok { expect(moved == to_long(4), "four bytes moved") }
+                is Ok {
+                    expect(moved == to_long(4), "four bytes moved")
+                }
                 is Err {
                     ignore(moved)
                     expect(false, "pipe failed")
@@ -70,7 +74,9 @@ test "pipe copies a stream into a file" {
     }
     let back = read_to_str(path("copy.txt"))
     when back {
-        is Ok { expect_eq(back, "a\nb\n") }
+        is Ok {
+            expect_eq(back, "a\nb\n")
+        }
         is Err {
             ignore(back)
             expect(false, "read back failed")
@@ -81,15 +87,19 @@ test "pipe copies a stream into a file" {
 // ===== [stream-values] =====
 
 struct Rec : Hashed<self> by auto {
-    id: Str,
+    id: Str
     n: Long
 }
 
 // The number, or a marker: `End` is -1000, an error -2000.
 fn num(r: Ok Long | End | Err Checked<StreamError>) [] -> Long => !r {
     when r {
-        is Ok { return r }
-        is End { return -1000L }
+        is Ok {
+            return r
+        }
+        is End {
+            return -1000L
+        }
         is Err {
             ignore(r)
             return -2000L
@@ -99,8 +109,12 @@ fn num(r: Ok Long | End | Err Checked<StreamError>) [] -> Long => !r {
 
 fn num(r: Ok Int | End | Err Checked<StreamError>) [] -> Long => !r {
     when r {
-        is Ok { return to_long(r) }
-        is End { return -1000L }
+        is Ok {
+            return to_long(r)
+        }
+        is End {
+            return -1000L
+        }
         is Err {
             ignore(r)
             return -2000L
@@ -110,8 +124,12 @@ fn num(r: Ok Int | End | Err Checked<StreamError>) [] -> Long => !r {
 
 fn rec(r: Ok Rec | End | Err Checked<StreamError>) [] -> Rec => !r {
     when r {
-        is Ok { return r }
-        is End { return Rec { id: "end", n: 0L } }
+        is Ok {
+            return r
+        }
+        is End {
+            return Rec { id: "end", n: 0L }
+        }
         is Err {
             ignore(r)
             return Rec { id: "err", n: 0L }

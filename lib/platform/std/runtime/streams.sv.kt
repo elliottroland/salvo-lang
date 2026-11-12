@@ -221,7 +221,7 @@ class Streams : StreamTable {
                         __pick1_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.streams:228:42")
+                        throw AssertionError("salvo: unreachable at std.runtime.streams:231:42")
                     }
                 }
             })
@@ -245,7 +245,7 @@ class Streams : StreamTable {
                         __pick2_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.streams:242:43")
+                        throw AssertionError("salvo: unreachable at std.runtime.streams:245:43")
                     }
                 }
             })
@@ -277,7 +277,7 @@ class Streams : StreamTable {
                             __pick3_1
                         }
                         else -> {
-                            throw AssertionError("salvo: unreachable at std.runtime.streams:262:36")
+                            throw AssertionError("salvo: unreachable at std.runtime.streams:265:36")
                         }
                     }
                 }
@@ -305,7 +305,7 @@ fun indexIn(keys: List<Long>, handle: Long): Int {
                     __pick4_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime.streams:276:29")
+                    throw AssertionError("salvo: unreachable at std.runtime.streams:279:29")
                 }
             }
         } == handle)) {
@@ -333,7 +333,7 @@ fun unbusy(busy: salvo.platform.std.core.list.MutList<Long>, waiting: salvo.plat
                     __pick5_1
                 }
                 else -> {
-                    throw AssertionError("salvo: unreachable at std.runtime.streams:293:41")
+                    throw AssertionError("salvo: unreachable at std.runtime.streams:296:41")
                 }
             }
         })
@@ -374,7 +374,7 @@ fun checkoutIn(handle: Long): InEntry {
         }
         salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:351:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:357:5")
     return salvo.std.runtime.streams.checkoutIn(handle)
 }
 
@@ -392,7 +392,7 @@ fun checkoutOut(handle: Long): OutEntry {
         }
         salvo.std.runtime.parkPlatform(salvo.std.runtime.thisParkerPlatform())
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:367:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:373:5")
     return salvo.std.runtime.streams.checkoutOut(handle)
 }
 
@@ -514,7 +514,7 @@ fun readLine(e: InEntry): Read {
                         __pick8_1
                     }
                     else -> {
-                        throw AssertionError("salvo: unreachable at std.runtime.streams:471:52")
+                        throw AssertionError("salvo: unreachable at std.runtime.streams:477:52")
                     }
                 }
             }).toInt() == 13))) {
@@ -547,7 +547,7 @@ fun readLine(e: InEntry): Read {
         }
         salvo.std.core.bytes.appendPlatform((e.ahead as salvo.platform.std.core.bytes.MutBytes), got.data)
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:466:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:472:5")
     return salvo.std.runtime.streams.readLine(e)
 }
 
@@ -570,7 +570,7 @@ fun readAll(e: InEntry): Read {
         e.position = (e.position + (salvo.std.core.bytes.sizePlatform(got.data)).toLong())
         salvo.std.core.bytes.appendPlatform(out, got.data)
     }
-    throw AssertionError("salvo: unreachable at std.runtime.streams:500:5")
+    throw AssertionError("salvo: unreachable at std.runtime.streams:506:5")
     return salvo.std.runtime.streams.readAll(e)
 }
 

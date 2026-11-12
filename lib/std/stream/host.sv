@@ -49,8 +49,8 @@
 // itself is [std.runtime.streams], whose page has the details.
 // @compilerrules [stream-table, stream-provider]
 
-import std.stream
 import std.runtime.streams
+import std.stream
 
 // ===== the raw seam =====
 
@@ -124,9 +124,15 @@ export effect RawStreams {
 send fn host_received(reply: Reply<Received>, handle: Long, got: Ok Bytes | End | Err StreamError)
 => !reply, !handle, !got {
     when got {
-        is Ok { reply.send(ok(Packet { bytes: got, stream: InStream { handle: handle } })) }
-        is End { reply.send(got) }
-        is Err { reply.send(err(checked<StreamError>(got))) }
+        is Ok {
+            reply.send(ok(Packet { bytes: got, stream: InStream { handle: handle } }))
+        }
+        is End {
+            reply.send(got)
+        }
+        is Err {
+            reply.send(err(checked<StreamError>(got)))
+        }
     }
 }
 
@@ -351,7 +357,7 @@ fn kind(source: Str, f: Fault) [] -> StreamError => !source, f {
 //     }
 // }
 // ```
-export handler DefaultStreams [RawStreams] for Streams {
+export handler DefaultStreams() [RawStreams] for Streams {
     fn read_line(s: InStream) -> Str | None => s {
         return raw_read_line(s.handle)
     }
@@ -359,32 +365,48 @@ export handler DefaultStreams [RawStreams] for Streams {
     fn read_all(s: InStream) -> Ok Str | Err Checked<StreamError> => s {
         let r = raw_read_all(s.handle)
         when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<StreamError>(r)) }
+            is Ok {
+                return ok(r)
+            }
+            is Err {
+                return err(checked<StreamError>(r))
+            }
         }
     }
 
     fn read_bytes(s: InStream, max: Int) -> Ok Bytes | Err Checked<StreamError> => s {
         let r = raw_read_bytes(s.handle, max)
         when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<StreamError>(r)) }
+            is Ok {
+                return ok(r)
+            }
+            is Err {
+                return err(checked<StreamError>(r))
+            }
         }
     }
 
     fn read_to(s: InStream, buf: Mut Bytes, max: Int) -> Ok Int | Err Checked<StreamError> => s, buf: Mut {
         let r = raw_read_to_bytes(s.handle, buf, max)
         when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<StreamError>(r)) }
+            is Ok {
+                return ok(r)
+            }
+            is Err {
+                return err(checked<StreamError>(r))
+            }
         }
     }
 
     fn read_to(s: InStream, buf: Mut Str) -> Ok Long | Err Checked<StreamError> => s, buf: Mut {
         let r = raw_read_to_str(s.handle, buf)
         when r {
-            is Ok { return ok(r) }
-            is Err { return err(checked<StreamError>(r)) }
+            is Ok {
+                return ok(r)
+            }
+            is Err {
+                return err(checked<StreamError>(r))
+            }
         }
     }
 
@@ -399,8 +421,12 @@ export handler DefaultStreams [RawStreams] for Streams {
     fn close(s: InStream) -> Ok None | Err Checked<StreamError> => !s {
         let r = raw_close_read(s.handle)
         when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<StreamError>(r)) }
+            is Ok {
+                return ok(None)
+            }
+            is Err {
+                return err(checked<StreamError>(r))
+            }
         }
     }
 
@@ -436,16 +462,24 @@ export handler DefaultStreams [RawStreams] for Streams {
     fn flush(s: OutStream) -> Ok None | Err Checked<StreamError> => s {
         let r = raw_flush(s.handle)
         when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<StreamError>(r)) }
+            is Ok {
+                return ok(None)
+            }
+            is Err {
+                return err(checked<StreamError>(r))
+            }
         }
     }
 
     fn close(s: OutStream) -> Ok None | Err Checked<StreamError> => !s {
         let r = raw_close_write(s.handle)
         when r {
-            is Ok { return ok(None) }
-            is Err { return err(checked<StreamError>(r)) }
+            is Ok {
+                return ok(None)
+            }
+            is Err {
+                return err(checked<StreamError>(r))
+            }
         }
     }
 }

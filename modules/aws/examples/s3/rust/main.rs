@@ -188,7 +188,7 @@ pub fn upload(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate::s
         let mut put_5 = match put { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::std_core_console::println__Str(console, &format!("put {}: {}", key, crate::describe((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::aws_s3::S3Error, crate::aws::AwsError>>(put_5))).as_ref())));
     } else {
-        panic!("salvo: unhandled union arm at main:58:5");
+        panic!("salvo: unhandled union arm at main:60:5");
     };
 }
 
@@ -239,7 +239,7 @@ pub fn download(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crate:
         let mut copied_9 = match copied { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::std_core_console::println__Str(console, &format!("pipe: {}", crate::std_stream::to_str((&(crate::std_core_checked::detach::<crate::unions::Union2<crate::std_stream::InvalidUtf8, crate::std_stream::StreamFailed>>(copied_9))).as_ref())));
     } else {
-        panic!("salvo: unhandled union arm at main:88:5");
+        panic!("salvo: unhandled union arm at main:94:5");
     };
 }
 
@@ -255,7 +255,7 @@ pub fn round_trip(s3: &crate::aws_s3::S3, fs: &crate::std_fs::Fs, console: &crat
         let mut back_2 = match back { crate::unions::Union2::U2(__v) => __v, _ => unreachable!() };
         crate::std_core_console::println__Str(console, &format!("back.txt: {}", crate::std_fs::to_str((&(crate::std_core_checked::detach::<crate::unions::Union7<crate::std_fs::NotFound, crate::std_fs::PermissionDenied, crate::std_fs::AlreadyExists, crate::std_fs::NotADirectory, crate::std_fs::PathEscapes, crate::std_fs::IoError, crate::std_fs::Streaming>>(back_2))).as_ref())));
     } else {
-        panic!("salvo: unhandled union arm at main:99:5");
+        panic!("salvo: unhandled union arm at main:109:5");
     };
 }
 

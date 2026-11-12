@@ -74,8 +74,7 @@ fn sum(list: List<Int>) -> Int {
 // which may empty the list has to declare, and the *contract* is what the
 // caller reads: `core.list` has no removal function yet, so this body has
 // nothing to do.
-fn compact(list: Mut List<Int>) -> None => list: Mut {
-}
+fn compact(list: Mut List<Int>) -> None => list: Mut {}
 
 // ===== 4. provenance: a claim about the handle, not the contents =====
 //
@@ -85,7 +84,7 @@ fn compact(list: Mut List<Int>) -> None => list: Mut {
 // wrote to it.
 struct Request canbe Mut {
     // What was asked for.
-    path: Str,
+    path: Str
     // How many times a handler has touched this request.
     touches: Int
 }

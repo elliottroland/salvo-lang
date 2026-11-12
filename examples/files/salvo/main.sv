@@ -27,9 +27,9 @@
 // host's implementations, and the two doubles. A whole-module import names one
 // module, so each is its own line [mod-import-module].
 import std.fs
-import std.fs.path
 import std.fs.host
 import std.fs.mem
+import std.fs.path
 import std.fs.restricted
 import std.stream
 import std.stream.host
@@ -68,13 +68,21 @@ fn workflow() [Fs, Console] -> None {
     //    and close, so no token reaches this code at all.
     let wrote = write_str(path("notes.txt"), "alpha\nbeta\ngamma\n")
     when wrote {
-        is Ok { println("wrote ${wrote} bytes") }
-        is Err { println("write failed: ${kind_name(detach(wrote))}") }
+        is Ok {
+            println("wrote ${wrote} bytes")
+        }
+        is Err {
+            println("write failed: ${kind_name(detach(wrote))}")
+        }
     }
     let text = read_to_str(path("notes.txt"))
     when text {
-        is Ok { println("read back ${byte_size(text)} bytes") }
-        is Err { println("read failed: ${kind_name(detach(text))}") }
+        is Ok {
+            println("read back ${byte_size(text)} bytes")
+        }
+        is Err {
+            println("read failed: ${kind_name(detach(text))}")
+        }
     }
 
     // 2. The lines, as a sequence. `lines(s)` moves the stream's obligation
@@ -92,7 +100,9 @@ fn workflow() [Fs, Console] -> None {
                 println("close failed: ${kind_name(detach(closed))}")
             }
         }
-        is Err { println("open failed: ${kind_name(detach(opened))}") }
+        is Err {
+            println("open failed: ${kind_name(detach(opened))}")
+        }
     }
 
     // 3. Appending through a stream. `position` answers the byte offset —
@@ -121,18 +131,26 @@ fn workflow() [Fs, Console] -> None {
                     let s: InStream = resumed
                     let line = read_line(s)
                     when line {
-                        is Str { println("at ${at}: ${line}") }
-                        is None { println("at ${at}: end of file") }
+                        is Str {
+                            println("at ${at}: ${line}")
+                        }
+                        is None {
+                            println("at ${at}: end of file")
+                        }
                     }
                     let done = close(s)
                     if done is Err {
                         println("close failed: ${kind_name(detach(done))}")
                     }
                 }
-                is Err { println("reopen failed: ${kind_name(detach(resumed))}") }
+                is Err {
+                    println("reopen failed: ${kind_name(detach(resumed))}")
+                }
             }
         }
-        is Err { println("append failed: ${kind_name(detach(out))}") }
+        is Err {
+            println("append failed: ${kind_name(detach(out))}")
+        }
     }
 
     // 5. A file that is not text. `Bytes` is std's byte buffer — the currency
@@ -154,7 +172,9 @@ fn workflow() [Fs, Console] -> None {
                 println("close failed: ${kind_name(detach(shut))}")
             }
         }
-        is Err { println("raw open failed: ${kind_name(detach(bin))}") }
+        is Err {
+            println("raw open failed: ${kind_name(detach(bin))}")
+        }
     }
     let raw = open_read(path("raw.bin"))
     when raw {
@@ -162,22 +182,32 @@ fn workflow() [Fs, Console] -> None {
             let s: InStream = raw
             let head = read_bytes(s, 3)
             when head {
-                is Ok { println("first three: ${head} = ${to_hex(head)}") }
-                is Err { println("byte read failed: ${kind_name(detach(head))}") }
+                is Ok {
+                    println("first three: ${head} = ${to_hex(head)}")
+                }
+                is Err {
+                    println("byte read failed: ${kind_name(detach(head))}")
+                }
             }
             // One stream, one position, counted in bytes: the text read picks
             // up exactly where the byte read stopped.
             let tail = read_all(s)
             when tail {
-                is Ok { println("the rest, as text: ${tail}") }
-                is Err { println("decode failed: ${kind_name(detach(tail))}") }
+                is Ok {
+                    println("the rest, as text: ${tail}")
+                }
+                is Err {
+                    println("decode failed: ${kind_name(detach(tail))}")
+                }
             }
             let done = close(s)
             if done is Err {
                 println("close failed: ${kind_name(detach(done))}")
             }
         }
-        is Err { println("raw read failed: ${kind_name(detach(raw))}") }
+        is Err {
+            println("raw read failed: ${kind_name(detach(raw))}")
+        }
     }
 
     // 6. Opening between the bytes of a character is a *seek*, not a decode:
@@ -189,16 +219,26 @@ fn workflow() [Fs, Console] -> None {
             let s: InStream = split
             let broken = read_all(s)
             when broken {
-                is Ok { println("unexpected: ${broken} decoded") }
-                is Err { println("mid-character: ${kind_name(detach(broken))}") }
+                is Ok {
+                    println("unexpected: ${broken} decoded")
+                }
+                is Err {
+                    println("mid-character: ${kind_name(detach(broken))}")
+                }
             }
             let done = close(s)
             when done {
-                is Ok { println("unexpected: the failure was not recorded") }
-                is Err { println("and again at close: ${kind_name(detach(done))}") }
+                is Ok {
+                    println("unexpected: the failure was not recorded")
+                }
+                is Err {
+                    println("and again at close: ${kind_name(detach(done))}")
+                }
             }
         }
-        is Err { println("split open failed: ${kind_name(detach(split))}") }
+        is Err {
+            println("split open failed: ${kind_name(detach(split))}")
+        }
     }
 
     // 7. The fill-a-buffer reads. `read_to` appends into a buffer you own, so
@@ -238,7 +278,9 @@ fn workflow() [Fs, Console] -> None {
                 println("close failed: ${kind_name(detach(done))}")
             }
         }
-        is Err { println("fill open failed: ${kind_name(detach(held))}") }
+        is Err {
+            println("fill open failed: ${kind_name(detach(held))}")
+        }
     }
     // The same idea for text: `read_line_to` appends the next line to a
     // builder of yours, so a line per iteration costs no new string.
@@ -265,7 +307,9 @@ fn workflow() [Fs, Console] -> None {
                 println("close failed: ${kind_name(detach(done))}")
             }
         }
-        is Err { println("lines open failed: ${kind_name(detach(lined))}") }
+        is Err {
+            println("lines open failed: ${kind_name(detach(lined))}")
+        }
     }
 
     // 8. Or let an iterator do the loop: `chunks` is to bytes what `lines` is
@@ -285,7 +329,9 @@ fn workflow() [Fs, Console] -> None {
                 println("close failed: ${kind_name(detach(done))}")
             }
         }
-        is Err { println("chunks failed: ${kind_name(detach(ch))}") }
+        is Err {
+            println("chunks failed: ${kind_name(detach(ch))}")
+        }
     }
 
     // 9. And the one-shots, where the buffer is std's business: `copy_file`
@@ -293,13 +339,21 @@ fn workflow() [Fs, Console] -> None {
     //    hands back the lot.
     let copied = copy_file(path("notes.txt"), path("notes-copy.txt"))
     when copied {
-        is Ok { println("copied ${copied} bytes") }
-        is Err { println("copy failed: ${kind_name(detach(copied))}") }
+        is Ok {
+            println("copied ${copied} bytes")
+        }
+        is Err {
+            println("copy failed: ${kind_name(detach(copied))}")
+        }
     }
     let whole = read_to_bytes(path("raw.bin"))
     when whole {
-        is Ok { println("raw.bin is ${size(whole)} bytes: ${to_hex(whole)}") }
-        is Err { println("byte read failed: ${kind_name(detach(whole))}") }
+        is Ok {
+            println("raw.bin is ${size(whole)} bytes: ${to_hex(whole)}")
+        }
+        is Err {
+            println("byte read failed: ${kind_name(detach(whole))}")
+        }
     }
 
     // 10. Failures, collected. A `Checked<FsError>` may not live in a list
@@ -308,13 +362,21 @@ fn workflow() [Fs, Console] -> None {
     let failures: Mut List<FsError> = Mut List()
     let missing = read_to_str(path("nope.txt"))
     when missing {
-        is Ok { println("unexpected: ${missing}") }
-        is Err { failures.add(detach(missing)) }
+        is Ok {
+            println("unexpected: ${missing}")
+        }
+        is Err {
+            failures.add(detach(missing))
+        }
     }
     let not_a_dir = list_dir(path("notes.txt"))
     when not_a_dir {
-        is Ok { println("unexpected: ${not_a_dir}") }
-        is Err { failures.add(detach(not_a_dir)) }
+        is Ok {
+            println("unexpected: ${not_a_dir}")
+        }
+        is Err {
+            failures.add(detach(not_a_dir))
+        }
     }
     println("failures: ${size(failures)}")
     for kind in failures {
@@ -338,18 +400,30 @@ fn workflow() [Fs, Console] -> None {
 fn sandbox_edges() [Fs, Console] -> None {
     let inside = write_str(path("sub/../probe.txt"), "inside\n")
     when inside {
-        is Ok { println("through `..`: wrote ${inside} bytes") }
-        is Err { println("through `..`: ${kind_name(detach(inside))}") }
+        is Ok {
+            println("through `..`: wrote ${inside} bytes")
+        }
+        is Err {
+            println("through `..`: ${kind_name(detach(inside))}")
+        }
     }
     let up = read_to_str(path("../secret.txt"))
     when up {
-        is Ok { println("unexpected: read outside the sandbox") }
-        is Err { println("climbing out: ${kind_name(detach(up))}") }
+        is Ok {
+            println("unexpected: read outside the sandbox")
+        }
+        is Err {
+            println("climbing out: ${kind_name(detach(up))}")
+        }
     }
     let absolute = read_to_str(path("/etc/hosts"))
     when absolute {
-        is Ok { println("unexpected: an absolute path resolved") }
-        is Err { println("absolute path: ${kind_name(detach(absolute))}") }
+        is Ok {
+            println("unexpected: an absolute path resolved")
+        }
+        is Err {
+            println("absolute path: ${kind_name(detach(absolute))}")
+        }
     }
     let probe = path("probe.txt")
     println("probe still there: ${exists(probe)}")

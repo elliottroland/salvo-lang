@@ -63,7 +63,7 @@ export intrinsic fn get<T>(array: T[], index: Int) [] -> (proj(array) T)? => arr
 
 // The first element of an array, borrowed from it, or `None` when it is
 // empty.
-export intrinsic fn first<T>(array: T[]) [] -> proj(array) T? => array
+export intrinsic fn first<T>(array: T[]) [] -> (proj(array) T)? => array
 
 // A new iterator over an array's elements, front to back. The array is
 // borrowed, not moved, and each element is borrowed from it.
@@ -88,7 +88,7 @@ export fn iter<T>(array: T[]) [] -> Mut ArrayIter<T> => array {
 export struct ArrayIter<T> : Next<self, proj T> canbe Mut {
     // The array being walked, borrowed.
     // @compilerrules [proj-field]
-    items: proj (T[]),
+    items: proj (T[])
     // The index of the next element to emit.
     at: Int
 }
@@ -124,7 +124,7 @@ export fn next<T>(p: Mut ArrayIter<T>) [] -> Emitted (proj(p) T) | Finished => p
 // @param each   consumes one element; its effects are the call's
 // @compilerrules [linear-container, fn-effects]
 export fn drain<T canbe linear, [E]>(items: T[], each: (x: T) [E] -> None) -> None
-=>[each] !x => !items, each {
+=> !items, each =>[each] !x {
     let list = Mut List<T>()
     list.append(items)
     drain(list, each)

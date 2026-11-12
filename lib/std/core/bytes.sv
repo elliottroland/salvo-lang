@@ -210,7 +210,7 @@ export fn iter(data: Bytes) [] -> Mut BytesIter => data {
 // @compilerrules [iter-protocol, proj-field]
 export struct BytesIter : Next<self, Byte> canbe Mut {
     // The buffer being walked.
-    data: proj Bytes,
+    data: proj Bytes
     // The index of the next byte to emit.
     at: Int
 }

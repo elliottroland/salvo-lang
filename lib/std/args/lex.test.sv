@@ -11,9 +11,15 @@ fn shapes(args: List<Str>) [] -> Str => args {
                     append(out, "L(${t.name}=${t.value})")
                 }
             }
-            is ShortToken { append(out, "S(${t.letters})") }
-            is WordToken { append(out, "W(${t.value})") }
-            is EndToken { append(out, "E") }
+            is ShortToken {
+                append(out, "S(${t.letters})")
+            }
+            is WordToken {
+                append(out, "W(${t.value})")
+            }
+            is EndToken {
+                append(out, "E")
+            }
         }
     }
     return out

@@ -145,32 +145,32 @@ export struct Tick : Ordered<self> by auto, Hashed<self> by auto {
 
 // A span of [n] nanoseconds.
 export fn nanos(n: Long) [] -> Duration {
-    return Duration {nanos: n}
+    return Duration { nanos: n }
 }
 
 // A span of [n] microseconds.
 export fn micros(n: Long) [] -> Duration {
-    return Duration {nanos: n * 1000L}
+    return Duration { nanos: n * 1000L }
 }
 
 // A span of [n] milliseconds.
 export fn millis(n: Long) [] -> Duration {
-    return Duration {nanos: n * 1000000L}
+    return Duration { nanos: n * 1000000L }
 }
 
 // A span of [n] seconds.
 export fn seconds(n: Long) [] -> Duration {
-    return Duration {nanos: n * 1000000000L}
+    return Duration { nanos: n * 1000000000L }
 }
 
 // A span of [n] minutes.
 export fn minutes(n: Long) [] -> Duration {
-    return Duration {nanos: n * 60000000000L}
+    return Duration { nanos: n * 60000000000L }
 }
 
 // A span of [n] hours.
 export fn hours(n: Long) [] -> Duration {
-    return Duration {nanos: n * 3600000000000L}
+    return Duration { nanos: n * 3600000000000L }
 }
 
 // [d] in nanoseconds. This is exact: nanoseconds are what a span holds.
@@ -200,26 +200,26 @@ export fn to_seconds(d: Duration) [] -> Long => d {
 // The sum of two spans: what `d1 + d2` means.
 // @compilerrules [op-arith]
 export fn plus(d1: Duration, d2: Duration) [] -> Duration => d1, d2 {
-    return Duration {nanos: d1.nanos + d2.nanos}
+    return Duration { nanos: d1.nanos + d2.nanos }
 }
 
 // [d2] taken off [d1], which is negative when [d2] is the longer: what
 // `d1 - d2` means.
 // @compilerrules [op-arith]
 export fn minus(d1: Duration, d2: Duration) [] -> Duration => d1, d2 {
-    return Duration {nanos: d1.nanos - d2.nanos}
+    return Duration { nanos: d1.nanos - d2.nanos }
 }
 
 // [d] repeated [n] times: what `d * n` means.
 // @compilerrules [op-arith]
 export fn times(d: Duration, n: Long) [] -> Duration => d {
-    return Duration {nanos: d.nanos * n}
+    return Duration { nanos: d.nanos * n }
 }
 
 // [d] with its sign removed.
 export fn abs(d: Duration) [] -> Duration => !d {
     if d.nanos < 0 {
-        return Duration {nanos: 0L - d.nanos}
+        return Duration { nanos: 0L - d.nanos }
     }
     return d
 }
@@ -242,7 +242,7 @@ export fn to_str(d: Duration) [] -> Str => d {
     // formatting decision this function is the wrong size for, and which
     // belongs with a calendar layer.
     if d.nanos < 0 {
-        let positive = Duration {nanos: 0L - d.nanos}
+        let positive = Duration { nanos: 0L - d.nanos }
         return "-${to_str(positive)}"
     }
     if d.nanos == 0 {
@@ -264,7 +264,7 @@ export fn to_str(d: Duration) [] -> Str => d {
 
 // The wall-clock point [n] nanoseconds after the Unix epoch.
 export fn epoch_nano(n: Long) [] -> Instant {
-    return Instant {nanos: n}
+    return Instant { nanos: n }
 }
 
 // The wall-clock point [n] milliseconds after the Unix epoch. Most systems
@@ -276,12 +276,12 @@ export fn epoch_nano(n: Long) [] -> Instant {
 // println("${to_epoch_second(at)}")                      // 1700000000
 // ```
 export fn epoch_milli(n: Long) [] -> Instant {
-    return Instant {nanos: n * 1000000L}
+    return Instant { nanos: n * 1000000L }
 }
 
 // The wall-clock point [n] seconds after the Unix epoch.
 export fn epoch_second(n: Long) [] -> Instant {
-    return Instant {nanos: n * 1000000000L}
+    return Instant { nanos: n * 1000000000L }
 }
 
 // [at] as nanoseconds since the Unix epoch.
@@ -309,39 +309,39 @@ export fn to_epoch_second(at: Instant) [] -> Long => at {
 // println("${between(a, b)} ${between(b, a)}")           // 60s -60s
 // ```
 export fn between(start: Instant, end: Instant) [] -> Duration => start, end {
-    return Duration {nanos: end.nanos - start.nanos}
+    return Duration { nanos: end.nanos - start.nanos }
 }
 
 // The span from [start] to [end] on the monotonic clock, negative when
 // [end] is the earlier. This is the reliable way to measure an interval,
 // because no clock adjustment can distort it; [elapsed] measures up to now.
 export fn between(start: Tick, end: Tick) [] -> Duration => start, end {
-    return Duration {nanos: end.nanos - start.nanos}
+    return Duration { nanos: end.nanos - start.nanos }
 }
 
 // The wall-clock point [d] after [at]: what `at + d` means.
 // @compilerrules [op-arith]
 export fn plus(at: Instant, d: Duration) [] -> Instant => at, d {
-    return Instant {nanos: at.nanos + d.nanos}
+    return Instant { nanos: at.nanos + d.nanos }
 }
 
 // The wall-clock point [d] before [at]: what `at - d` means.
 // @compilerrules [op-arith]
 export fn minus(at: Instant, d: Duration) [] -> Instant => at, d {
-    return Instant {nanos: at.nanos - d.nanos}
+    return Instant { nanos: at.nanos - d.nanos }
 }
 
 // The monotonic point [d] after [at]: what `at + d` means, and how a
 // deadline is computed.
 // @compilerrules [op-arith]
 export fn plus(at: Tick, d: Duration) [] -> Tick => at, d {
-    return Tick {nanos: at.nanos + d.nanos}
+    return Tick { nanos: at.nanos + d.nanos }
 }
 
 // The monotonic point [d] before [at]: what `at - d` means.
 // @compilerrules [op-arith]
 export fn minus(at: Tick, d: Duration) [] -> Tick => at, d {
-    return Tick {nanos: at.nanos - d.nanos}
+    return Tick { nanos: at.nanos - d.nanos }
 }
 
 // --------------------------------------------------------------- clocks ----
@@ -452,7 +452,7 @@ export fn elapsed(since: Tick) [Ticker] -> Duration => since {
 // @compilerrules [time-ticker]
 export handler DefaultTicker() for Ticker {
     fn tick() -> Tick {
-        return Tick {nanos: monotonic_nanos()}
+        return Tick { nanos: monotonic_nanos() }
     }
 }
 
@@ -480,15 +480,15 @@ export handler DefaultClock() for Clock {
     }
 
     fn now() -> Instant {
-        return Instant {nanos: epoch_nanos()}
+        return Instant { nanos: epoch_nanos() }
     }
 
     fn to_instant(at: Tick) -> Instant {
-        return Instant {nanos: base_epoch + (at.nanos - base_tick)}
+        return Instant { nanos: base_epoch + (at.nanos - base_tick) }
     }
 
     fn to_tick(at: Instant) -> Tick {
-        return Tick {nanos: base_tick + (at.nanos - base_epoch)}
+        return Tick { nanos: base_tick + (at.nanos - base_epoch) }
     }
 }
 
@@ -681,7 +681,7 @@ export handler ManualTime() for Ordered Timer, Ordered TimerCtl {
         // `after(nanos(0), done)` a reading of virtual time rather than a park
         // that never ends. A test clock is written on exactly that.
         if wait.nanos <= 0 {
-            send(done, Fired {at: Tick {nanos: now}})
+            send(done, Fired { at: Tick { nanos: now } })
         } else {
             add(deadlines, now + wait.nanos)
             add(pending, done)
@@ -697,7 +697,7 @@ export handler ManualTime() for Ordered Timer, Ordered TimerCtl {
             // continuation that sets another timer measures from there.
             now = copy(deadline)
             if remove_at(pending, at) is Reply<Fired> token {
-                send(token, Fired {at: Tick {nanos: deadline}})
+                send(token, Fired { at: Tick { nanos: deadline } })
             }
         }
         now = target

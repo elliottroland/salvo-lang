@@ -62,7 +62,7 @@ fun toStr__NetError(e: Union2<Unreachable, WireFailed>): String {
             return "wire failed to ${salvo.std.net.toStr__NodeEndpoint(e_2.to)}: ${e_2.reason}"
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:184:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:191:5"))
         }
     }
 }
@@ -596,7 +596,7 @@ fun handshake(transport: Transport, group: String, from: NodeId, data: salvo.pla
             return null
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:727:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:761:5"))
         }
     }
 }
@@ -677,7 +677,7 @@ class StaticNodeGroup(private val name: String, private val all: List<NodeEndpoi
             (event == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:855:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:888:9"))
             }
         }
     }
@@ -813,7 +813,7 @@ class GossipNodeGroup(private val name: String, private val seeds: List<NodeEndp
             (event == null) -> {
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:966:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at std.net:998:9"))
             }
         }
     }

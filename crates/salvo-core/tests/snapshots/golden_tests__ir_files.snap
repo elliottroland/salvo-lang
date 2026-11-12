@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-core/tests/golden_tests.rs
+assertion_line: 29
 expression: text
 ---
 module main
@@ -68,7 +69,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read text~4))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:75:5
+      unreachable("unhandled union arm") at main:79:5
     }
   }
   bind#9 let opened: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_read@Fs(read fs, call path@std.fs.path("notes.txt"))
@@ -113,7 +114,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read opened~10))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:84:5
+      unreachable("unhandled union arm") at main:92:5
     }
   }
   bind#23 let out: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_append@Fs(read fs, call path@std.fs.path("notes.txt"))
@@ -159,7 +160,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
               call println(Str)@std.core.console(read console, concat("at ", call to_str(Long)@std.core.basic(read at), ": end of file"))
             }
             arm#2 (else) {
-              unreachable("unhandled union arm") at main:123:21
+              unreachable("unhandled union arm") at main:133:21
             }
           }
           obligation release [s]
@@ -181,7 +182,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           call println(Str)@std.core.console(read console, concat("reopen failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read resumed~16))))
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:119:13
+          unreachable("unhandled union arm") at main:129:13
         }
       }
     }
@@ -193,7 +194,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("append failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read out~17))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:102:5
+      unreachable("unhandled union arm") at main:112:5
     }
   }
   bind#46 let bin: OutStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_write@Fs(read fs, call path@std.fs.path("raw.bin"))
@@ -229,7 +230,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("raw open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read bin~20))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:143:5
+      unreachable("unhandled union arm") at main:161:5
     }
   }
   bind#58 let raw: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_read@Fs(read fs, call path@std.fs.path("raw.bin"))
@@ -258,7 +259,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           call println(Str)@std.core.console(read console, concat("byte read failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read head~23))))
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:164:13
+          unreachable("unhandled union arm") at main:184:13
         }
       }
       bind#66 let tail: Str | Checked<InvalidUtf8 | StreamFailed> = member read_all@Streams(read streams, read s)
@@ -277,7 +278,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           call println(Str)@std.core.console(read console, concat("decode failed: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read tail~25))))
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:171:13
+          unreachable("unhandled union arm") at main:195:13
         }
       }
       obligation release [s]
@@ -299,7 +300,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("raw read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read raw~27))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:160:5
+      unreachable("unhandled union arm") at main:180:5
     }
   }
   bind#75 let split: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_read_at@Fs(read fs, call path@std.fs.path("raw.bin"), 5L)
@@ -328,7 +329,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           call println(Str)@std.core.console(read console, concat("mid-character: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read broken~30))))
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:191:13
+          unreachable("unhandled union arm") at main:221:13
         }
       }
       obligation release [s]
@@ -348,7 +349,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
           call println(Str)@std.core.console(read console, concat("and again at close: ", call kind_name(StreamError)@main(call detach@std.core.checked<InvalidUtf8 | StreamFailed>(!read done~32))))
         }
         arm#2 (else) {
-          unreachable("unhandled union arm") at main:196:13
+          unreachable("unhandled union arm") at main:230:13
         }
       }
     }
@@ -360,7 +361,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("split open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read split~33))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:187:5
+      unreachable("unhandled union arm") at main:217:5
     }
   }
   bind#88 let held: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_read@Fs(read fs, call path@std.fs.path("raw.bin"))
@@ -405,7 +406,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
             assign reading = false
           }
           arm#2 (else) {
-            unreachable("unhandled union arm") at main:219:17
+            unreachable("unhandled union arm") at main:259:17
           }
         }
       }
@@ -429,7 +430,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("fill open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read held~38))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:209:5
+      unreachable("unhandled union arm") at main:249:5
     }
   }
   bind#109 let lined: InStream | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member open_read@Fs(read fs, call path@std.fs.path("notes.txt"))
@@ -478,7 +479,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("lines open failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read lined~41))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:246:5
+      unreachable("unhandled union arm") at main:288:5
     }
   }
   bind#125 let ch: Mut Chunks | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call open_chunks@std.fs(read fs, read streams, call path@std.fs.path("raw.bin"), 4)
@@ -525,7 +526,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("chunks failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read ch~47))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:275:5
+      unreachable("unhandled union arm") at main:319:5
     }
   }
   bind#140 let copied: Long | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call copy_file@std.fs(read fs, read streams, call path@std.fs.path("notes.txt"), call path@std.fs.path("notes-copy.txt"))
@@ -544,7 +545,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("copy failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read copied~49))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:295:5
+      unreachable("unhandled union arm") at main:341:5
     }
   }
   bind#144 let whole: Bytes | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call read_to_bytes@std.fs(read fs, read streams, call path@std.fs.path("raw.bin"))
@@ -563,7 +564,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call println(Str)@std.core.console(read console, concat("byte read failed: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read whole~51))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:300:5
+      unreachable("unhandled union arm") at main:350:5
     }
   }
   bind#148 let failures: Mut List<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call Mut_List()@std.core.list<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>()
@@ -583,7 +584,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call add@std.core.list<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read missing~53))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:310:5
+      unreachable("unhandled union arm") at main:364:5
     }
   }
   bind#153 let not_a_dir: List<Str> | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = member list_dir@Fs(read fs, call path@std.fs.path("notes.txt"))
@@ -602,7 +603,7 @@ fn workflow@main(lent fs: Fs, lent console: Console, lent streams: Streams) -> N
       call add@std.core.list<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(read failures, call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read not_a_dir~55))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:315:5
+      unreachable("unhandled union arm") at main:373:5
     }
   }
   call println(Str)@std.core.console(read console, concat("failures: ", call to_str(Int)@std.core.basic(call size@std.core.list<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(drop_mut(read failures)))))
@@ -640,7 +641,7 @@ fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams)
       call println(Str)@std.core.console(read console, concat("through `..`: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read inside~2))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:340:5
+      unreachable("unhandled union arm") at main:402:5
     }
   }
   bind#5 let up: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call read_to_str@std.fs(read fs, read streams, call path@std.fs.path("../secret.txt"))
@@ -659,7 +660,7 @@ fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams)
       call println(Str)@std.core.console(read console, concat("climbing out: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read up~4))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:345:5
+      unreachable("unhandled union arm") at main:411:5
     }
   }
   bind#9 let absolute: Str | Checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming> = call read_to_str@std.fs(read fs, read streams, call path@std.fs.path("/etc/hosts"))
@@ -678,7 +679,7 @@ fn sandbox_edges@main(lent fs: Fs, lent console: Console, lent streams: Streams)
       call println(Str)@std.core.console(read console, concat("absolute path: ", call kind_name(FsError)@main(call detach@std.core.checked<NotFound | PermissionDenied | AlreadyExists | NotADirectory | PathEscapes | IoError | Streaming>(!read absolute~6))))
     }
     arm#2 (else) {
-      unreachable("unhandled union arm") at main:350:5
+      unreachable("unhandled union arm") at main:420:5
     }
   }
   bind#13 let probe: Path = call path@std.fs.path("probe.txt")

@@ -1,5 +1,6 @@
 ---
 source: crates/salvo-core/tests/golden_tests.rs
+assertion_line: 29
 expression: text
 ---
 module main
@@ -98,7 +99,7 @@ impl Breaking() for Fragile@main {
           value !read __pick1~1
         }
         arm#1 (else) {
-          value unreachable() at main:149:37
+          value unreachable() at main:151:37
         }
       }
     }

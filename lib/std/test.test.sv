@@ -15,7 +15,9 @@ fn always_traps(n: Int) -> Int {
 }
 
 test "trap_of answers the message of a body that trapped" {
-    let trap = trap_of(() -> { always_traps(7) })
+    let trap = trap_of(() -> {
+        always_traps(7)
+    })
     expect(trap is Str, "a trap message came back")
     // The unwrap narrows `trap` for the rest of the test, and reads it rather
     // than moving it — which is what [rs-opt-borrow] makes possible on Rust
@@ -27,11 +29,15 @@ test "trap_of answers the message of a body that trapped" {
 }
 
 test "trap_of answers None for a body that completed" {
-    expect(trap_of(() -> { always_traps(200) }) is None, "200 exceeds 100")
+    expect(trap_of(() -> {
+        always_traps(200)
+    }) is None, "200 exceeds 100")
 }
 
 test "expect_trap passes when the body traps" {
-    expect_trap(() -> { always_traps(1) }, "n below the bound")
+    expect_trap(() -> {
+        always_traps(1)
+    }, "n below the bound")
 }
 
 test "expect_trap fails when the body does not" {
@@ -39,18 +45,24 @@ test "expect_trap fails when the body does not" {
     // rather than by the harness — which is what makes an assertion's own
     // behaviour testable [test-fail].
     let outcome = try {
-        expect_trap(() -> { always_traps(500) }, "a body that cannot trap")
+        expect_trap(() -> {
+            always_traps(500)
+        }, "a body that cannot trap")
     }
     expect(outcome is Thrown, "a body that did not trap fails the expectation")
 }
 
 test "expect_trap_with pins which trap it meant" {
-    expect_trap_with(() -> { always_traps(2) }, "was 2", "n below the bound")
+    expect_trap_with(() -> {
+        always_traps(2)
+    }, "was 2", "n below the bound")
 }
 
 test "expect_trap_with fails on a trap with another message" {
     let outcome = try {
-        expect_trap_with(() -> { always_traps(3) }, "a different failure", "n below the bound")
+        expect_trap_with(() -> {
+            always_traps(3)
+        }, "a different failure", "n below the bound")
     }
     expect(outcome is Thrown, "the wrong trap is not the expected one")
 }

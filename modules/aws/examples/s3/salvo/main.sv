@@ -15,8 +15,8 @@
 import aws
 import aws.s3
 import std.fs
-import std.fs.path
 import std.fs.mem
+import std.fs.path
 import std.stream
 
 // What a failure says, in a line.
@@ -35,7 +35,9 @@ fn describe(e: S3Failure) [] -> Str => e {
 fn size_of(path: Path) [Fs] -> Long? => path {
     let info = metadata(path)
     when info {
-        is Ok { return info.size }
+        is Ok {
+            return info.size
+        }
         is Err {
             ignore(info)
             return None
@@ -56,8 +58,12 @@ fn upload(bucket: Str, key: Str, path: Path, length: Long?) [S3, Fs, Console] =>
         put_object(PutObjectInput { bucket: copy(bucket), key: copy(key), body: opened, content_length: length }, r)
     }
     when put {
-        is Ok { println("put ${key}: etag ${put.e_tag ?: "?"}") }
-        is Err { println("put ${key}: ${describe(detach(put))}") }
+        is Ok {
+            println("put ${key}: etag ${put.e_tag ?: "?"}")
+        }
+        is Err {
+            println("put ${key}: ${describe(detach(put))}")
+        }
     }
 }
 
@@ -71,7 +77,7 @@ fn download(bucket: Str, key: Str, path: Path) [S3, Fs, Console] => bucket, key,
         println("get ${key}: ${describe(detach(got))}")
         return None
     }
-    let {body, content_length} = got
+    let { body, content_length } = got
     println("get ${key}: ${content_length ?: -1L} bytes")
     let target = open_write(path)
     if target is Err {
@@ -86,8 +92,12 @@ fn download(bucket: Str, key: Str, path: Path) [S3, Fs, Console] => bucket, key,
         pipe(body, target, r)
     }
     when copied {
-        is Ok { println("piped ${copied} bytes into ${path}") }
-        is Err { println("pipe: ${detach(copied)}") }
+        is Ok {
+            println("piped ${copied} bytes into ${path}")
+        }
+        is Err {
+            println("pipe: ${detach(copied)}")
+        }
     }
 }
 
@@ -101,7 +111,9 @@ fn round_trip(key: Str) [S3, Fs, Console] => key {
             println("back.txt: ${size(back)} bytes")
             print(back)
         }
-        is Err { println("back.txt: ${detach(back)}") }
+        is Err {
+            println("back.txt: ${detach(back)}")
+        }
     }
 }
 
@@ -116,7 +128,7 @@ handler MemS3() [Streams] for S3 {
 
     fn put_object(input: PutObjectInput, reply: Reply<Ok PutObjectOutput | Err Checked<S3Failure>>) -> None
     => !input, !reply {
-        let {bucket, key, body} = input
+        let { bucket, key, body } = input
         let buf = mut_bytes()
         let filled = fill_from(body, buf)
         let closed = close(body)
@@ -137,7 +149,13 @@ handler MemS3() [Streams] for S3 {
     => !input, !reply {
         let found = get(objects, "${input.bucket}/${input.key}")
         if found is None {
-            reply.send(err(checked<S3Failure>(S3Error { code: "NoSuchKey", message: "The specified key does not exist.", status: 404 })))
+            reply.send(
+                err(
+                    checked<
+                        S3Failure
+                    >(S3Error { code: "NoSuchKey", message: "The specified key does not exist.", status: 404 })
+                )
+            )
             return None
         }
         let data: Bytes = copy(found)

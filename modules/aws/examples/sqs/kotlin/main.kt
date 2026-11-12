@@ -104,7 +104,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
             salvo.std.core.console.println__Str(console, "receive_message: ${salvo.main.describe(salvo.std.core.checked.detach(got_10))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:55:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:59:5"))
         }
     }
     val gone: Union2<Unit, salvo.std.core.checked.Checked<Union2<salvo.aws.sqs.SqsError, salvo.aws.AwsError>>> = kotlin.run {
@@ -123,7 +123,7 @@ fun roundTrip(sqs: salvo.aws.sqs.Sqs, console: salvo.std.core.console.Console, n
             salvo.std.core.console.println__Str(console, "delete_queue: ${salvo.main.describe(salvo.std.core.checked.detach(gone_12))}")
         }
         else -> {
-            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:69:5"))
+            throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:75:5"))
         }
     }
 }
@@ -243,7 +243,7 @@ fun main() {
                 salvo.std.core.console.println__Str(__handle_2, "get_queue_url: ${salvo.main.describe(salvo.std.core.checked.detach(missing_10))}")
             }
             else -> {
-                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:179:9"))
+                throw AssertionError(("salvo: " + ("unhandled union arm") + " at main:192:9"))
             }
         }
     }

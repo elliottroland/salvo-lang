@@ -188,17 +188,52 @@ platform fn wire_out(from: Long, to: Bytes, frame: Bytes) [] -> None => from, !t
 // @compilerrules [net-wire-format]
 
 // 0: a message for a hosted actor, encoded with its protocol's hash.
-struct MsgFrame { to: Long, actor: Long, bits: Long, from: Long, proto: Str, payload: Bytes }
+struct MsgFrame {
+    to: Long
+    actor: Long
+    bits: Long
+    from: Long
+    proto: Str
+    payload: Bytes
+}
+
 // 1: an answer for a token minted on the node it goes to: an actor's
 // continuation (kind 0), a waiting frame (1) or an exported task (2).
-struct AnswerFrame { to: Long, kind: Int, id: Long, slot: Long, bits: Long, payload: Bytes }
+struct AnswerFrame {
+    to: Long
+    kind: Int
+    id: Long
+    slot: Long
+    bits: Long
+    payload: Bytes
+}
+
 // 2: credits for a proxy of actor (host, actor, bits) on node [to].
-struct GrantFrame { to: Long, host: Long, actor: Long, bits: Long, n: Int }
+struct GrantFrame {
+    to: Long
+    host: Long
+    actor: Long
+    bits: Long
+    n: Int
+}
+
 // 3: a new proxy asks for its first credits.
-struct OpenFrame { to: Long, actor: Long, bits: Long, from: Long }
+struct OpenFrame {
+    to: Long
+    actor: Long
+    bits: Long
+    from: Long
+}
+
 // 4: a payload for the actor listening on [channel] at node [to] (0: the
 // receiving node itself, a HELLO's).
-struct ControlFrame { to: Long, from: Long, channel: Str, payload: Bytes }
+struct ControlFrame {
+    to: Long
+    from: Long
+    channel: Str
+    payload: Bytes
+}
+
 type Frame = MsgFrame | AnswerFrame | GrantFrame | OpenFrame | ControlFrame
 
 // The identity an actor's address has on the wire: the [node] it lives on,
@@ -206,8 +241,8 @@ type Frame = MsgFrame | AnswerFrame | GrantFrame | OpenFrame | ControlFrame
 // to guess. Equal identities name the same actor, wherever they are read.
 // @compilerrules [net-addr-routable, net-addr-capability]
 export struct RemoteRef : Hashed<self> by auto {
-    node: Long,
-    actor: Long,
+    node: Long
+    actor: Long
     bits: Long
 }
 
@@ -219,37 +254,52 @@ export struct RemoteRef : Hashed<self> by auto {
 // an actor's continuation, are the actor's.
 // @compilerrules [net-addr-routable]
 export struct ReplyParts {
-    node: Long,
-    kind: Int,
-    id: Long,
-    slot: Long,
+    node: Long
+    kind: Int
+    id: Long
+    slot: Long
     bits: Long
 }
 
 struct ControlKey : Hashed<self> by auto {
-    node: Long,
+    node: Long
     channel: Str
 }
 
 // A frame waiting for its route or its node's outbound hook.
-struct Parked { from: Long, to: Long, frame: Bytes }
+struct Parked {
+    from: Long
+    to: Long
+    frame: Bytes
+}
+
 // A frame ready to go, sent by [flush].
-struct Staged { from: Long, to: Bytes, frame: Bytes }
+struct Staged {
+    from: Long
+    to: Bytes
+    frame: Bytes
+}
 
 // A task whose token crossed the wire: its body waits here
 // for the answer.
 // @compilerrules [net-addr-routable]
-linear struct ExportedTask { pool: Int, body: Body }
+linear struct ExportedTask {
+    pool: Int
+    body: Body
+}
 
 fn drop_exported_task(t: ExportedTask) [] -> None => !t {
-    let {pool, body} = t
+    let { pool, body } = t
     drop_body(body)
 }
 
 // What looking up an identity found: the index [idx] of the actor or proxy
 // that stands for it. The other two outcomes are internal: a proxy, or the
 // shared dead entry, to be made outside the table's lock.
-export struct Found { idx: Int }
+export struct Found {
+    idx: Int
+}
+
 struct MakeProxy {}
 struct MakeDead {}
 type Import = Found | MakeProxy | MakeDead
@@ -330,8 +380,8 @@ fn bump_in(versions: Mut Map<Int, Long>, waiters: Mut List<ViewWaiter>, group: I
 // A sender waiting for a view to change.
 // @compilerrules [actor-router]
 struct ViewWaiter {
-    group: Int,
-    id: Long,
+    group: Int
+    id: Long
     parker: Parker
 }
 
@@ -425,7 +475,9 @@ handler Routes() for RouteTable {
         put(remote, copy(idx), copy(r))
         put(proxies, copy(r), copy(idx))
         put(credits, copy(idx), 0)
-        let frame = encode<Frame>(OpenFrame { to: copy(r.node), actor: copy(r.actor), bits: copy(r.bits), from: copy(here) })
+        let frame = encode<
+            Frame
+        >(OpenFrame { to: copy(r.node), actor: copy(r.actor), bits: copy(r.bits), from: copy(here) })
         stage_in(routes, outbound, outbox, parked, here, copy(r.node), frame)
         return idx
     }
@@ -471,7 +523,9 @@ handler Routes() for RouteTable {
     fn grant(addr: Int, pool: Int, from: Long, n: Int) -> None => !addr, !pool, !from, !n {
         put(held_n, copy(addr), held_in(held_n, copy(addr)) + n)
         let me = identity_in(remote, bits, pool_node, node_id, copy(addr), pool)
-        let frame = encode<Frame>(GrantFrame { to: copy(from), host: copy(me.node), actor: copy(me.actor), bits: copy(me.bits), n: n })
+        let frame = encode<
+            Frame
+        >(GrantFrame { to: copy(from), host: copy(me.node), actor: copy(me.actor), bits: copy(me.bits), n: n })
         stage_in(routes, outbound, outbox, parked, copy(me.node), from, frame)
     }
 
@@ -662,7 +716,6 @@ handler Routes() for RouteTable {
         }
         return None
     }
-
 }
 
 // The node pool [pool] belongs to.
@@ -687,7 +740,14 @@ fn held_in(held_n: Map<Int, Int>, idx: Int) [] -> Int => held_n, idx {
 // minted the first time it is asked for, which is the first time the addr
 // leaves its node.
 // @compilerrules [net-addr-routable]
-fn identity_in(remote: Map<Int, RemoteRef>, bits: Mut Map<Int, Long>, pool_node: Map<Int, Long>, node_id: Long, addr: Int, pool: Int) [] -> RemoteRef
+fn identity_in(
+    remote: Map<Int, RemoteRef>,
+    bits: Mut Map<Int, Long>,
+    pool_node: Map<Int, Long>,
+    node_id: Long,
+    addr: Int,
+    pool: Int
+) [] -> RemoteRef
 => remote, bits: Mut, pool_node, node_id, addr, pool {
     let r = get(remote, addr)
     if r is RemoteRef found {
@@ -712,7 +772,15 @@ fn wake_senders(waiters: Mut List<Parker>) [] -> None => waiters: Mut {
 
 // Stages [frame] from node [from] for node [to]: ready to send when [to] has
 // a route and [from] an outbound hook, parked until then otherwise.
-fn stage_in(routes: Map<Long, Bytes>, outbound: Set<Long>, outbox: Mut List<Staged>, parked: Mut List<Parked>, from: Long, to: Long, frame: Bytes) [] -> None
+fn stage_in(
+    routes: Map<Long, Bytes>,
+    outbound: Set<Long>,
+    outbox: Mut List<Staged>,
+    parked: Mut List<Parked>,
+    from: Long,
+    to: Long,
+    frame: Bytes
+) [] -> None
 => routes, outbound, outbox: Mut, parked: Mut, !from, !to, !frame {
     let ep = get(routes, to)
     if ep is Bytes at {
@@ -854,7 +922,16 @@ export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr
         let got = take_credit(copy(addr), this_parker())
         if got == 1 {
             let from = here_node()
-            let frame = encode<Frame>(MsgFrame { to: copy(r.node), actor: copy(r.actor), bits: copy(r.bits), from: copy(from), proto: proto, payload: payload })
+            let frame = encode<
+                Frame
+            >(MsgFrame {
+                to: copy(r.node),
+                actor: copy(r.actor),
+                bits: copy(r.bits),
+                from: copy(from),
+                proto: proto,
+                payload: payload
+            })
             stage(from, copy(r.node), frame)
             flush()
             return
@@ -874,7 +951,16 @@ export fn send_remote(addr: Int, proto: Str, payload: Bytes) [] -> None => !addr
 // @compilerrules [net-addr-routable, net-wire-format]
 export fn answer_remote(t: ReplyParts, payload: Bytes) [] -> None => !t, !payload {
     let from = here_node()
-    let frame = encode<Frame>(AnswerFrame { to: copy(t.node), kind: copy(t.kind), id: copy(t.id), slot: copy(t.slot), bits: copy(t.bits), payload: payload })
+    let frame = encode<
+        Frame
+    >(AnswerFrame {
+        to: copy(t.node),
+        kind: copy(t.kind),
+        id: copy(t.id),
+        slot: copy(t.slot),
+        bits: copy(t.bits),
+        payload: payload
+    })
     stage(from, copy(t.node), frame)
     flush()
 }
@@ -883,7 +969,7 @@ export fn answer_remote(t: ReplyParts, payload: Bytes) [] -> None => !t, !payloa
 // here, keyed by the slot, until its answer comes back.
 // @compilerrules [net-addr-routable]
 export fn export_reply(e: Exported) [] -> ReplyParts => !e {
-    let {kind, id, slot, body} = e
+    let { kind, id, slot, body } = e
     if kind == 2 {
         if body is Body b {
             put_task(copy(slot), ExportedTask { pool: copy(id), body: b })
@@ -1052,7 +1138,11 @@ export fn deliver(data: Bytes) [] -> Bool => data {
         return deliver_answer(a)
     }
     if f is GrantFrame g {
-        return credited(RemoteRef { node: copy(g.host), actor: copy(g.actor), bits: copy(g.bits) }, copy(g.to), copy(g.n))
+        return credited(
+            RemoteRef { node: copy(g.host), actor: copy(g.actor), bits: copy(g.bits) },
+            copy(g.to),
+            copy(g.n)
+        )
     }
     if f is OpenFrame o {
         if !accepts(copy(o.to), copy(o.actor), copy(o.bits)) {
@@ -1115,7 +1205,7 @@ fn deliver_answer(a: AnswerFrame) [] -> Bool => a {
     let t = take_task(copy(a.id))
     if t is ExportedTask task {
         let v = decode_task_answer(copy(a.id), copy(a.payload))
-        let {pool, body} = task
+        let { pool, body } = task
         if v is Dyn value {
             answer(mint_task_on(pool, body), value)
             return true
@@ -1155,7 +1245,10 @@ export fn view_members(group: Int) [] -> List<Int> => group {
         let best = 0
         let i = 1
         while i < size(left) {
-            if before(identity(copy(get(left, i) ?: unreachable!())), identity(copy(get(left, best) ?: unreachable!()))) {
+            if before(
+                identity(copy(get(left, i) ?: unreachable!())),
+                identity(copy(get(left, best) ?: unreachable!()))
+            ) {
                 best = copy(i)
             }
             i = i + 1

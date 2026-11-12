@@ -18,9 +18,9 @@
 // The subject: a fighter, mutable in place.
 struct Fighter canbe Mut {
     // Who it is.
-    name: Str,
+    name: Str
     // What it has left.
-    hp: Int,
+    hp: Int
     // What it can spend.
     energy: Int
 }
@@ -50,7 +50,7 @@ fn named(roster: List<Fighter>, name: Str) -> (proj(roster) Fighter)? => roster,
 // being written on `window` below.
 struct Window canbe Mut {
     // The roster this window looks into.
-    roster: proj List<Fighter>,
+    roster: proj List<Fighter>
     // Where it is looking.
     at: Int
 }
@@ -135,7 +135,7 @@ fn strike(c: List<Mut Fighter>, a: ref(c) Mut Fighter, d: ref(c) Mut Fighter) ->
 // A squad, so a handle's container can be a field.
 struct Squad canbe Mut {
     // What it fights under.
-    banner: Str,
+    banner: Str
     // Who is in it.
     members: List<Mut Fighter>
 }
@@ -154,7 +154,7 @@ fn rotate(members: List<Mut Fighter>, from: ref(members) Mut Fighter, to: ref(me
 
 struct Camp canbe Mut {
     // What the camp has.
-    supplies: Int,
+    supplies: Int
     // What it flies.
     banners: Mut List<Str>
 }
@@ -185,7 +185,8 @@ fn main() [use] {
 
     let roster: List<Fighter> = List(
         Fighter { name: "Ada", hp: 30, energy: 4 },
-        Fighter { name: "Bo", hp: 8, energy: 9 })
+        Fighter { name: "Bo", hp: 8, energy: 9 }
+    )
 
     // A borrow of the element, read in place. Zero copies so far.
     let ada = named(roster, "Ada") ?: unreachable!()
@@ -207,7 +208,9 @@ fn main() [use] {
     // `filter` answers `Mut List<proj Fighter>` — a list *of borrows*,
     // holding a borrow of the pass it walked. Nothing was copied to build it.
     let pass = iter(roster)
-    let standing = filter(pass, (f: Fighter) -> { return f.hp > 10 })
+    let standing = filter(pass, (f: Fighter) -> {
+        return f.hp > 10
+    })
     println("1. ${size(standing)} of ${size(roster)} still standing")
 
     // ----- 2. handles -----
@@ -221,7 +224,8 @@ fn main() [use] {
 
     let squad: List<Mut Fighter> = List(
         Mut Fighter { name: "Ada", hp: 30, energy: 4 },
-        Mut Fighter { name: "Bo", hp: 8, energy: 9 })
+        Mut Fighter { name: "Bo", hp: 8, energy: 9 }
+    )
 
     // A handle, bound and then held across a *read* of the container it
     // points into — a read cannot invalidate a handle, so both are live.
@@ -271,7 +275,9 @@ fn main() [use] {
     // an in-place write moves no boundary.
     if i is Idx(squad) {
         if j is Idx(squad) {
-            update(squad, i, (f: Mut Fighter) -> { f.energy = f.energy + 1 })
+            update(squad, i, (f: Mut Fighter) -> {
+                f.energy = f.energy + 1
+            })
             println("3. ${get(squad, i).energy} ${get(squad, j).energy} (total reads: `Idx` survived)")
         }
     }
@@ -289,7 +295,8 @@ fn main() [use] {
     // members in the generated Rust, and a position each.
     let team = Mut Squad { banner: "Red", members: List(
         Mut Fighter { name: "Cy", hp: 12, energy: 2 },
-        Mut Fighter { name: "Dee", hp: 6, energy: 7 }) }
+        Mut Fighter { name: "Dee", hp: 6, energy: 7 }
+    ) }
     rotate(team.members, at(team.members, i) ?: unreachable!(), at(team.members, j) ?: unreachable!())
     println("4. ${team.banner}: ${(get(team.members, 0) ?: unreachable!()).energy} ${(get(team.members, 1) ?: unreachable!()).energy}")
 
