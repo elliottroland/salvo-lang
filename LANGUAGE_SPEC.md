@@ -13208,7 +13208,8 @@ replaced the working document TESTING.md).
   paragraph, a struct's attached fns back in its body [fn-attached], a
   flattened declaration back in its `namespace` [mod-namespace]); every
   comment and the written blank lines are kept [fmt-comments]
-  [fmt-blank-lines]. A module **as written**
+  [fmt-blank-lines], and a source printing breaks its lines at the width
+  [fmt-width] and where the author broke them [fmt-author-breaks]. A module **as written**
   (`parse_module`) prints as written [syntax-lowered]: its sugar,
   its namespaces and their `...`, its terminal bodies, and its comptime
   statements, heads, calls and splices (`[for …]`, `[if …] … else { … }`,
@@ -13246,8 +13247,11 @@ replaced the working document TESTING.md).
   their own trees and print stably, as written and as lowered, and that
   `tests/print/sugar.sv` (each piece of sugar in each position, the
   comptime forms), `tests/print/spellings.sv` (parentheses and literals
-  as written) and `tests/print/comments.sv` (a comment in every slot)
-  print back to their own text, byte for byte.
+  as written), `tests/print/comments.sv` (a comment in every slot) and
+  `tests/print/breaks.sv` (each breakable construct on one line, broken
+  by its author and broken by the width) print back to their own text,
+  byte for byte, and each `tests/print/canonical/<name>.in.sv` prints as
+  its `<name>.out.sv`.
 * [expr-group] **Grouping parentheses are kept as written, as spelling**
   (user decision 2026-11-11, for `salvo fmt`: "KEEP what was written").
   `(x)`, `((a + b))`, `(a && b) || c`, a parenthesized condition, a grouped
@@ -13356,7 +13360,78 @@ replaced the working document TESTING.md).
   where it was written, and a declaration body's members in the order they
   were written when each was placed in the source (agent's call, to
   confirm); a body a pass built prints its fields, then its fns, then its
-  refinements.
+  refinements. Whether a declaration "prints on one line" is read from its
+  printing [fmt-width]: a one-line declaration the width breaks gets its
+  blank lines.
+* [fmt-width] **A line is broken to fit 120 columns** (user decision
+  2026-11-11, `salvo fmt` stage F). The width counts characters, with
+  four-space indentation; a comment after code does not count, and strings
+  and comments are never broken, so a line holding a string or a token
+  longer than the width prints as it is. `print::WIDTH` is the width, and a
+  source printing of a module (`Reading::Source`, `print_module`) is the
+  printing that breaks: a dump, `expr_text`, `type_text` and a `${…}` print
+  every expression on one line (agent's call, to confirm), as before.
+  * **The breakable constructs and their broken form**: a call's arguments
+    (a `?.` call's, a comptime call's and a mint's captures too), a
+    parameter list (a fn's, a handler's, an effect member's, an actor
+    message's, a lambda's), type arguments, a tuple and a tuple type, a
+    struct literal, and a tuple or struct pattern print one item
+    per line, one level in, with `,` after every item but the last (none
+    added: no trailing comma) and the closing bracket on a line of its own
+    at the opening line's indentation. A chain prints its links on
+    continuation lines one level in: a postfix chain of calls
+    (`x\n    .f()\n    .g()`, breaking before each `.` that opens a call and
+    before a `?.` call inside brackets), a `?:` chain, a `|>`/`?>` chain and
+    a trailing `replyto` chain with the operator leading each continuation
+    line; a run of one binary operator's level (`&&`, `||`, `==`/`!=`,
+    comparisons, `+`/`-`, `*`/`/`/`%`), a union type `A | B | C` and an `is
+    A | B` head with the operator ending each line, since it may not begin
+    one. A fn's deduction clause goes on a line of its own, indented with the
+    declaration [deduce-syntax], and its effect list and return type stay on
+    the `)` line. A `when`'s arms are one per line already. Not broken
+    (yet): a declaration's generic parameters, a `refn`'s parameters, an
+    effect list (`[A, B]`, `eff[…]`) and a test kind's arguments, which
+    print on one line.
+  * **Which operators lead a line, which end one** [expr-wrap]: a newline
+    ends the statement before every operator but the flattening ones, so
+    `?:`, `|>` and `?>` may begin a continuation line anywhere, and `.` and
+    `replyto` at depth 0 only where the expression is a statement slot's
+    (a `let`'s or an assignment's value, an expression statement, a
+    `return`'s value: the expression `parse_expr` reads, where a
+    newline-leading `.` brackets all of it on its left) — elsewhere at depth
+    0 a leading `.` would take a different left side, so a chain there does
+    not break; inside brackets a newline is nothing, so a chain breaks there
+    anywhere, `?.` included. Every other binary operator ends its line
+    (`a &&\n    b` parses as `a && b`; `a\n    && b` ends the statement), and
+    an `is` head's `|` only inside brackets, where its tests may follow on
+    the next line. No break is ever made where the parser would end the
+    statement: every broken form parses back to the same tree
+    (`print_tests.rs`).
+  * **How a line too wide is broken**: each statement, declaration, member
+    and field is a unit printed on its lines; when a line of it is too wide,
+    the constructs on that line printed on one line are tried outermost
+    first (the one starting first, then the one met first), each printing
+    the unit again. A break is kept when it leaves fewer lines too wide —
+    alone, or with breaks inside what it broke that each narrow the lines,
+    so a long call in a long call breaks both — and a break that cannot
+    make a line fit (around a string longer than the width) is not made.
+    One call on a value (`x.f(…)`) breaks its arguments, not before its
+    `.`: a postfix chain breaks for the width from two calls. The search
+    ends at a fixed point, which is what makes a printing print as itself:
+    its breaks read back as the author's [fmt-author-breaks], and no
+    construct left on one line helps.
+* [fmt-author-breaks] **The author's line breaks are kept, all or nothing
+  per construct** (user decision 2026-11-11: an author may find a multi-line
+  chain of `?:`, `replyto`, `?>`, `.` calls or `|>` more natural to read even
+  when it would fit). A construct of [fmt-width] the author broke anywhere
+  between its items — between its opening bracket and its first item, two
+  items, its last item and its closing bracket, or before a chain's link —
+  prints broken, one item per line; one written on one line stays on one
+  line while it fits. A deduction clause written on a line of its own stays
+  there, and the comments written above it in the header are printed above
+  it. The breaks are read from the tree and the trivia (`Trivia::line_of`
+  of where one item ends and the next begins), so the tree holds nothing
+  for them. A comment written in a list breaks it too [fmt-comments].
 * [round-trip] **Every choice survives being written out** (the pipeline record B4
   and D4, §II.7; user decisions P5 (b): the examples and the corpus, and
   P24). `salvo_core::round_trip` prints a checked file's expanded tree back

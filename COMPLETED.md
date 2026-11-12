@@ -150,6 +150,123 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — Lines break at 120 columns, and where the author broke them ([fmt-width] [fmt-author-breaks] [ast-print])
+
+Stage F of the formatter record below (user decisions 2026-11-11: width
+120, counting characters, four-space indentation; the author's breaks
+kept, all or nothing per construct, since an author may find a broken
+chain of `?:`, `replyto`, `?>`, `.` calls or `|>` easier to read even
+where it would fit).
+
+- **What breaks, and how** (`print.rs`, `Printer::bracketed`, `chain_of`,
+  `chain`, `unit`): a call's arguments (a `?.` call's, a comptime call's
+  and a mint's captures too), a parameter list (fn, handler, effect
+  member, actor message, lambda), type arguments, a tuple and a tuple
+  type, a struct literal and a tuple or struct pattern print one item per
+  line, one level in, the closing bracket on its own line at the opening
+  line's indentation, no trailing comma added. A chain prints its links on
+  continuation lines one level in: `?:`, `|>`, `?>`, a trailing `replyto`
+  and a `.` call chain with the operator leading the line; a run of one
+  binary level (`&&`, `||`, comparisons, `+`, `*`, …), a union type and
+  an `is A | B` head with the operator ending it. A fn's deduction clause
+  goes on a line of its own, indented with the declaration
+  [deduce-syntax], its effect list and return type staying on the `)`
+  line; the comments written above an own-line clause stay above it.
+- **Which operators may lead a continuation line**, checked against the
+  parser (a probe of every form, then the round-trip tests): `?:`, `|>`
+  and `?>` anywhere; `.` and `replyto` at depth 0 only for a statement
+  slot's whole expression (a `let`'s or an assignment's value, an
+  expression statement, a `return`'s value), since a newline-leading one
+  brackets everything to its left; inside brackets anything, `?.`
+  included. Every other binary operator, a union type's `|` and an `is`
+  head's `|` end their line instead (`a &&` / `b` parses as `a && b`; `a` /
+  `&& b` ends the statement; `if x is A |` / `B {` does not parse, so an
+  `is` head breaks inside brackets only).
+- **The author's breaks are read from the trivia**: for each construct,
+  the gaps between where one item ends and the next begins (and from the
+  opening bracket to the first, from the last to the closing one, found by
+  `Trivia::close_after`), and for a chain the gap before each link;
+  `Trivia::line_of` of the two ends differ, and the construct prints
+  broken. The tree holds nothing new.
+- **The width's breaks are a search**, per unit (a statement, a
+  declaration, a member, a field): print it as written; while a line is
+  too wide, try the constructs printed on one line that lie on it,
+  outermost first, each by printing the unit again (`Snapshot`/`rollback`
+  take back the text, the comments and the recorded node places). A break
+  is kept when it leaves fewer lines too wide, alone or with breaks inside
+  what it broke that each narrow the line; one that cannot make a line fit
+  (around a string longer than the width) is not made. The search stops at
+  a fixed point, which is why a printing prints as itself: every break the
+  width made reads back as the author's.
+- **Stage E's blank-line rule reads the printed shape**: a declaration
+  that would print on one line and that the width breaks is printed again
+  as one that does not (`Printer::declaration`), so it gets its blank
+  lines.
+- **The run this finishes was aborted** and left uncommitted work, which
+  was reviewed rather than trusted: its line breaker in `print.rs`, the
+  spec rules, `breaks.sv`, `canonical/widths.{in,out}.sv` and the three
+  tests in `print_tests.rs` were kept (they built, and all 15 print tests
+  passed); `sugar.sv`'s one changed line (a deduction clause the width
+  now puts on its own line) kept. Changed: the arguments of a `?.` call, a
+  comptime call `[f(…)]` and a mint's captures had no source region, so
+  an author's break in them was not seen (`Printer::args_after`); a tuple
+  type was never broken. The review found (and a probe reproduced) a
+  printing that was not its own fixed point: a unit's search cleared every
+  break forced from its first construct on, the enclosing unit's later
+  ones too, so an `elif` condition after a block whose statement the width
+  broke stayed too wide until printed a second time; the search now clears
+  only its own constructs' (`unit`, `print_with`), and starts from none of
+  them when an earlier printing of the enclosing unit left some
+  (`canonical/nested.in.sv`). The second review found that the shared
+  `bracketed` returned an empty list's brackets before looking for a
+  comment in it, so `f(` / `// c` / `)` printed `f()` with the comment
+  after it, where stage E had kept it inside (no repository file has
+  one): fixed, and `comments.sv` gained an empty parameter list, call,
+  struct literal, tuple, lambda, `?.` call and mint holding a comment; the
+  regions of a call's arguments and a struct literal's fields are spans
+  of their construct's file now (`region_of`), so an empty list's is
+  placed too. The width test excused any line holding a `"`; it now excuses a line only when it would fit with each string
+  written `""` and its comment left out. Shared helpers replaced copies
+  (`bar_list`, `deduction_clause`, `after_type_args`, `region_of`),
+  and a chain's links are named by address and type (`NodeAddr`).
+  Fixtures gained handler and actor-message parameters, `?.` calls, a `?.`
+  chain inside brackets, tuple types, a call broken inside a broken `.`
+  chain's link, mint captures and comptime calls. Nothing was dropped.
+- **Tests**: `breaks.sv` in `every_print_fixture_prints_as_written` (each
+  construct short on one line, short and broken by its author, and too
+  wide; nested breaks; every chain operator);
+  `every_canonical_fixture_prints_as_expected` (`canonical/<name>.in.sv`
+  prints as `<name>.out.sv`, which parses to the same tree and prints as
+  itself: `widths` each construct too wide, `nested` a unit inside a
+  unit); `width_breaks_read_back_as_written` (every `.sv` that parses,
+  printed with its trivia removed so every break is the width's, parses to
+  the same tree and prints the same again);
+  `no_printed_line_is_wider_than_the_width` (a line past 120 must fit
+  with its strings written `""` and its comment left out, or be one
+  token); and the stage-E guarantee
+  (`every_file_prints_keeping_its_comments`: same tree, the same comments,
+  printing twice changes nothing) now over broken output.
+- **Preview for stage H** (measured, nothing reformatted): of 586 `.sv`
+  files, 549 parse, and the printer would change 419 (5,034 lines
+  removed, 11,049 added, counting lines as a multiset; mostly stage E's
+  blank lines and layout). Stage F's own share, against stage E's printing:
+  118 files, 687 lines become 2,685. Lines past 120 in the printing: 386
+  before, 64 now, every one a comment or a line holding a string.
+- **The agent's calls, to confirm** (ROADMAP §0av): dumps and
+  `expr_text` stay on one line; a broken condition's continuation sits at
+  the body's indentation; outermost first, so no "hugging" `f(List(`; a
+  header breaks its parameters before its deduction clause. Not broken
+  yet: generic parameter lists, a `refn`'s parameters, effect lists, a
+  test kind's arguments.
+- 787 tests under `cargo nextest run`, all green: 3m11 wall (nextest's
+  own 168s) at first, 2m55 (144s) after the first review's fixes, and
+  6m03 (nextest's 150s; the rest the rebuild of every test binary) after
+  the second's, every binary relinked by each `salvo-syntax` change, load
+  averages 74–290.
+  `print_tests` holds the new work's cost: 8s each for the two repo-wide
+  printings (`width_breaks_read_back_as_written`,
+  `every_file_prints_keeping_its_comments`).
+
 ### 2026-11-11 — Every comment and the written blank lines print back ([fmt-comments] [fmt-blank-lines] [ast-print])
 
 Stage E of the formatter record below (user decisions 2026-11-11): every

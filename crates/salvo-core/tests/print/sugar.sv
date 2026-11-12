@@ -125,7 +125,8 @@ send fn trailing(n: Int) [spawn] {
     (a() replyto b()) replyto c()
 }
 
-fn plural<T>(xs: List<T>, ?a: (T) -> Bool, ?b: (T) -> Bool, ?c: (T) -> Bool, ?d: (T) -> Bool) -> None => a|b|c with d, xs {}
+fn plural<T>(xs: List<T>, ?a: (T) -> Bool, ?b: (T) -> Bool, ?c: (T) -> Bool, ?d: (T) -> Bool) -> None
+=> a|b|c with d, xs {}
 
 fn plural_and_one<T>(xs: List<T>, ?a: (T) -> Bool, ?b: (T) -> Bool, ?c: (T) -> Bool) -> None => a with c, b with c {}
 

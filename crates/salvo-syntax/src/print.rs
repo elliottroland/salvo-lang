@@ -3,11 +3,12 @@
 //! The printer reads a `Module` — as parsed, or after the expansions and
 //! desugarings a program's driver runs — and writes the source a reader
 //! would have written for it: one declaration per paragraph, four-space
-//! indentation, every expression on one line except the blocks it holds.
-//! Layout is the printer's, not the file's, but for what the module's trivia
+//! indentation, lines broken to fit [`WIDTH`] columns [fmt-width]. Layout
+//! is the printer's, not the file's, but for what the module's trivia
 //! keeps: every comment, placed among the nodes by its offset
-//! [fmt-comments], and the blank lines written between statements, members
-//! and declarations [fmt-blank-lines].
+//! [fmt-comments], the blank lines written between statements, members
+//! and declarations [fmt-blank-lines], and where the author broke a list or
+//! a chain across lines [fmt-author-breaks].
 //!
 //! It also records where it printed every node whose span is numbered
 //! [node-id] (`Printed::nodes`, keyed by the node's file tag and ordinal), so a
@@ -145,6 +146,7 @@ pub fn print_module(module: &Module) -> Printed {
 /// [ast-print] [`print_module`] with `notes` adding comments, for `reading`.
 pub fn print_module_with<'a>(module: &'a Module, notes: &'a dyn Notes, reading: Reading) -> Printed {
     let mut p = Printer::new(notes, reading);
+    p.wrap = reading == Reading::Source;
     if !module.trivia.is_empty() && (!module.trivia.lowered || reading == Reading::Dump) {
         p.trivia = Some(&module.trivia);
         p.file = module.file_tag;
@@ -325,6 +327,98 @@ struct Printer<'n> {
     next_comment: usize,
     /// [fmt-comments] The current line already ends in a comment.
     eol: bool,
+    /// [fmt-width] [fmt-author-breaks] Lines are broken: at the width, and
+    /// where the author broke them (a source printing of a module; a dump,
+    /// `expr_text` and `${…}` print every expression on one line).
+    wrap: bool,
+    /// [fmt-width] How many brackets the parser would be inside here
+    /// (`group_depth`): inside one a newline ends nothing, so any break is
+    /// free; outside, only the flattening operators may begin a line.
+    group: u32,
+    /// [fmt-width] The expression a statement slot holds, which the parser
+    /// reads with its continuation lines (`parse_expr`): a postfix chain or
+    /// a trailing `replyto` there may break before its links at depth 0.
+    root: *const Expr,
+    /// [fmt-width] The breakable constructs met so far, numbered in printing
+    /// order: a construct's number names it across the printings of a unit.
+    ordinal: u32,
+    /// [fmt-width] The constructs the width breaks.
+    forced: std::collections::HashSet<u32>,
+    /// [fmt-width] The constructs of the unit being printed that printed on
+    /// one line: number, and where in the text.
+    flat: Vec<(u32, u32, u32)>,
+    /// [fmt-width] Where the comments printed after code are in the text,
+    /// which the width does not count.
+    eol_comments: Vec<(u32, u32)>,
+    /// [fmt-width] What `record` replaced, so a unit printed again can take
+    /// its places back.
+    undo: Vec<(NodeKey, Option<Placed>)>,
+    /// [fmt-width] How many units are being printed.
+    units: u32,
+    /// [fmt-width] The links of the chains being printed broken: a newline
+    /// goes before (or, for an operator that may not begin a line, after)
+    /// each.
+    breaks: Vec<NodeAddr>,
+    /// [fmt-width] The nodes of the chains being printed: one of them is
+    /// a link of a chain already decided, not a chain of its own.
+    in_chain: Vec<NodeAddr>,
+}
+
+/// [fmt-width] The width a line is broken to fit, in characters.
+pub const WIDTH: usize = 120;
+
+/// A pattern's span: an identifier's, or the bracketed pattern's.
+fn pattern_span(p: &Pattern) -> Span {
+    match p {
+        Pattern::Ident(id) => id.span,
+        Pattern::Tuple { span, .. } | Pattern::Struct { span, .. } => *span,
+    }
+}
+
+/// [fmt-comments] [fmt-author-breaks] The source range `start..end` of a
+/// list, as a span of the file `owner` (the construct holding the list) is
+/// written in.
+fn region_of(owner: Span, start: u32, end: u32) -> Span {
+    Span { start, end, parens: 0, ..owner }
+}
+
+/// [fmt-width] A node while it prints, by its address and its type (an
+/// `Expr` held first in a `Sugar` may share its address).
+type NodeAddr = (*const (), std::any::TypeId);
+
+/// [fmt-width] What names a link of a chain while it prints.
+fn erase<T: 'static>(x: &T) -> NodeAddr {
+    (x as *const T as *const (), std::any::TypeId::of::<T>())
+}
+
+/// [fmt-width] A chain of operators or postfix links, as `chain_of` finds
+/// it.
+#[derive(Default)]
+struct Chain {
+    links: Vec<NodeAddr>,
+    nodes: Vec<NodeAddr>,
+    gaps: Vec<(u32, u32)>,
+    width: bool,
+}
+
+/// [fmt-width] A printing's lines wider than [`WIDTH`]: where each is,
+/// and the characters past the width over all of them.
+#[derive(Clone, Default)]
+struct Measure {
+    lines: Vec<(u32, u32)>,
+    overflow: usize,
+}
+
+/// [fmt-width] Where a unit's printing started, to print it again.
+struct Snapshot {
+    out: usize,
+    next_comment: usize,
+    eol: bool,
+    ordinal: u32,
+    flat: usize,
+    eol_comments: usize,
+    undo: usize,
+    pending_rest: Option<Block>,
 }
 
 impl<'n> Printer<'n> {
@@ -344,6 +438,17 @@ impl<'n> Printer<'n> {
             file: crate::span::NO_FILE,
             next_comment: 0,
             eol: false,
+            wrap: false,
+            group: 0,
+            root: std::ptr::null(),
+            ordinal: 0,
+            forced: std::collections::HashSet::new(),
+            flat: Vec::new(),
+            eol_comments: Vec::new(),
+            undo: Vec::new(),
+            units: 0,
+            breaks: Vec::new(),
+            in_chain: Vec::new(),
         }
     }
 }
@@ -351,7 +456,7 @@ impl<'n> Printer<'n> {
 /// [fmt-comments] [fmt-blank-lines] Where a run of elements (a body's
 /// statements, declarations, members or fields, or a broken list's items)
 /// has got to.
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 struct Run {
     /// Something of the run is printed: a blank line may come before the
     /// next (never at the start of a body).
@@ -377,6 +482,10 @@ impl<'n> Printer<'n> {
 
     fn record(&mut self, span: Span, start: u32, end: u32, outer_start: u32, outer_end: u32) {
         if let Some(k) = node_key(span) {
+            if self.units > 0 {
+                let old = self.nodes.get(&k).copied();
+                self.undo.push((k, old));
+            }
             // The first printing of a node places it; one around it (an
             // identifier's, inside the expression's parentheses) reaches out
             // to those parentheses [expr-group].
@@ -403,6 +512,498 @@ impl<'n> Printer<'n> {
             self.out.push_str("    ");
         }
         self.eol = false;
+    }
+
+    // --- Line breaking [fmt-width] [fmt-author-breaks] ---
+
+    /// Whether this printing breaks lines.
+    fn breaking(&self) -> bool {
+        self.wrap && !self.inline
+    }
+
+    /// The next breakable construct's number. Every construct takes one
+    /// whether it breaks or not, so a unit printed again numbers its
+    /// constructs the same.
+    fn construct(&mut self) -> u32 {
+        let n = self.ordinal;
+        self.ordinal += 1;
+        n
+    }
+
+    /// Whether construct `n` is one the width breaks.
+    fn width_breaks(&self, n: u32) -> bool {
+        self.breaking() && self.forced.contains(&n)
+    }
+
+    /// Construct `n` printed on one line from `start`: one the width may
+    /// break.
+    fn printed_flat(&mut self, n: u32, start: u32) {
+        if self.breaking() && self.units > 0 {
+            self.flat.push((n, start, self.at()));
+        }
+    }
+
+    /// [fmt-author-breaks] Whether the author broke a construct written at
+    /// `anchor` between any of its `gaps` (where one item ends and the next
+    /// begins): the two offsets are on different lines.
+    fn written_broken(&self, anchor: Span, gaps: &[(u32, u32)]) -> bool {
+        if !self.breaking() || !self.anchored(anchor) {
+            return false;
+        }
+        let Some(t) = self.trivia else { return false };
+        gaps.iter().any(|&(a, b)| a <= b && t.line_of(a) != t.line_of(b))
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        Snapshot {
+            out: self.out.len(),
+            next_comment: self.next_comment,
+            eol: self.eol,
+            ordinal: self.ordinal,
+            flat: self.flat.len(),
+            eol_comments: self.eol_comments.len(),
+            undo: self.undo.len(),
+            pending_rest: self.pending_rest.clone(),
+        }
+    }
+
+    /// Takes the printing back to `s`: its text, its comments and the places
+    /// it recorded since.
+    fn rollback(&mut self, s: &Snapshot) {
+        self.out.truncate(s.out);
+        self.next_comment = s.next_comment;
+        self.eol = s.eol;
+        self.ordinal = s.ordinal;
+        self.flat.truncate(s.flat);
+        self.eol_comments.truncate(s.eol_comments);
+        while self.undo.len() > s.undo {
+            let Some((k, old)) = self.undo.pop() else { break };
+            match old {
+                Some(p) => {
+                    self.nodes.insert(k, p);
+                }
+                None => {
+                    self.nodes.remove(&k);
+                }
+            }
+        }
+        self.pending_rest = s.pending_rest.clone();
+    }
+
+    /// The lines from the one holding offset `from` to the end of the text
+    /// that are wider than [`WIDTH`], and by how much in all: a comment
+    /// after code is not counted.
+    fn long_lines(&self, from: usize) -> Measure {
+        let mut out = Measure::default();
+        let mut ls = self.out[..from].rfind('\n').map_or(0, |i| i + 1);
+        let mut comments = self.eol_comments.iter().peekable();
+        while ls <= self.out.len() {
+            let le = self.out[ls..].find('\n').map_or(self.out.len(), |i| ls + i);
+            while comments.peek().is_some_and(|&&(s, _)| (s as usize) < ls) {
+                comments.next();
+            }
+            let cut = match comments.peek() {
+                Some(&&(s, _)) if (s as usize) < le => s as usize,
+                _ => le,
+            };
+            let width = self.out[ls..cut].trim_end().chars().count();
+            if width > WIDTH {
+                out.lines.push((ls as u32, le as u32));
+                out.overflow += width - WIDTH;
+            }
+            ls = le + 1;
+        }
+        out
+    }
+
+    /// The constructs printed on one line since `s` that are on one of
+    /// `long`, outermost first: those that start first, and of two that
+    /// start together the one met first.
+    fn candidates(&self, s: &Snapshot, long: &[(u32, u32)]) -> Vec<u32> {
+        let mut c: Vec<(u32, u32)> = self.flat[s.flat..]
+            .iter()
+            .filter(|&&(_, start, end)| long.iter().any(|&(ls, le)| start < le && end > ls))
+            .map(|&(n, start, _)| (start, n))
+            .collect();
+        c.sort_unstable();
+        c.into_iter().map(|(_, n)| n).collect()
+    }
+
+    /// [fmt-width] Prints a unit (a statement, a declaration, a member, a
+    /// field) by `f`: its constructs as the author wrote them, and on the
+    /// lines wider than [`WIDTH`] the constructs printed on one line broken,
+    /// outermost first. A break is kept when it leaves fewer lines too wide,
+    /// alone or with breaks inside what it broke that each narrow the lines
+    /// (a long call in a long call breaks both); one that cannot make a line
+    /// fit, around a string longer than the width, is not made. The search
+    /// ends at a fixed point — from the breaks kept, no construct left on
+    /// one line would help — which is what makes printing a printing change
+    /// nothing: the breaks read back as the author's, and the search finds
+    /// nothing more from them.
+    fn unit(&mut self, f: &mut dyn FnMut(&mut Self)) {
+        if !self.breaking() {
+            return f(self);
+        }
+        let snap = self.snapshot();
+        self.units += 1;
+        f(self);
+        // The unit's constructs are numbered from `snap.ordinal` to `end`;
+        // what is forced outside that range is the enclosing units'. A break
+        // forced inside it is this unit's own from an earlier printing of
+        // the unit around it, which may have been at another indentation:
+        // the search starts from none.
+        let end = self.ordinal;
+        let mut best = if self.forced.iter().any(|&o| (snap.ordinal..end).contains(&o)) {
+            self.print_with(&snap, f, end, &[], &[])
+        } else {
+            self.long_lines(snap.out)
+        };
+        let mut kept: Vec<u32> = Vec::new();
+        // The text holds a printing other than `kept`'s.
+        let mut stale = false;
+        'search: while !best.lines.is_empty() {
+            for first in self.candidates(&snap, &best.lines) {
+                let mut tried = vec![first];
+                let mut now = self.print_with(&snap, f, end, &kept, &tried);
+                stale = true;
+                if now.lines.len() >= best.lines.len() && now.overflow >= best.overflow {
+                    continue;
+                }
+                loop {
+                    if now.lines.len() < best.lines.len() {
+                        kept.extend(tried);
+                        best = now;
+                        stale = false;
+                        continue 'search;
+                    }
+                    // Narrower, not yet fitting: a break inside what was broken.
+                    let at = now.clone();
+                    let mut step = None;
+                    for next in self.candidates(&snap, &at.lines) {
+                        tried.push(next);
+                        let m = self.print_with(&snap, f, end, &kept, &tried);
+                        if m.lines.len() < best.lines.len() || m.overflow < at.overflow {
+                            step = Some(m);
+                            break;
+                        }
+                        tried.pop();
+                    }
+                    match step {
+                        Some(m) => now = m,
+                        None => break,
+                    }
+                }
+            }
+            break;
+        }
+        if stale {
+            self.print_with(&snap, f, end, &kept, &[]);
+        }
+        self.flat.truncate(snap.flat);
+        self.units -= 1;
+        if self.units == 0 {
+            self.undo.clear();
+        }
+    }
+
+    /// The unit printed again from `snap`, by `f`, with the constructs of
+    /// `kept` and `tried` broken, and no other of its own (those numbered
+    /// from `snap.ordinal` to `end`): how wide its lines are.
+    fn print_with(&mut self, snap: &Snapshot, f: &mut dyn FnMut(&mut Self), end: u32, kept: &[u32], tried: &[u32]) -> Measure {
+        self.rollback(snap);
+        self.forced.retain(|&o| !(snap.ordinal..end).contains(&o));
+        self.forced.extend(kept.iter().chain(tried).copied());
+        f(self);
+        self.long_lines(snap.out)
+    }
+
+    /// [fmt-blank-lines] Whether the text from `from` holds at most one
+    /// line of code (comment lines aside).
+    fn printed_one_line(&self, from: u32) -> bool {
+        self.out[from as usize..].lines().filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with("//")).count() <= 1
+    }
+
+    /// [fmt-width] [fmt-author-breaks] A list of `items` between `open` and
+    /// `close` (`pad`: a space inside each when on one line, as a struct
+    /// literal's): one item per line, the closing bracket on a line of its
+    /// own, when a comment is written in it, when the author broke it, or
+    /// when the width breaks it; otherwise on one line. `from`: the source
+    /// offset the list starts after (its opening bracket or what is before
+    /// it), `to`: its closing bracket's, when known.
+    #[allow(clippy::too_many_arguments)]
+    fn bracketed<T>(&mut self, items: &[T], span_of: impl Fn(&T) -> Span, open: &str, close: &str, pad: bool, from: Option<u32>, to: Option<u32>, anchor: Span, mut print: impl FnMut(&mut Self, &T)) {
+        let n = self.construct();
+        let spans: Vec<Span> = items.iter().map(&span_of).collect();
+        let commented = match (from, to) {
+            (Some(f), Some(t)) if self.anchored(anchor) => self.list_holds_comment(f, t + 1, &spans),
+            _ => false,
+        };
+        if items.is_empty() {
+            // [fmt-comments] An empty list holding a comment keeps it inside.
+            self.push(open);
+            if commented {
+                self.broken_list(items, span_of, to.unwrap_or(0), print);
+            }
+            self.push(close);
+            return;
+        }
+        let mut gaps: Vec<(u32, u32)> = spans.windows(2).map(|w| (w[0].end, w[1].start)).collect();
+        if let Some(f) = from {
+            gaps.push((f, spans[0].start));
+        }
+        if let Some(t) = to {
+            gaps.push((spans[spans.len() - 1].end, t));
+        }
+        let start = self.at();
+        if commented || self.written_broken(anchor, &gaps) || self.width_breaks(n) {
+            self.push(open);
+            self.broken_list(items, span_of, to.unwrap_or(0), print);
+            self.push(close);
+            return;
+        }
+        self.push(open);
+        if pad {
+            self.push(" ");
+        }
+        self.list(items, ", ", &mut print);
+        if pad {
+            self.push(" ");
+        }
+        self.push(close);
+        self.printed_flat(n, start);
+    }
+
+    /// [deduce-syntax] [fmt-width] [fmt-author-breaks] A declaration's
+    /// deduction clause, `body` after its `=>`: on a line of its own,
+    /// indented with the declaration, where the author put it there (a line
+    /// break between `before`, where the header before it ends, and `first`,
+    /// where the clause's first deduction starts) or the width does; the
+    /// comments written before it in the header are printed above it.
+    fn deduction_clause(&mut self, decl: Span, before: Option<u32>, first: u32, body: impl FnOnce(&mut Self)) {
+        let n = self.construct();
+        let at = self.at();
+        let own_line = before.is_some_and(|b| self.written_broken(decl, &[(b, first)])) || self.width_breaks(n);
+        if own_line {
+            if self.anchored(decl) {
+                let mut run = Run { started: true, no_blanks: true, ..Run::default() };
+                self.comments_before(&mut run, first, false);
+            }
+            self.newline();
+            self.push("=> ");
+        } else {
+            self.push(" => ");
+        }
+        body(self);
+        if !own_line {
+            self.printed_flat(n, at);
+        }
+    }
+
+    /// [fmt-width] [fmt-author-breaks] Items joined by ` | ` (a union type's
+    /// arms, an `is` head's tests), broken after each `|`, which may not
+    /// begin a line [expr-wrap], when the author broke them at one of `gaps`
+    /// or the width does; when not `breakable` they stay on one line.
+    fn bar_list<T>(&mut self, items: &[T], anchor: Span, gaps: &[(u32, u32)], breakable: bool, mut print: impl FnMut(&mut Self, usize, &T)) {
+        let n = self.construct();
+        let broken = breakable && (self.written_broken(anchor, gaps) || self.width_breaks(n));
+        let start = self.at();
+        self.indent += usize::from(broken);
+        for (i, it) in items.iter().enumerate() {
+            if i > 0 {
+                self.push(" |");
+                if broken {
+                    self.newline();
+                } else {
+                    self.push(" ");
+                }
+            }
+            print(self, i, it);
+        }
+        self.indent -= usize::from(broken);
+        if breakable && !broken {
+            self.printed_flat(n, start);
+        }
+    }
+
+    /// [fmt-width] The chain `e` is the top of, when it is one this place
+    /// may break: its links (where a break goes), its nodes (none of which
+    /// is the top of a chain of its own), the gaps where the author may
+    /// have broken it, and whether the width may break it.
+    fn chain_of(&self, e: &Expr) -> Option<Chain> {
+        if !self.breaking() || self.in_chain.contains(&erase(e)) {
+            return None;
+        }
+        let mut c = Chain::default();
+        match e {
+            Expr::Elvis { .. } => {
+                let mut cur = e;
+                while let Expr::Elvis { subject, rhs, .. } = cur {
+                    c.links.push(erase(cur));
+                    c.nodes.push(erase(cur));
+                    c.gaps.push((subject.span().end, rhs.span().start));
+                    if subject.parens() > 0 {
+                        break;
+                    }
+                    cur = subject;
+                }
+                c.width = true;
+            }
+            Expr::Pipe { .. } | Expr::SafePipe { .. } => {
+                let mut cur = e;
+                while let Expr::Pipe { lhs, rhs, .. } | Expr::SafePipe { lhs, rhs, .. } = cur {
+                    c.links.push(erase(cur));
+                    c.nodes.push(erase(cur));
+                    c.gaps.push((lhs.span().end, rhs.span().start));
+                    if lhs.parens() > 0 {
+                        break;
+                    }
+                    cur = lhs;
+                }
+                c.width = true;
+            }
+            Expr::Binary { op, .. } if *op != BinaryOp::Pow => {
+                let level = binary_level(*op);
+                let mut cur = e;
+                while let Expr::Binary { op, lhs, rhs, .. } = cur {
+                    if *op == BinaryOp::Pow || binary_level(*op) != level {
+                        break;
+                    }
+                    c.links.push(erase(cur));
+                    c.nodes.push(erase(cur));
+                    c.gaps.push((lhs.span().end, rhs.span().start));
+                    if lhs.parens() > 0 {
+                        break;
+                    }
+                    cur = lhs;
+                }
+                c.width = true;
+            }
+            Expr::Sugar(sugar) if matches!(**sugar, Sugar::TrailingReply { .. }) => {
+                // A newline-leading `replyto` continues the expression of a
+                // statement slot, or anything inside brackets.
+                if self.group == 0 && !std::ptr::eq(e, self.root) {
+                    return None;
+                }
+                c.nodes.push(erase(e));
+                let mut cur: &Sugar = sugar;
+                while let Sugar::TrailingReply { base, reply, .. } = cur {
+                    c.links.push(erase(cur));
+                    c.gaps.push((base.span().end, reply.span().start));
+                    match reply {
+                        Expr::Sugar(s) if matches!(**s, Sugar::TrailingReply { .. }) => {
+                            c.nodes.push(erase(reply));
+                            cur = s;
+                        }
+                        _ => break,
+                    }
+                }
+                c.width = true;
+            }
+            Expr::Call { .. } | Expr::Field { .. } | Expr::SafeNav { .. } | Expr::Index { .. } | Expr::TupleIndex { .. } => {
+                // [expr-wrap] A newline-leading `.` brackets the whole
+                // expression so far: at depth 0 that is right only for the
+                // expression of a statement slot; inside brackets a newline
+                // is nothing, and `?.` may lead a line there alone.
+                let grouped = self.group > 0;
+                if !grouped && !std::ptr::eq(e, self.root) {
+                    return None;
+                }
+                let mut cur = e;
+                loop {
+                    if !std::ptr::eq(cur, e) && cur.parens() > 0 {
+                        break;
+                    }
+                    match cur {
+                        Expr::Call { callee, .. } => match callee.as_ref() {
+                            Expr::Field { base, field, grouped: false, .. } if callee.parens() == 0 => {
+                                c.nodes.push(erase(cur));
+                                c.nodes.push(erase(callee.as_ref()));
+                                c.links.push(erase(callee.as_ref()));
+                                c.gaps.push((base.span().end, field.span.start));
+                                cur = base;
+                            }
+                            _ => break,
+                        },
+                        Expr::Field { base, grouped: false, .. } | Expr::Index { base, .. } | Expr::TupleIndex { base, .. } => {
+                            c.nodes.push(erase(cur));
+                            cur = base;
+                        }
+                        Expr::SafeNav { base, access, .. } => {
+                            c.nodes.push(erase(cur));
+                            if let (SafeAccess::Call { field, .. }, true) = (access, grouped) {
+                                c.links.push(erase(cur));
+                                c.gaps.push((base.span().end, field.span.start));
+                            }
+                            cur = base;
+                        }
+                        _ => break,
+                    }
+                }
+                if c.links.is_empty() {
+                    return None;
+                }
+                // One call on a value breaks its arguments, not before it.
+                c.width = c.links.len() >= 2;
+            }
+            _ => return None,
+        }
+        Some(c)
+    }
+
+    /// [fmt-width] [fmt-author-breaks] Prints `e`, the top of chain `c`, by
+    /// `expr_inner`: its links on continuation lines one level in when the
+    /// author broke it or the width does, otherwise on one line.
+    fn chain(&mut self, e: &Expr, c: Chain) {
+        let n = self.construct();
+        let broken = self.written_broken(e.span(), &c.gaps) || (c.width && self.width_breaks(n));
+        let nodes = self.in_chain.len();
+        self.in_chain.extend(c.nodes);
+        let start = self.at();
+        if broken {
+            let links = self.breaks.len();
+            self.breaks.extend(c.links);
+            self.indent += 1;
+            self.expr_inner(e);
+            self.indent -= 1;
+            self.breaks.truncate(links);
+        } else {
+            self.expr_inner(e);
+            if c.width {
+                self.printed_flat(n, start);
+            }
+        }
+        self.in_chain.truncate(nodes);
+    }
+
+    /// Whether a break goes at link `x` of a chain being printed.
+    fn breaks_at<T: 'static>(&self, x: &T) -> bool {
+        !self.breaks.is_empty() && self.breaks.contains(&erase(x))
+    }
+
+    /// An operator that may begin a continuation line [expr-wrap]: on the
+    /// next line when the chain breaks at `x`, else between spaces.
+    fn leading_op<T: 'static>(&mut self, x: &T, op: &str) {
+        if self.breaks_at(x) {
+            self.newline();
+            self.push(op);
+            self.push(" ");
+        } else {
+            self.push(" ");
+            self.push(op);
+            self.push(" ");
+        }
+    }
+
+    /// An operator that may not begin a line [expr-wrap]: it ends the line
+    /// when the chain breaks at `x`.
+    fn trailing_op<T: 'static>(&mut self, x: &T, op: &str) {
+        self.push(" ");
+        self.push(op);
+        if self.breaks_at(x) {
+            self.newline();
+        } else {
+            self.push(" ");
+        }
     }
 
     // --- Comments and blank lines [fmt-comments] [fmt-blank-lines] ---
@@ -447,7 +1048,9 @@ impl<'n> Printer<'n> {
         self.next_comment += 1;
         if !c.own_line && !self.eol && !self.line_is_fresh() {
             self.push(" ");
+            let at = self.at();
             self.push(&c.text);
+            self.eol_comments.push((at, self.at()));
             self.eol = true;
             return false;
         }
@@ -697,27 +1300,25 @@ impl<'n> Printer<'n> {
         let mut prev: Option<(Top, bool)> = None;
         for e in elems {
             let span = e.span();
-            let one_line = self.one_line(&e, &attached);
-            self.elem_start(&mut run, span, e.takes_docs(), |source| match prev {
+            let one_line = self.declaration(&mut run, &e, &attached, |one_line, source| match prev {
                 // [fmt-blank-lines] One blank line between declarations, but
                 // for one-line declarations the author wrote on consecutive
                 // lines (a group of imports, of aliases).
-                Some((_, p)) if source => !(p && one_line),
+                Some((_, prev_one)) if source => !(prev_one && one_line),
                 // A printing with no source to follow: imports and `use`s
                 // are one paragraph.
                 Some((p, _)) => !(p.is_import_or_use() && e.is_import_or_use()),
                 None => false,
-            });
-            match e {
-                Top::Item(item) => self.namespaced(item, &m.namespaces, &attached),
+            }, |p| match e {
+                Top::Item(item) => p.namespaced(item, &m.namespaces, &attached),
                 Top::Use(u) => {
-                    let s = self.at();
-                    self.push("use ");
-                    self.expr(&u.handler, 0);
-                    let e = self.at();
-                    self.record(u.span, s, e, s, e);
+                    let s = p.at();
+                    p.push("use ");
+                    p.expr(&u.handler, 0);
+                    let e = p.at();
+                    p.record(u.span, s, e, s, e);
                 }
-            }
+            });
             self.elem_end(&mut run, span);
             prev = Some((e, one_line));
         }
@@ -829,16 +1430,43 @@ impl<'n> Printer<'n> {
         for it in items {
             let e = Top::Item(it);
             let span = e.span();
-            let one_line = self.one_line(&e, attached);
-            self.elem_start(run, span, e.takes_docs(), |source| match prev {
+            let one_line = self.declaration(run, &e, attached, |one_line, source| match prev {
                 Some((_, p)) if source => !(p && one_line),
                 Some((p, _)) => !(p.is_import_or_use() && e.is_import_or_use()),
                 None => terminal,
-            });
-            self.item(it, None, attached);
+            }, |p| p.item(it, None, attached));
             self.elem_end(run, span);
             prev = Some((e, one_line));
         }
+    }
+
+    /// [fmt-blank-lines] [fmt-width] A declaration of a module or a
+    /// namespace, by `print`, after the blank line `blank(one_line, source)`
+    /// wants (`elem_start`'s `forced`). Whether it printed on one line: a
+    /// declaration the tree would print on one line that the width breaks
+    /// is printed again as one that is not, so the blank line beside it is
+    /// read from the printed shape.
+    fn declaration(&mut self, run: &mut Run, e: &Top, attached: &HashMap<&str, Vec<&FnDecl>>, blank: impl Fn(bool, bool) -> bool, mut print: impl FnMut(&mut Self)) -> bool {
+        let span = e.span();
+        let one_line = self.one_line(e, attached);
+        self.units += 1;
+        let snap = self.snapshot();
+        let saved = *run;
+        self.elem_start(run, span, e.takes_docs(), |source| blank(one_line, source));
+        let from = self.at();
+        self.unit(&mut print);
+        let printed = !one_line || self.printed_one_line(from);
+        if !printed {
+            self.rollback(&snap);
+            *run = saved;
+            self.elem_start(run, span, e.takes_docs(), |source| blank(false, source));
+            self.unit(&mut print);
+        }
+        self.units -= 1;
+        if self.units == 0 {
+            self.undo.clear();
+        }
+        one_line && printed
     }
 
     /// [fmt-blank-lines] Whether a declaration prints on one line, its docs
@@ -1248,7 +1876,7 @@ impl<'n> Printer<'n> {
             // members, but not between fields, nor between a `fns` group's.
             let default = prev.is_some_and(|p| !matches!((p, m), (Member::Field(_), Member::Field(_)) | (Member::Grouped(_), Member::Grouped(_))));
             self.elem_start(&mut run, span, m.takes_docs(), |source| !source && default);
-            self.member(m);
+            self.unit(&mut |p| p.member(m));
             self.elem_end(&mut run, span);
             prev = Some(m);
         }
@@ -1268,7 +1896,7 @@ impl<'n> Printer<'n> {
             Member::Mailbox(Expr::StructLit { fields, span, .. }) => {
                 let s = self.at();
                 self.push("mailbox ");
-                self.struct_fields(fields, Some((span.start, span.end)));
+                self.struct_fields(fields, Some(*span));
                 let e = self.at();
                 self.record(*span, s, e, s, e);
             }
@@ -1316,7 +1944,7 @@ impl<'n> Printer<'n> {
         let mut run = Run::default();
         for f in fields {
             self.elem_start(&mut run, f.span, true, |_| false);
-            self.field(f);
+            self.unit(&mut |p| p.field(f));
             self.elem_end(&mut run, f.span);
         }
         if let Some(c) = close {
@@ -1350,25 +1978,29 @@ impl<'n> Printer<'n> {
             self.responses(resp);
         }
         if !r.deductions.is_empty() {
-            self.push(" => ");
-            self.list(&r.deductions, ", ", |p, d| {
-                p.ident(&d.param);
-                p.push(":");
-                for a in &d.add {
-                    p.push(" +");
-                    p.type_ref(a);
-                }
-                for a in &d.remove {
-                    p.push(" -");
-                    p.type_ref(a);
-                }
-                if !d.preserve.is_empty() {
-                    p.push(" preserve");
-                    for a in &d.preserve {
-                        p.push(" ");
+            // [deduce-syntax] [fmt-width] On a line of its own, as a fn's.
+            let close = self.close_after(r.params.last().map_or(r.name.span.end, |p| p.span.end), ')');
+            let before = r.response.as_ref().and_then(|c| c.last()).map(|c| c.span.end).or(close);
+            self.deduction_clause(r.span, before, r.deductions[0].param.span.start, |q| {
+                q.list(&r.deductions, ", ", |p, d| {
+                    p.ident(&d.param);
+                    p.push(":");
+                    for a in &d.add {
+                        p.push(" +");
                         p.type_ref(a);
                     }
-                }
+                    for a in &d.remove {
+                        p.push(" -");
+                        p.type_ref(a);
+                    }
+                    if !d.preserve.is_empty() {
+                        p.push(" preserve");
+                        for a in &d.preserve {
+                            p.push(" ");
+                            p.type_ref(a);
+                        }
+                    }
+                });
             });
         }
         let e = self.at();
@@ -1534,8 +2166,12 @@ impl<'n> Printer<'n> {
         }
         let own: Vec<&Deduction> = f.deductions.iter().flatten().filter(|d| !matches!(d.target, DeductionTarget::Opaque)).collect();
         if !own.is_empty() {
-            self.push(" => ");
-            self.deductions(&own);
+            // [deduce-syntax] [fmt-width] After the parameters, which come
+            // first in the header.
+            let close = self.close_after(f.params.last().map_or(named.end, |p| p.span.end).max(named.end), ')');
+            let before = f.return_type.as_ref().map(|t| t.span().end).or(f.response.as_ref().and_then(|r| r.last()).map(|r| r.span.end)).or(f.constructs.as_ref().map(|c| c.span.end)).or(close);
+            let first = own.iter().map(|d| d.span.start).min().unwrap_or(0);
+            self.deduction_clause(f.span, before, first, |p| p.deductions(&own));
         } else if f.deductions.as_ref().is_some_and(|d| d.is_empty()) {
             // `=> ` with nothing is no clause: an explicit empty list has no
             // spelling, and means what none does.
@@ -1629,7 +2265,6 @@ impl<'n> Printer<'n> {
     /// before it), so a comment written in it breaks it one parameter per
     /// line [fmt-comments].
     fn params(&mut self, params: &[Param], groups: &[TypeRef], from: Span) {
-        self.push("(");
         let items: Vec<ParamItem> = params
             .iter()
             .filter(|p| !p.implicit)
@@ -1640,11 +2275,9 @@ impl<'n> Printer<'n> {
         let spans: Vec<Span> = items.iter().map(ParamItem::span).collect();
         let last = spans.iter().map(|s| s.end).max().unwrap_or(from.end).max(from.end);
         let close = self.anchored(from).then(|| self.close_after(last, ')')).flatten();
-        match close.filter(|&c| self.list_holds_comment(from.end, c + 1, &spans)) {
-            Some(c) => self.broken_list(&items, ParamItem::span, c, |p, i| p.param_item(i)),
-            None => self.list(&items, ", ", |p, i| p.param_item(i)),
-        }
-        self.push(")");
+        self.group += 1;
+        self.bracketed(&items, ParamItem::span, "(", ")", false, Some(from.end), close, from, |p, i| p.param_item(i));
+        self.group -= 1;
     }
 
     fn param_item(&mut self, item: &ParamItem) {
@@ -1882,7 +2515,9 @@ impl<'n> Printer<'n> {
                     self.list(&effects, ", ", |p, e| p.ty(e));
                     self.push("]");
                 } else {
-                    self.list(arms, " | ", |p, a| {
+                    // [fmt-width] A union breaks after each `|`.
+                    let gaps: Vec<(u32, u32)> = arms.windows(2).map(|w| (w[0].span().end, w[1].span().start)).collect();
+                    self.bar_list(arms, t.span(), &gaps, true, |p, _, a| {
                         let paren = matches!(a, Type::Fn { .. } | Type::Union { .. }) && a.parens() == 0;
                         if paren {
                             p.push("(");
@@ -1899,10 +2534,10 @@ impl<'n> Printer<'n> {
                 self.ty(inner);
             }
             Type::Literal { value, .. } => self.push(&value.to_string()),
-            Type::Tuple { elems, .. } => {
-                self.push("(");
-                self.list(elems, ", ", |p, e| p.ty(e));
-                self.push(")");
+            Type::Tuple { elems, span } => {
+                self.group += 1;
+                self.bracketed(elems, Type::span, "(", ")", false, Some(span.start), Some(span.end.saturating_sub(1)), *span, |p, e| p.ty(e));
+                self.group -= 1;
             }
             Type::Array { elem, .. } | Type::Nullable { inner: elem, .. } => {
                 let paren = elem.parens() == 0
@@ -1996,16 +2631,11 @@ impl<'n> Printer<'n> {
                 self.push(")");
             }
             if !r.args.is_empty() {
-                self.push("<");
                 // [fmt-comments] A comment among the type arguments breaks
                 // them one per line.
                 let spans: Vec<Span> = r.args.iter().map(Type::span).collect();
                 let close = self.anchored(r.span).then(|| self.close_after(spans.iter().map(|s| s.end).max().unwrap_or(r.name.span.end), '>')).flatten();
-                match close.filter(|&c| self.list_holds_comment(r.name.span.end, c + 1, &spans)) {
-                    Some(c) => self.broken_list(&r.args, Type::span, c, |p, a| p.ty(a)),
-                    None => self.list(&r.args, ", ", |p, a| p.ty(a)),
-                }
-                self.push(">");
+                self.bracketed(&r.args, Type::span, "<", ">", false, Some(r.name.span.end), close, r.span, |p, a| p.ty(a));
             }
             if !r.value_args.is_empty() {
                 self.push("(");
@@ -2038,6 +2668,9 @@ impl<'n> Printer<'n> {
             return;
         }
         let saved = std::mem::replace(&mut self.no_struct, false);
+        // [fmt-width] A block's statements end at their lines, whatever
+        // brackets it is in.
+        let group = std::mem::replace(&mut self.group, 0);
         let anchored = self.anchored(b.span);
         if b.stmts.is_empty() && !(anchored && self.comment_before(close).is_some()) {
             self.push("{}");
@@ -2057,6 +2690,7 @@ impl<'n> Printer<'n> {
             self.newline();
             self.push("}");
         }
+        self.group = group;
         self.no_struct = saved;
         let e = self.at();
         self.record(b.span, s, e, s, e);
@@ -2077,7 +2711,7 @@ impl<'n> Printer<'n> {
         for st in stmts {
             let span = st.span();
             self.elem_start(run, span, matches!(st, Stmt::Rename(_)), |_| false);
-            self.stmt(st);
+            self.unit(&mut |p| p.stmt(st));
             // [expr-terminal-scope] The rest of the block a terminal `...`
             // in the statement stands for: the statements after it.
             match self.pending_rest.take() {
@@ -2115,14 +2749,14 @@ impl<'n> Printer<'n> {
                     self.ty(t);
                 }
                 self.push(" = ");
-                self.expr(value, 0);
+                self.root_expr(value);
                 let e = self.at();
                 self.record(*span, s, e, s, e);
             }
             Stmt::Assign { target, value, span } => {
                 self.expr(target, 1);
                 self.push(" = ");
-                self.expr(value, 0);
+                self.root_expr(value);
                 let e = self.at();
                 self.record(*span, s, e, s, e);
             }
@@ -2134,7 +2768,7 @@ impl<'n> Printer<'n> {
                 self.record(*span, s, e, s, e);
             }
             Stmt::Rename(r) => self.rename(r),
-            Stmt::Expr(e) => self.expr(e, 0),
+            Stmt::Expr(e) => self.root_expr(e),
             Stmt::Comp(c) => {
                 let s = self.at();
                 self.comp_stmt(c);
@@ -2153,11 +2787,23 @@ impl<'n> Printer<'n> {
                 self.push(" ");
                 self.push(binary_symbol(*op));
                 self.push("= ");
-                self.expr(value, 0);
+                self.root_expr(value);
                 let e = self.at();
                 self.record(*span, s, e, s, e);
             }
         }
+    }
+
+    /// [fmt-width] The expression of a statement slot, which the parser reads
+    /// with its continuation lines: a `return`'s value is one too.
+    fn root_expr(&mut self, e: &Expr) {
+        let saved = self.root;
+        self.root = match e {
+            Expr::Return { value: Some(v), .. } if e.parens() == 0 => &**v,
+            _ => e,
+        };
+        self.expr(e, 0);
+        self.root = saved;
     }
 
     /// What `f` prints for source on one line, by a printer of its own (its
@@ -2195,16 +2841,13 @@ impl<'n> Printer<'n> {
             Pattern::Ident(id) => self.ident(id),
             Pattern::Tuple { elems, span } => {
                 let s = self.at();
-                self.push("(");
-                self.list(elems, ", ", |p, e| p.pattern(e));
-                self.push(")");
+                self.bracketed(elems, pattern_span, "(", ")", false, Some(span.start), Some(span.end.saturating_sub(1)), *span, |p, e| p.pattern(e));
                 let e = self.at();
                 self.record(*span, s, e, s, e);
             }
             Pattern::Struct { fields, span } => {
                 let s = self.at();
-                self.push("{ ");
-                self.list(fields, ", ", |p, f| {
+                self.bracketed(fields, |f| f.span, "{", "}", true, Some(span.start), Some(span.end.saturating_sub(1)), *span, |p, f| {
                     let s = p.at();
                     p.ident(&f.field);
                     if f.binding.name != f.field.name || f.binding.span != f.field.span {
@@ -2214,7 +2857,6 @@ impl<'n> Printer<'n> {
                     let e = p.at();
                     p.record(f.span, s, e, s, e);
                 });
-                self.push(" }");
                 let e = self.at();
                 self.record(*span, s, e, s, e);
             }
@@ -2254,7 +2896,13 @@ impl<'n> Printer<'n> {
         };
         let quiet = self.quiet_origin || origin.is_some();
         let was_quiet = std::mem::replace(&mut self.quiet_origin, quiet);
-        self.expr_inner(e);
+        // [fmt-width] Inside parentheses a newline ends nothing.
+        self.group += u32::from(parens);
+        match self.chain_of(e) {
+            Some(c) => self.chain(e, c),
+            None => self.expr_inner(e),
+        }
+        self.group -= u32::from(parens);
         self.quiet_origin = was_quiet;
         let end = self.at();
         for _ in 0..parens {
@@ -2340,18 +2988,36 @@ impl<'n> Printer<'n> {
         self.args_in(args, named, None);
     }
 
-    /// A call's arguments; `region`: the source range from its callee to
-    /// its `)`, where a comment breaks them one per line [fmt-comments].
-    fn args_in(&mut self, args: &[Expr], named: &[NamedArg], region: Option<(u32, u32)>) {
-        let saved = std::mem::replace(&mut self.no_struct, false);
-        self.push("(");
-        let items: Vec<Arg> = args.iter().map(Arg::Pos).chain(named.iter().map(Arg::Named)).collect();
-        let spans: Vec<Span> = items.iter().map(Arg::span).collect();
-        match region.filter(|&(from, to)| self.list_holds_comment(from, to, &spans)) {
-            Some((_, to)) => self.broken_list(&items, Arg::span, to.saturating_sub(1), |p, a| p.arg_item(a)),
-            None => self.list(&items, ", ", |p, a| p.arg_item(a)),
+    /// Where a call's arguments start in the source: after the `>` closing
+    /// its type arguments, or at `callee_end` when it has none.
+    fn after_type_args(&self, targs: &[Type], callee_end: u32) -> u32 {
+        match targs.last() {
+            Some(t) => self.close_after(t.span().end, '>').unwrap_or(t.span().end),
+            None => callee_end,
         }
-        self.push(")");
+    }
+
+    /// [fmt-author-breaks] A call's arguments written after source offset
+    /// `after` (the end of what names the callee, `owner`'s file): their
+    /// region runs to the `)` that closes them, so a comment or a break the
+    /// author wrote in it is seen.
+    fn args_after(&mut self, args: &[Expr], named: &[NamedArg], owner: Span, after: u32) {
+        let last = args.iter().map(Expr::span).chain(named.iter().map(|n| n.span)).map(|s| s.end).fold(after, u32::max);
+        let region = self.close_after(last, ')').map(|c| region_of(owner, after, c + 1));
+        self.args_in(args, named, region);
+    }
+
+    /// A call's arguments; `region`: the source range from its callee to
+    /// just after its `)`, where a comment breaks them one per line
+    /// [fmt-comments].
+    fn args_in(&mut self, args: &[Expr], named: &[NamedArg], region: Option<Span>) {
+        let saved = std::mem::replace(&mut self.no_struct, false);
+        let items: Vec<Arg> = args.iter().map(Arg::Pos).chain(named.iter().map(Arg::Named)).collect();
+        let (from, to) = (region.map(|r| r.start), region.map(|r| r.end.saturating_sub(1)));
+        let anchor = region.unwrap_or_default();
+        self.group += 1;
+        self.bracketed(&items, Arg::span, "(", ")", false, from, to, anchor, |p, a| p.arg_item(a));
+        self.group -= 1;
         self.no_struct = saved;
     }
 
@@ -2387,15 +3053,11 @@ impl<'n> Printer<'n> {
         if targs.is_empty() {
             return;
         }
-        self.push("<");
         let spans: Vec<Span> = targs.iter().map(Type::span).collect();
         let last = spans.iter().map(|s| s.end).max().unwrap_or(0);
-        let close = from.filter(|f| self.anchored(*f)).and_then(|f| self.close_after(last.max(f.end), '>').map(|c| (f.end, c)));
-        match close.filter(|&(f, c)| self.list_holds_comment(f, c + 1, &spans)) {
-            Some((_, c)) => self.broken_list(targs, Type::span, c, |p, t| p.ty(t)),
-            None => self.list(targs, ", ", |p, t| p.ty(t)),
-        }
-        self.push(">");
+        let close = from.filter(|f| self.anchored(*f)).and_then(|f| self.close_after(last.max(f.end), '>'));
+        let anchor = from.unwrap_or_default();
+        self.bracketed(targs, Type::span, "<", ">", false, from.map(|f| f.end), close, anchor, |p, t| p.ty(t));
     }
 
     fn opt_message(&mut self, m: &Option<Box<Expr>>) {
@@ -2450,6 +3112,9 @@ impl<'n> Printer<'n> {
             }
             Expr::Field { base, field, .. } => {
                 self.expr(base, POSTFIX);
+                if self.breaks_at(e) {
+                    self.newline();
+                }
                 self.push(".");
                 self.ident(field);
             }
@@ -2497,8 +3162,9 @@ impl<'n> Printer<'n> {
                         self.push("[");
                         let text = text.to_string();
                         self.ident_as(id, &text);
-                        self.type_args(type_args);
-                        self.args(args, named);
+                        self.type_args_in(type_args, Some(id.span));
+                        let after = self.after_type_args(type_args, id.span.end);
+                        self.args_after(args, named, id.span, after);
                         self.push("]");
                         return;
                     }
@@ -2514,25 +3180,22 @@ impl<'n> Printer<'n> {
                     other => self.expr(other, POSTFIX),
                 }
                 self.type_args_in(type_args, Some(callee.span()));
-                let from = type_args.last().map_or(callee.span().end, |t| t.span().end);
-                self.args_in(args, named, Some((from, e.span().end)));
+                let from = self.after_type_args(type_args, callee.span().end);
+                self.args_in(args, named, Some(region_of(e.span(), from, e.span().end)));
             }
             Expr::Index { base, index, .. } => {
                 self.expr(base, POSTFIX);
                 self.push("[");
+                self.group += 1;
                 self.expr(index, 0);
+                self.group -= 1;
                 self.push("]");
             }
             Expr::Tuple { elems, span } => {
                 let saved = std::mem::replace(&mut self.no_struct, false);
-                self.push("(");
-                let spans: Vec<Span> = elems.iter().map(Expr::span).collect();
-                if self.list_holds_comment(span.start, span.end, &spans) {
-                    self.broken_list(elems, Expr::span, span.end.saturating_sub(1), |p, x| p.expr(x, 0));
-                } else {
-                    self.list(elems, ", ", |p, x| p.expr(x, 0));
-                }
-                self.push(")");
+                self.group += 1;
+                self.bracketed(elems, Expr::span, "(", ")", false, Some(span.start), Some(span.end.saturating_sub(1)), *span, |p, x| p.expr(x, 0));
+                self.group -= 1;
                 self.no_struct = saved;
             }
             Expr::StructLit { ty, fields, span } => {
@@ -2562,7 +3225,7 @@ impl<'n> Printer<'n> {
                     self.push(" ");
                 }
                 let from = ty.as_ref().map_or(span.start, |t| t.span().end);
-                self.struct_fields(fields, Some((from, span.end)));
+                self.struct_fields(fields, Some(region_of(*span, from, span.end)));
             }
             Expr::Unary { op, operand, .. } => {
                 self.push(match op {
@@ -2583,9 +3246,7 @@ impl<'n> Printer<'n> {
                     self.expr(rhs, PREFIX);
                 } else {
                     self.expr(lhs, level);
-                    self.push(" ");
-                    self.push(binary_symbol(*op));
-                    self.push(" ");
+                    self.trailing_op(e, binary_symbol(*op));
                     self.expr(rhs, level + 1);
                 }
             }
@@ -2607,6 +3268,9 @@ impl<'n> Printer<'n> {
             }
             Expr::SafeNav { base, access, .. } => {
                 self.expr(base, POSTFIX);
+                if self.breaks_at(e) {
+                    self.newline();
+                }
                 self.push("?.");
                 self.safe_access(access);
             }
@@ -2712,7 +3376,6 @@ impl<'n> Printer<'n> {
                 }
             }
             Expr::Lambda { params, effects, deductions, ret, body, span } => {
-                self.push("(");
                 let param = |p: &mut Self, lp: &LambdaParam| {
                     let s = p.at();
                     p.ident(&lp.name);
@@ -2727,11 +3390,9 @@ impl<'n> Printer<'n> {
                 // one per line.
                 let spans: Vec<Span> = params.iter().map(|p| p.span).collect();
                 let close = self.anchored(*span).then(|| self.close_after(spans.iter().map(|s| s.end).max().unwrap_or(span.start), ')')).flatten();
-                match close.filter(|&c| self.list_holds_comment(span.start, c + 1, &spans)) {
-                    Some(c) => self.broken_list(params, |p| p.span, c, param),
-                    None => self.list(params, ", ", param),
-                }
-                self.push(")");
+                self.group += 1;
+                self.bracketed(params, |p| p.span, "(", ")", false, Some(span.start), close, *span, param);
+                self.group -= 1;
                 if let Some(effects) = effects {
                     self.push(" ");
                     self.effect_list(effects);
@@ -2774,17 +3435,17 @@ impl<'n> Printer<'n> {
             }
             Expr::Elvis { subject, rhs, .. } => {
                 self.expr(subject, ELVIS);
-                self.push(" ?: ");
+                self.leading_op(e, "?:");
                 self.expr(rhs, ELVIS + 1);
             }
             Expr::Pipe { lhs, rhs, .. } => {
                 self.expr(lhs, PIPE);
-                self.push(" |> ");
+                self.leading_op(e, "|>");
                 self.expr(rhs, PIPE + 1);
             }
             Expr::SafePipe { lhs, rhs, .. } => {
                 self.expr(lhs, PIPE);
-                self.push(" ?> ");
+                self.leading_op(e, "?>");
                 self.expr(rhs, PIPE + 1);
             }
             Expr::Placeholder { .. } => self.push("_"),
@@ -2855,7 +3516,8 @@ impl<'n> Printer<'n> {
                     self.push("@");
                     self.list(m, ".", |p, id| p.ident(id));
                 }
-                self.args(captures, &[]);
+                let after = module.as_ref().and_then(|m| m.last()).map_or(member.span.end, |m| m.span.end);
+                self.args_after(captures, &[], member.span, after);
                 if let Some(p) = pool {
                     self.push(" on ");
                     self.expr(p, 1);
@@ -2894,19 +3556,20 @@ impl<'n> Printer<'n> {
                 self.push(if *trap { " as! " } else { " as? " });
                 self.list(check, " ", |p, r| p.type_ref(r));
             }
-            Sugar::Is { subject, checks, binding, not, .. } => {
+            Sugar::Is { subject, checks, binding, not, span } => {
                 self.expr(subject, COMPARE);
                 self.push(if not.is_some() { " !is " } else { " is " });
-                for (i, check) in checks.iter().enumerate() {
-                    if i > 0 {
-                        self.push(" | ");
-                    }
-                    self.list(check, " ", |p, r| p.type_ref(r));
+                // [fmt-width] The tests break after each `|`, inside brackets
+                // alone: outside, a test must start on the line of its `|`.
+                let gaps: Vec<(u32, u32)> = checks.windows(2).filter_map(|w| Some((w[0].last()?.span.end, w[1].first()?.span.start))).collect();
+                let breakable = self.group > 0 && checks.len() > 1;
+                self.bar_list(checks, *span, &gaps, breakable, |p, i, check| {
+                    p.list(check, " ", |p, r| p.type_ref(r));
                     if let (0, Some(b)) = (i, binding) {
-                        self.push(" ");
-                        self.ident(b);
+                        p.push(" ");
+                        p.ident(b);
                     }
-                }
+                });
             }
             Sugar::Pair { key, value, .. } => {
                 self.arg(key);
@@ -2923,7 +3586,11 @@ impl<'n> Printer<'n> {
                 // A mint in the base would take the `replyto` as its own.
                 let min = if matches!(base, Expr::ReplyTo { .. }) { 1 } else { POSTFIX };
                 self.expr(base, min);
-                self.push(" ");
+                if self.breaks_at(sugar) {
+                    self.newline();
+                } else {
+                    self.push(" ");
+                }
                 self.expr(reply, 1);
             }
         }
@@ -3201,29 +3868,20 @@ impl<'n> Printer<'n> {
             SafeAccess::Field(f) => self.ident(f),
             SafeAccess::Call { field, type_args, args, named } => {
                 self.ident(field);
-                self.type_args(type_args);
-                self.args(args, named);
+                self.type_args_in(type_args, Some(field.span));
+                let after = self.after_type_args(type_args, field.span.end);
+                self.args_after(args, named, field.span, after);
             }
         }
     }
 
     /// A struct literal's `{ … }`; `region`: the literal's source range,
     /// where a comment breaks it one field per line [fmt-comments].
-    fn struct_fields(&mut self, fields: &[StructLitField], region: Option<(u32, u32)>) {
+    fn struct_fields(&mut self, fields: &[StructLitField], region: Option<Span>) {
         let saved = std::mem::replace(&mut self.no_struct, false);
-        let spans: Vec<Span> = fields.iter().map(|f| f.span).collect();
-        let broken = region.filter(|&(from, to)| self.list_holds_comment(from, to, &spans));
-        if let Some((_, to)) = broken {
-            self.push("{");
-            self.broken_list(fields, |f| f.span, to.saturating_sub(1), |p, f| p.struct_field(f));
-            self.push("}");
-        } else if fields.is_empty() {
-            self.push("{}");
-        } else {
-            self.push("{ ");
-            self.list(fields, ", ", |p, f| p.struct_field(f));
-            self.push(" }");
-        }
+        let (from, to) = (region.map(|r| r.start), region.map(|r| r.end.saturating_sub(1)));
+        let anchor = region.unwrap_or_default();
+        self.bracketed(fields, |f| f.span, "{", "}", true, from, to, anchor, |p, f| p.struct_field(f));
         self.no_struct = saved;
     }
 

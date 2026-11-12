@@ -187,4 +187,27 @@ fn empty() -> None {
     // only a comment in this body
 }
 
+fn empty_lists(
+    // no parameters
+) -> None {
+    let x = f(
+        // no arguments
+    )
+    let p = Point {
+        // no fields
+    }
+    let t = (
+        // nothing
+    )
+    let g = (
+        // no lambda parameters
+    ) -> 1
+    a?.b(
+        // no arguments to a safe call
+    )
+    total() replyto got(
+        // no captures
+    )
+}
+
 // The last comment of the file, after every declaration.

@@ -407,14 +407,17 @@ fn every_source_file_as_written_prints_to_its_own_tree() {
 const NOT_YET_PRINTED: &[&str] = &[];
 
 /// [ast-print] [syntax-lowered] [expr-group] [lit-spelling] [fmt-comments]
-/// [fmt-blank-lines] Each print fixture, written in the printer's layout,
-/// prints back byte for byte: `sugar.sv` each piece of sugar as it was
-/// written, not as what it stands for; `spellings.sv` the parentheses and
-/// the literals as written; `comments.sv` a comment in every slot and the
-/// blank lines between statements, members and declarations.
+/// [fmt-blank-lines] [fmt-width] [fmt-author-breaks] Each print fixture,
+/// written in the printer's layout, prints back byte for byte: `sugar.sv`
+/// each piece of sugar as it was written, not as what it stands for;
+/// `spellings.sv` the parentheses and the literals as written;
+/// `comments.sv` a comment in every slot and the blank lines between
+/// statements, members and declarations; `breaks.sv` each breakable
+/// construct short on one line, short and broken by its author, and broken
+/// by the width, nested, and every chain's operator.
 #[test]
 fn every_print_fixture_prints_as_written() {
-    for name in ["sugar.sv", "spellings.sv", "comments.sv"] {
+    for name in ["sugar.sv", "spellings.sv", "comments.sv", "breaks.sv"] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print").join(name);
         let text = std::fs::read_to_string(&path).unwrap();
         let (module, diags) = salvo_syntax::parse_module(&text);
@@ -425,6 +428,104 @@ fn every_print_fixture_prints_as_written() {
         assert!(at.is_none() && a.len() == b.len(), "{name}, line {}:\n  written: {}\n  printed: {}\n\n{printed}", at.unwrap_or(a.len().min(b.len())) + 1, a.get(at.unwrap_or(0)).unwrap_or(&"<end>"), b.get(at.unwrap_or(0)).unwrap_or(&"<end>"));
         assert_eq!(printed, text, "{name}: the printing is not the file byte for byte");
     }
+}
+
+/// [fmt-width] [fmt-author-breaks] Each `tests/print/canonical/<name>.in.sv`
+/// prints as `<name>.out.sv`, byte for byte: a line too wide broken the
+/// canonical way, which is not the identity the other fixtures are. The
+/// output prints as itself (the breaks the width made read back as the
+/// author's) and parses to the input's tree.
+#[test]
+fn every_canonical_fixture_prints_as_expected() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/print/canonical");
+    let inputs: Vec<_> = sv_files(&dir).into_iter().filter(|p| p.to_string_lossy().ends_with(".in.sv")).collect();
+    assert!(!inputs.is_empty(), "no fixtures in {}", dir.display());
+    for input in inputs {
+        let name = input.file_name().unwrap().to_string_lossy().to_string();
+        let output = input.with_file_name(name.replace(".in.sv", ".out.sv"));
+        let (text, want) = (std::fs::read_to_string(&input).unwrap(), std::fs::read_to_string(&output).unwrap());
+        let (module, diags) = salvo_syntax::parse_module(&text);
+        assert!(!diags.iter().any(|d| d.is_error()), "{name}: {diags:?}");
+        let printed = print_module(&module).text;
+        let (a, b): (Vec<&str>, Vec<&str>) = (want.lines().collect(), printed.lines().collect());
+        let at = a.iter().zip(&b).position(|(x, y)| x != y).unwrap_or(a.len().min(b.len()));
+        assert_eq!(printed, want, "{name}, line {}:\n  expected: {}\n  printed:  {}\n\n{printed}", at + 1, a.get(at).unwrap_or(&"<end>"), b.get(at).unwrap_or(&"<end>"));
+        let (again, diags) = salvo_syntax::parse_module(&printed);
+        assert!(!diags.iter().any(|d| d.is_error()), "{name}, printed: {diags:?}");
+        assert_eq!(shape(&module), shape(&again), "{name}: the printing parses to another tree");
+        assert_eq!(print_module(&again).text, want, "{name}: the printing printed again differs");
+    }
+}
+
+/// [fmt-width] [fmt-author-breaks] The breaks the width makes read back as
+/// the author's: every `.sv` file of the repository that parses, printed
+/// with no trivia (so no break is the author's and every one is the
+/// width's), parses to the same tree and prints the same again with its
+/// trivia — where each of those breaks is now written.
+#[test]
+fn width_breaks_read_back_as_written() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for path in every_sv_file() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (mut module, diags) = salvo_syntax::parse_module(&text);
+        if diags.iter().any(|d| d.is_error()) {
+            continue;
+        }
+        checked += 1;
+        module.trivia = Default::default();
+        let name = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
+        let printed = print_module(&module).text;
+        if let Some(why) = written_difference(&name, &printed) {
+            failures.push(why);
+        }
+    }
+    assert!(checked > 400, "only {checked} files parse");
+    assert!(failures.is_empty(), "{} of {checked} files:\n{}", failures.len(), failures.join("\n\n"));
+}
+
+/// [fmt-width] No printed line of any `.sv` file of the repository that
+/// parses is wider than the width, but where nothing can make it fit: a
+/// line that would fit with each string literal on it written `""` and
+/// its comment left out (neither is ever broken, and a break around a
+/// string is made only where it lets the line fit), or one token.
+#[test]
+fn no_printed_line_is_wider_than_the_width() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut failures = Vec::new();
+    for path in every_sv_file() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        let (module, diags) = salvo_syntax::parse_module(&text);
+        if diags.iter().any(|d| d.is_error()) {
+            continue;
+        }
+        let name = path.strip_prefix(&root).unwrap_or(&path).display().to_string();
+        let printed = print_module(&module).text;
+        let lexed = salvo_syntax::lexer::lex(&printed);
+        let strings: Vec<(usize, usize)> = lexed
+            .tokens
+            .iter()
+            .filter(|t| matches!(t.kind, salvo_syntax::token::TokenKind::Str(_)))
+            .map(|t| (t.span.start as usize, t.span.end as usize))
+            .collect();
+        let comments: Vec<usize> = lexed.comments.iter().map(|c| c.span.start as usize).collect();
+        let mut start = 0;
+        for line in printed.split_inclusive('\n') {
+            let (ls, le) = (start, start + line.trim_end_matches('\n').len());
+            start += line.len();
+            let cut = comments.iter().copied().find(|&c| ls <= c && c < le).unwrap_or(le);
+            let mut width = printed[ls..cut].trim_end().chars().count();
+            for &(s, e) in strings.iter().filter(|&&(s, e)| s < cut && e > ls) {
+                width -= printed[s.max(ls)..e.min(cut)].chars().count().saturating_sub(2);
+            }
+            let one_token = !printed[ls..le].trim().contains(' ');
+            if printed[ls..le].chars().count() > salvo_syntax::print::WIDTH && width > salvo_syntax::print::WIDTH && !one_token {
+                failures.push(format!("{name}: {}", &printed[ls..le]));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{} lines:\n{}", failures.len(), failures.join("\n"));
 }
 
 /// [ast-print] [syntax-lowered] [actor-use-addr] A dump marks the spawn a
@@ -643,12 +744,21 @@ fn g() {}
     assert_eq!(docs(&again), vec![Vec::<String>::new(), vec!["the docs of g".to_string()]], "{printed}");
     assert!(printed.contains("// inside the header"), "{printed}");
 
-    // Inside a body-less member's header: printed after it, a blank line
-    // between it and the next member, which keeps no docs.
+    // [deduce-syntax] Above a deduction clause on a line of its own, the
+    // comment keeps its line: the clause stays on its own (the author's
+    // break), and the comment above it.
     let written = "effect E {\n    fn f(x: Int) -> Int\n    // inside the header\n    => x\n    fn g() -> None\n}\n";
     let (module, _) = salvo_syntax::parse_module(written);
     let printed = print_module(&module).text;
-    assert_eq!(printed, "effect E {\n    fn f(x: Int) -> Int => x\n    // inside the header\n\n    fn g() -> None\n}\n");
+    assert_eq!(printed, written);
+
+    // Inside a header with no slot for it (among the generics), printed
+    // after the member, a blank line between it and the next member, which
+    // keeps no docs.
+    let written = "effect E {\n    fn f<A,\n        // inside the header\n        B>(x: A) -> B\n    fn g() -> None\n}\n";
+    let (module, _) = salvo_syntax::parse_module(written);
+    let printed = print_module(&module).text;
+    assert_eq!(printed, "effect E {\n    fn f<A, B>(x: A) -> B\n    // inside the header\n\n    fn g() -> None\n}\n");
     let (again, _) = salvo_syntax::parse_module(&printed);
     let Some(salvo_syntax::ast::Item::Effect(e)) = again.items.first() else { panic!("{printed}") };
     assert!(e.fns.iter().all(|f| f.docs.is_empty()), "{printed}");
