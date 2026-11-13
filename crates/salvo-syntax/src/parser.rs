@@ -592,6 +592,32 @@ impl<'s> Parser<'s> {
         }
     }
 
+    /// [syntax-space] At the `<` of a name's type arguments or type
+    /// parameters, which follows the name (or its `@` selector) with nothing
+    /// between, as a `(` does: a space or a line break there is refused, and
+    /// the list read as the name's all the same.
+    fn type_args_touch(&mut self) {
+        if self.at(&TokenKind::Lt) && self.pos > 0 && !self.touches_prev() {
+            let span = self.peek().span;
+            let name = self.prev_text();
+            self.error(messages::syntax_space_before_type_args(&name), span);
+        }
+    }
+
+    /// [syntax-space] At the `!` or `?` that ends a compiler-known name
+    /// (`assert!`, `type?`, `as!`, `replyto!`): the suffix is part of the
+    /// name, so a space or a line break before it is refused as one inside
+    /// a name would be, and the form read all the same.
+    fn name_suffix_touch(&mut self) {
+        if matches!(self.kind(), TokenKind::Bang | TokenKind::Question) && self.pos > 0 && !self.touches_prev() {
+            let prev = &self.tokens[self.pos - 1];
+            let head = self.text_of(prev.span).map_or_else(|| prev.kind.describe(), str::to_string);
+            let suffix = if matches!(self.kind(), TokenKind::Bang) { "!" } else { "?" };
+            let span = self.peek().span;
+            self.error(messages::syntax_space_inside_name(&format!("{head}{suffix}")), span);
+        }
+    }
+
     /// True when the current token may continue an expression (it is not
     /// preceded by a newline, or we are inside a group).
     fn same_line(&self) -> bool {
@@ -1707,6 +1733,7 @@ impl<'s> Parser<'s> {
         let mut slots: Vec<SlotDecl> = Vec::new();
         let mut effect_vars: Vec<Ident> = Vec::new();
         if self.at(&TokenKind::Lt) {
+            self.type_args_touch();
             self.group_depth += 1;
             self.bump();
             loop {
@@ -2128,6 +2155,7 @@ impl<'s> Parser<'s> {
         // of the signature: an expanded-in-place fn may be generic, and
         // stays so (user decision 2026-10-20) [comptime-generic-fn].
         if self.at(&TokenKind::Lt) && matches!(self.peek_at(2).kind, TokenKind::KwIs) {
+            self.type_args_touch();
             self.group_depth += 1;
             self.bump();
             // `<T is Struct>` / `<T is Union>`: the bound names an arm of
@@ -4669,6 +4697,9 @@ impl<'s> Parser<'s> {
             end = self.expect(&TokenKind::RParen)?.span;
         }
         if self.at(&TokenKind::Lt) {
+            // [syntax-space] `List <Int>`, and `List` / `<Int>` across a
+            // line break, are refused and read as `List<Int>`.
+            self.type_args_touch();
             self.group_depth += 1;
             self.bump();
             loop {
@@ -5249,6 +5280,7 @@ impl<'s> Parser<'s> {
                 if w == REFUSE_FORM && matches!(self.peek_at(1).kind, TokenKind::Bang) =>
             {
                 let start = self.bump().span;
+                self.name_suffix_touch();
                 self.bump();
                 self.require_compfn(start, "`refuse!`");
                 self.args_touch();
@@ -6576,10 +6608,12 @@ impl<'s> Parser<'s> {
             TokenKind::GtEq => (12, InfixKind::Binary(BinaryOp::GtEq)),
             TokenKind::KwIs => (12, InfixKind::Is),
             // [expr-as-qual] `as!` and `as?`, the bang or question mark written
-            // against the `as`.
+            // against the `as`; written after a space, or a line break inside
+            // brackets, it is refused as a name split in two
+            // (`parse_as_tail`).
             TokenKind::KwAs
                 if matches!(self.peek_at(1).kind, TokenKind::Bang | TokenKind::Question)
-                    && self.peek().span.end == self.peek_at(1).span.start =>
+                    && (self.group_depth > 0 || !self.peek_at(1).newline_before) =>
             {
                 (12, InfixKind::AsQual)
             }
@@ -6689,6 +6723,7 @@ impl<'s> Parser<'s> {
     /// stands for is written before resolution (`desugar::lower_sugar`).
     fn parse_as_tail(&mut self, lhs: Expr) -> Option<Expr> {
         let op = self.bump().span; // `as`
+        self.name_suffix_touch();
         let mark = self.bump(); // `!` or `?`
         let trap = matches!(mark.kind, TokenKind::Bang);
         let across = self.group_depth == 0 && self.peek().newline_before;
@@ -7536,9 +7571,16 @@ impl<'s> Parser<'s> {
         Some(())
     }
 
-    /// Speculatively parses `<T, U>(args)` as a generic call.
+    /// Speculatively parses `<T, U>(args)` as a generic call. [syntax-space]
+    /// Which `<` this is stays decided by the tokens alone, as before the
+    /// spacing rule: type arguments when a type list, `>` and `(` follow,
+    /// else (`None`, nothing consumed) a comparison. Read as type arguments
+    /// after a space or (inside brackets) a line break, the `<` is refused.
     fn try_parse_generic_call(&mut self, callee: &Expr) -> Option<Expr> {
         let snap = self.snapshot();
+        let touching = self.touches_prev();
+        let lt = self.peek().span;
+        let name = self.prev_text();
         self.group_depth += 1;
         self.bump(); // <
         let mut type_args = Vec::new();
@@ -7571,6 +7613,9 @@ impl<'s> Parser<'s> {
             }
         };
         let span = callee.span().to(end);
+        if !touching {
+            self.error(messages::syntax_space_before_type_args(&name), lt);
+        }
         Some(Expr::Call {
             callee: Box::new(callee.clone()),
             type_args,
@@ -7802,6 +7847,7 @@ impl<'s> Parser<'s> {
                 let assert = name == ASSERT_FORM;
                 let is_todo = name == TODO_FORM;
                 let start = self.bump().span;
+                self.name_suffix_touch();
                 self.bump(); // `!`
                 self.args_touch();
                 self.expect(&TokenKind::LParen)?;
@@ -7843,6 +7889,7 @@ impl<'s> Parser<'s> {
                     && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
             {
                 let start = self.bump().span;
+                self.name_suffix_touch();
                 self.bump(); // `?`
                 self.args_touch();
                 self.expect(&TokenKind::LParen)?;
@@ -7865,6 +7912,7 @@ impl<'s> Parser<'s> {
                     && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
             {
                 let start = self.bump().span;
+                self.name_suffix_touch();
                 self.bump(); // `?`
                 self.args_touch();
                 self.expect(&TokenKind::LParen)?;
@@ -7883,6 +7931,7 @@ impl<'s> Parser<'s> {
                     && matches!(self.peek_at(2).kind, TokenKind::LParen) =>
             {
                 let start = self.bump().span;
+                self.name_suffix_touch();
                 self.bump(); // `!`
                 self.args_touch();
                 self.expect(&TokenKind::LParen)?;
@@ -8625,6 +8674,9 @@ impl<'s> Parser<'s> {
     /// call a function named `on` cannot be swallowed.
     fn parse_replyto(&mut self) -> Option<Expr> {
         let start = self.bump().span; // `replyto`
+        if self.at(&TokenKind::Bang) {
+            self.name_suffix_touch();
+        }
         let gated = self.eat(&TokenKind::Bang).is_some();
         let member = self.ident()?;
         // [task-mint] [fn-overload-at] `replyto k@module(…)`: the module whose

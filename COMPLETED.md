@@ -152,6 +152,117 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — A type argument list touches its name, a form's suffix is part of its name, and a qualifier's arguments are counted in a type ([syntax-space] [qual-value-arg] [qual-depend] [qual-const])
+
+User decisions 2026-11-12, closing ROADMAP §0av's three items left by the
+spacing rule (the entry below):
+
+1. **A generic `<` follows the `(` rule**: no space or line break between a
+   name and the `<` of its type arguments or type parameters, in types and
+   in expressions. A space or a line break there is
+   `syntax-space:before-type-args` (agent's call: a sibling of
+   `before-args`, so the message can name the `<`): "no space or line
+   break may come between a name and the `<` of its type arguments or type
+   parameters: write `List<`", at the `<`, the list read all the same. A
+   line break before a type's `<` outside brackets (`let xs: List` /
+   `<Int> = List(1)` checked clean) is refused too: that was the defect.
+2. **A qualifier's argument count is checked in a type** as an `is` test
+   checks it: `InRange(1) Int` and `InRange(1, 2, 3) Int` are
+   `qual-depend:unfilled`, the `is` test's id; so is a bare `InRange Int`
+   (agent's call, to confirm: ROADMAP §0av).
+3. **A form's `!` or `?` is part of its name**: `assert !(x)` and `type
+   ?(x)` are `syntax-space:inside-name` ("`assert!` is one name: no space
+   or line break may come inside it, write `assert!`"), read all the same.
+
+- **How the parser tells type arguments from less-than**, unchanged by
+  this: in a type, every `<` after a name (or its `@` selector) is the
+  type arguments (`parse_type_ref_opts`); at a declaration, every `<`
+  after the declared name (`parse_generics_all`, and a comptime fn's `<T is
+  Struct>`). In an expression, after any postfix expression on its line or
+  inside brackets, `try_parse_generic_call` speculates: a list of types,
+  `>` and `(` make type arguments, anything else rolls back to a
+  comparison, so `a <b`, `a < b` and `(a` / `< b)` stay comparisons. The
+  spacing check runs only once the parser has decided on type arguments
+  (`type_args_touch`; in the speculation, only after it succeeds), so no
+  comparison became an error. The one behavior change outside the error:
+  a type's `<` on the next line outside brackets still reads as the type
+  arguments, now with the error, rather than silently.
+- **The forms** (found by grepping the parser for every `!`/`?` after a
+  name): `assert!`, `unreachable!`, `todo!`, `refuse!`, `type!`, `type?`,
+  `whynot?`, and two the user did not list (agent's call, to confirm):
+  `replyto!` (`replyto ! k(…)` was accepted) and the operators `as!` and
+  `as?` (`x as ! Q` was a parse error, "expected expression, found `as`";
+  now `as` with its suffix on the same line, or across a line break
+  inside brackets, is the operator and the gap is `inside-name`; outside
+  brackets `x as` / `! Q` stays a parse error, since a tier-3 operator
+  spans no line there). All of these are listed in ROADMAP §0av as the
+  agent's calls to confirm. `name_suffix_touch` names the fix from the source text.
+  `assert! (x)` is still `before-args`, as before. Not covered (ROADMAP
+  §0av): two-token operators, `a ? : 0`, `a ? .f()`, `x ? > f(_)`, `b ! is
+  Q`, each probed and accepted.
+- **The counts** (`validate_quals`): a qualifier with value slots needs
+  exactly one argument per slot (constants and places alike); a slotless
+  qualifier's type arguments are all-or-none, `NonEmpty<Int, Str>
+  List<Int>` is `qual-value-arg:partial-type-args` (agent's call: the id a
+  slotted qualifier's `lower_identity_args` already reported for
+  `Heap<Int, Str>`; slotless ones were not counted), and one that declares
+  no type parameters given some, `Pos<Int> Int`, is the new
+  `qual-value-arg:no-type-args` ("`Pos` takes no type arguments"); and a
+  type with no fn slots given a block, `List<Int>(1)` or `T(1)`, is
+  `qual-depend:no-value-args` (`validate_type`; it was ignored silently),
+  except for an unresolved name, which reports only that. Fn slot arguments were
+  already counted against too many (`cmp-binder:too-many`,
+  `cmp-binder:unknown-slot`), and fewer is the design (an unwritten slot is
+  resolved by its name), so nothing changed there. A type's own type
+  arguments were already counted ([qual-value-arg]'s `type-arg-count`).
+- **The sweep** (`tmp/sweep2/`: HEAD's `salvo-syntax` as a second crate,
+  the sweep program of the entry below): 11,839 parses from 839 files,
+  every `.sv` file whole and each `//---` program and `// FILE:` on its
+  own, every Salvo fence of the Markdown files and of comments, and every
+  Rust string holding Salvo-like text, each also wrapped in a `fn`. **No
+  tree or diagnostic differs**: nothing in the repository wrote a spaced
+  `<` or a split form name, so no source was rewritten. `demo/demo.sv`
+  (the user's, read only) parses the same under both, and a copy of it
+  analyzed in `tmp/` reports only its two existing warnings (a `todo!()`
+  and an unused `parsing`, lines 107–108), nothing from these rules.
+- **The count check over the code**: `salvo analyze` in `lib/` reports
+  nothing; every `examples/*/salvo`, `bench/*/salvo` and
+  `modules/aws/salvo` reports nothing new (the five warnings of `actors`,
+  `cluster` and `bench/scheduler`, unused locals and send cycles, are
+  theirs already); the check data passes with no annotation added
+  outside the new cases, so nothing wrote a wrong count.
+- **Nothing to reformat**: `salvo fmt --check` over stage H's scope (92
+  files) reports nothing; the printer already wrote every `<` touching.
+- **Tests**: check data `syntax/spacing.sv` gained the cases
+  `a_type_argument_list_touches_its_name` (generic declarations and uses,
+  `a <b`, `a < b`, a comparison broken inside brackets),
+  `a_space_before_type_arguments_is_refused` (a struct, qualifier, effect
+  and fn's parameters, `Heap <T>(?cmp)`, `List <Int>` in a type, `twice
+  <Int>(a)`, `List <Int>(1, 2)`, the line break in a type outside brackets
+  and in a call inside brackets), `a_space_before_a_comptime_fn_s_bound_is_refused`,
+  `a_form_s_suffix_is_part_of_its_name` (`assert`, `type?`, `type!`,
+  `whynot?`, `as!`, `as?` and `as` / `!` broken inside brackets, `todo!`,
+  `unreachable!`),
+  `a_space_inside_refuse_is_refused`, `a_space_inside_a_gated_mint_is_refused`
+  and `a_qualifier_s_arguments_are_counted_in_a_type` (too few, too many
+  and no constants, `NonEmpty<Int, Str>`, `Pos<Int>`, `List<Int>(1)`,
+  `T(1)`, an unknown `Hep<Int>(1)` reported once, a fn slot left out,
+  overfilled and misnamed). No print fixture changed: a spaced `<` no
+  longer parses clean, and the formatter only formats what does.
+- **Docs**: [syntax-space] (its "Not covered" bullet replaced by the two
+  rules and the decision procedure), [qual-value-arg], [qual-depend],
+  [qual-const]; `Qualifiers.md` ("Arguments and spacing"),
+  `Generics-and-Aliases.md` ("Generic types"), `Functions.md`,
+  `Formatting.md`.
+- **Checked**: `cargo build` warning-free; 765 tests under `cargo nextest
+  run --no-fail-fast`, all green twice: 4m11 wall including the build
+  (nextest's own 160s), and after the review's fixes (`as` across a line
+  break inside brackets, the unresolved name, `no-type-args`) 2m54 wall
+  (nextest's 153s); the `salvo-syntax` change relinks every binary and
+  misses every CLI stamp (`run_data` 56–69s, the std test runs 32–65s).
+  std analyzes clean, and the sweep re-run after the fixes differs only in
+  the new `spacing.sv` cases.
+
 ### 2026-11-12 — A fn type in a union prints in parentheses, whatever the arm's position ([ast-print])
 
 User decision 2026-11-12, closing ROADMAP §0av's "a fn type as a union's

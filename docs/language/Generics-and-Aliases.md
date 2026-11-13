@@ -54,6 +54,16 @@ qualifier FirstStr<T> for Pair<Str, T>
 qualifier Ints for Pair<Int, Int>
 ```
 
+The `<` touches the name it belongs to, as an argument list's `(` does: at a
+declaration (`struct Pair<S, T>`, `fn swapped<S, T>(…)`) and at a use
+(`Pair<Int, Str>`, `swapped<Int, Str>(p)`). A space or a line break before it
+is an error, so `List <Int>` is written `List<Int>`. In an expression a `<`
+is the type arguments of what comes before it only when a type list, its `>`
+and a `(` follow, as in `swapped<Int, Str>(p)`; otherwise it is less-than,
+spaced or not (`a <b`, `a < b`). A type's arguments are written in full: a
+`Pair<Int>` is an error, since a type position has no values to infer the
+missing one from.
+
 ### A result type from generic qualifiers
 
 Using qualifiers and generics we can implement the equivalent of Rust's

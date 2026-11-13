@@ -1158,6 +1158,17 @@ messages! {
         "no space or line break may come between a name and the `(` of its arguments or \
          parameters: write `{name}(`"
     );
+    /// A space or a line break between a name and the `<` of its type
+    /// arguments or type parameters.
+    syntax_space_before_type_args = "syntax-space:before-type-args" (name: &str) => format!(
+        "no space or line break may come between a name and the `<` of its type arguments or \
+         type parameters: write `{name}<`"
+    );
+    /// A space or a line break between a compiler-known name and the `!` or
+    /// `?` that ends it (`assert !(x)`, `type ?(x)`, `x as ! Q`).
+    syntax_space_inside_name = "syntax-space:inside-name" (name: &str) => format!(
+        "`{name}` is one name: no space or line break may come inside it, write `{name}`"
+    );
     /// A qualifier written against what it qualifies: a `(` touching its
     /// name that holds a type rather than its arguments (`Mut(Str)`), or the
     /// type touching its arguments' `)` (`proj(c)T`): then `qual` is the fix,
@@ -4688,7 +4699,8 @@ messages! {
     qual_depend_no_value_args = "qual-depend:no-value-args" (q: &dyn std::fmt::Display) => format!(
         "`{q}` takes no value arguments"
     );
-    /// A dependent qualifier tested without its value arguments.
+    /// A dependent qualifier given fewer or more value arguments than it has
+    /// value slots, in an `is` test or a type.
     qual_depend_unfilled = "qual-depend:unfilled" (q: &dyn std::fmt::Display, count: &dyn std::fmt::Display, filled: &dyn std::fmt::Display) => format!(
         "`{q}` depends on {count} value(s) ({filled}): write the filled form, \
          `{q}({filled})`"
@@ -4874,6 +4886,10 @@ messages! {
     );
 
     // [qual-value-arg]
+    /// Type arguments to a qualifier that declares no type parameters.
+    qual_value_arg_no_type_args = "qual-value-arg:no-type-args" (name: &dyn std::fmt::Display) => format!(
+        "`{name}` takes no type arguments"
+    );
     /// A partial list of type arguments.
     qual_value_arg_partial_type_args = "qual-value-arg:partial-type-args" (type_arity: &dyn std::fmt::Display) => format!(
         "type arguments are all-or-none: this declaration has {type_arity} type \

@@ -142,12 +142,14 @@ The standard library is formatted like any project: run `salvo fmt` in
   written, and the formatter adds the pair so it cannot be read as `(A |
   ()) -> B`.
 - **Spacing around parentheses**: an argument or parameter list touches its
-  name (`f(x)`, `fn f(x: Int)`, `InRange(0, 100)`), a qualifier is one space
-  from what it qualifies (`Ok (1, 2)`, `proj(xs) T`), and a keyword is one
-  space from a group after it (`if(a)` prints `if (a)`). These spaces are
-  part of the language, not only of the layout: a space before an argument
-  list, or none after a qualifier, is an error, so the formatter only ever
-  meets them written this way.
+  name (`f(x)`, `fn f(x: Int)`, `InRange(0, 100)`), and so does a type
+  argument or type parameter list (`List<Int>`, `f<Int>(x)`, `fn f<T>`); a
+  qualifier is one space from what it qualifies (`Ok (1, 2)`, `proj(xs)
+  T`), and a keyword is one space from a group after it (`if(a)` prints `if
+  (a)`). These spaces are part of the language, not only of the layout: a
+  space before an argument list or a type argument list, a space inside a
+  form's name (`assert !(x)`), or none after a qualifier, is an error, so
+  the formatter only ever meets them written this way.
 - **Imports**: a file's imports are sorted by the imported path, and
   nothing else is reordered or removed. A comment written directly above
   an import moves with it, and a comment at the end of an import's line is

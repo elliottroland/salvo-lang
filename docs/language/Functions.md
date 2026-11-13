@@ -70,7 +70,10 @@ error rather than style, because in a type the space means something:
 qualifier given its arguments ([Qualifiers](Qualifiers.md#arguments-and-spacing)).
 A `(` on the line after a name starts a new statement, never a call.
 Keywords are not names, so `if (ready)` and `return (a + b)` keep their
-space.
+space. The generics' `<` touches the name in the same way (`fn
+twice<T>(…)`, `twice<Int>(2)`), and the `!` or `?` of a compiler-known
+form is part of its name, so `assert !(x)` is an error as `asse rt!(x)`
+would be.
 
 ```salvo
 fn twice(n: Int) -> Int {

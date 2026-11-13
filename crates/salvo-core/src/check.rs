@@ -22000,6 +22000,18 @@ impl<'p, 'r> Checker<'p, 'r> {
                 // nothing (2026-10-19, [lsp-definition] gap).
                 let empty = HashMap::new();
                 let lowered = self.lower_base_ref(base, &empty, 0);
+                // [qual-value-arg] A type's `(…)` block fills its fn slots, so
+                // a type with none takes no value arguments: `List<Int>(1)`.
+                // An unresolved name is reported as that alone.
+                if !base.value_args.is_empty() {
+                    let meaning = self.named(base);
+                    let declared = meaning.structure.is_some() || meaning.opaque.is_some() || meaning.alias.is_some();
+                    let key = meaning.key(self.symbols).unwrap_or(&base.name.name).to_string();
+                    let resolved = declared || self.generics.contains(base.name.name.as_str());
+                    if resolved && self.type_fn_slots(&key).is_empty() {
+                        self.error(base.span, messages::qual_depend_no_value_args(&base.name.name));
+                    }
+                }
                 if !qualifiers.is_empty() {
                     self.validate_quals(qualifiers, &lowered);
                 }
@@ -22154,6 +22166,28 @@ impl<'p, 'r> Checker<'p, 'r> {
                 continue;
             }
             let Some(decl) = decl else { continue };
+            // [qual-value-arg] A slotless qualifier's type arguments are
+            // all-or-none, as a slotted one's are (`lower_identity_args`):
+            // `NonEmpty<Int, Str> List<Int>` is refused.
+            if decl.fn_slots.is_empty() && !q.args.is_empty() && q.args.len() != decl.generics.len() {
+                if decl.generics.is_empty() {
+                    self.error(q.args[0].span(), messages::qual_value_arg_no_type_args(&q.name.name));
+                } else {
+                    self.error(q.args[0].span(), messages::qual_value_arg_partial_type_args(&decl.generics.len()));
+                }
+            }
+            // [qual-depend] [qual-const] A dependent qualifier is written
+            // with every value slot filled, as an `is` test writes it:
+            // `InRange(1) Int` is refused. (A fn slot may be left out, being
+            // resolved by its name, and too many are `cmp-binder:too-many`.)
+            if !decl.value_slots.is_empty() && q.value_args.len() != decl.value_slots.len() {
+                let filled: Vec<String> = decl.value_slots.iter().map(|s| s.name.name.clone()).collect();
+                self.error(
+                    q.span,
+                    messages::qual_depend_unfilled(&q.name.name, &decl.value_slots.len(), &filled.join(", ")),
+                );
+                continue;
+            }
             for (written, slot) in q.value_args.iter().zip(&decl.value_slots) {
                 let ast::Type::Named { qualifiers: wq, base: wb } = written else { continue };
                 if !wq.is_empty() || wb.binder {

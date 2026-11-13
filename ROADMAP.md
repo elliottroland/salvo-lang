@@ -1148,21 +1148,24 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     literals (`[if n == 1_000]`: `CompExpr::Int`, `Char`, `Str`). Both print
     in the printer's spelling, which parses to the same value; giving them a
     spelling is the same field the expression literals have.
-- **Left by the spacing rule** [syntax-space] (2026-11-12, COMPLETED.md):
-  * **DECISION: a generic list's `<` after a space**: `List <Int>` and `f
-    <Int>(x)` still read as type arguments, and in a type even on the next
-    line outside brackets (`let xs: List` / `<Int> = List(1)` checks:
-    `parse_type_ref_opts` reads `<` with no line check, where the call side
-    requires the same line). Refuse the space as `(`'s is refused, or leave
-    `<` free; the next-line type reading is a defect either way.
-  * **A qualifier's arguments are not counted**: `InRange(1) Int` and
-    `InRange(1, 2, 3) Int` check clean in a type (an `is` test counts them,
-    `qual-depend:unfilled`); only a qualifier with no slots at all refuses
-    arguments (`qual-depend:no-value-args`, added with the rule, for `Ok(1,
-    2) Int` and `Mut(1) Str`). Counting needs the fn slots' spreads
-    (`?Ordered<T>` fills several) told apart in `validate_quals`.
-  * **A form's `!` may stand after a space**: `assert !(x)` is `assert!(x)`
-    (the three tokens are read without spacing); only the `(` must touch.
+- **Left by the spacing rule's second round** [syntax-space] (2026-11-12,
+  COMPLETED.md): operators spelled as two tokens still accept a space
+  inside: `a ? : 0` is `a ?: 0`, `a ? .f()` is `a?.f()`, `x ? > f(_)` is
+  `x ?> f(_)`, and `b ! is Q` is `b !is Q` (each probed: checks clean).
+  **DECISION**: refuse them as `syntax-space:inside-name` refuses `as !`
+  (the lexer keeps them apart; the parser would compare spans as
+  `name_suffix_touch` does), or leave operators free.
+- **DECISION: the agent's calls inside the spacing rule's second round, to
+  confirm** (built 2026-11-12, COMPLETED.md's entry of that day): (1) the
+  `<` slip is its own id, `syntax-space:before-type-args`, beside
+  `before-args`; (2) `replyto!`, `as!` and `as?` are forms whose suffix is
+  part of the name, like the ones the user listed (`replyto ! k(…)` was
+  accepted, `x as ! Q` was a parse error; both are now `inside-name`, read
+  as the form); (3) a slotless qualifier's type arguments are counted
+  (`qual-value-arg:partial-type-args`, or `qual-value-arg:no-type-args`
+  for one that declares none), and a type with no fn slots given a `(…)`
+  block is `qual-depend:no-value-args`; (4) a bare dependent qualifier in
+  a type (`InRange Int`) is refused as an unfilled one is.
 - **Members on one line** (left by [stmt-line], 2026-11-11): a statement,
   and a module's or a namespace's declaration, now starts on its own line,
   but a declaration's member lists are separate loops (an effect's, a

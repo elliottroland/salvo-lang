@@ -552,7 +552,16 @@ space before `T`. A space before a qualifier's arguments is an error too
 where the parentheses can only be arguments, as in `proj (xs) T` or
 `InRange (0, 100) Int`. The same rule holds for every name with an argument
 list, a function call or declaration among them, so a Rust or Kotlin reader
-writes these the way they already would.
+writes these the way they already would. A qualifier's type arguments
+follow it too: `Heap<T>(?cmp)`, never `Heap <T>`.
+
+The arguments are counted wherever the type is written, as an `is` test
+counts them: a qualifier with value slots gets one argument per slot
+(`InRange(1) Int` and a bare `InRange Int` are errors naming the filled
+form, `InRange(lo, hi)`), a qualifier with none takes no parentheses
+(`Mut(1) Str` is an error), and type arguments are written all or none.
+A function slot may be left out, since it is found by its name where it
+is needed, but not given twice or past the slots there are.
 
 ## State and provenance
 

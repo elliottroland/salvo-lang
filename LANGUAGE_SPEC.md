@@ -2192,6 +2192,19 @@ Conventions:
   * A `?` entry inside `<…>` is a parse error naming the block.
   * The block touches the name (or its `>`), and the qualified type is a
     space after it: `Heap<T>(?cmp) Mut List<T>` [syntax-space].
+  * **Counted where a type is written** (`validate_quals`, `validate_type`;
+    user decision 2026-11-12): a slotless qualifier written with fewer or
+    more type arguments than it declares is refused, all-or-none as a
+    slotted one is (`NonEmpty<Int, Str> List<Int>`:
+    `qual-value-arg:partial-type-args`; one that declares none,
+    `qualifier Pos for Int` written `Pos<Int> Int`:
+    `qual-value-arg:no-type-args`); a type with no fn slots takes no block
+    (`List<Int>(1)`, `T(1)`: `qual-depend:no-value-args`; an unresolved
+    name reports only that). A fn slot may be left unwritten (it is
+    resolved by its name, which is what makes `Heap<T>` and `Heap<T>(?eq)`
+    patterns), but not filled past the slots (`cmp-binder:too-many`) or
+    named for a slot the declaration lacks (`cmp-binder:unknown-slot`).
+    Value slots are counted under [qual-depend].
 * [qual-depend] A qualifier may declare **value slots** — unprefixed
   `name: Type` entries in its block — making it a **dependent claim**: a
   fact about the subject's relationship to another value (user decisions
@@ -2226,6 +2239,11 @@ Conventions:
     (defect fixed 2026-11-10: both kept the claim across the mutation).
   * One kind of slot per qualifier for now: fn slots [cmp-carry] or value
     slots, not both (nothing in std or the design's catalog mixes them).
+  * **Every value slot is filled in a type too**, as in an `is` test (user
+    decision 2026-11-12): `InRange(1) Int`, `InRange(1, 2, 3) Int` and a
+    bare `InRange Int` are `qual-depend:unfilled`, the id the `is` test
+    reports, naming the filled form (`validate_quals`). A qualifier with no
+    slots given arguments is `qual-depend:no-value-args`.
   * **Signatures consume the claims** (step 3): a parameter type may fill
     a slot with a **sibling parameter** (`fn get<T>(list: List<T>, index:
     Idx(list) Int)`), and at each call the template is substituted with the
@@ -2434,6 +2452,9 @@ Conventions:
     (`Const::encode`), which the IR lowers back to a literal.
   * A negative constant is written with its sign, `InRange(-5, 5)`
     (2026-11-05): the parser joins `-` and the digits into one constant.
+  * Constants are counted against the slots as places are, in a type and
+    in an `is` test alike (`InRange(1) Int` is `qual-depend:unfilled`,
+    [qual-depend]).
   * **A signature may fill a value slot with a sibling parameter**, and a
     call fills it with the argument (user decision 2026-11-05, the
     property-test record decisions 11 and 9.3): a **literal** argument (an
@@ -15284,11 +15305,37 @@ replaced the working document TESTING.md).
     `is (A | B)` head take a group after a space, and the printer writes
     one; `throw` is a fn, so `throw(e)` touches. A lambda's `(x) -> …`
     follows a `,`, a `(` or an operator, never a name.
-  * **Not covered**: a generic list's `<`, which may stand after a space
-    (`List <Int>`, `f <Int>(x)`), and in a type even on the next line
-    outside brackets (`let xs: List` / `<Int> = …`: `parse_type_ref_opts`
-    reads `<` without a line check); the space between a form's name and
-    its `!` (`assert !(x)` is `assert!(x)`).
+  * **A type argument list's `<` follows the `(` rule** (user decision
+    2026-11-12): it touches the name, in a type and in an expression, at a
+    declaration's type parameters and at a use's type arguments
+    (`List<Int>`, `f<Int>(x)`, `fn f<T>(…)`, `struct S<T>`, `qualifier
+    Q<T>`, `effect E<T>`, `comptime fn f<T is Struct>`, `Heap<T>(?cmp)`). A
+    space or a line break before it is `syntax-space:before-type-args` ("no
+    space or line break may come between a name and the `<` of its type
+    arguments or type parameters: write `List<`"), at the `<`, and the list
+    is read as the name's all the same. In a type a line break is refused
+    even outside brackets (`let xs: List` / `<Int> = …`), where it was read
+    on as type arguments with no line check.
+    * **Which `<` is type arguments in an expression is decided as before**,
+      by the tokens and not the spacing: after an expression, on its line or
+      inside brackets, a `<` opens type arguments when a list of types, its
+      `>` and a `(` follow (`try_parse_generic_call`, speculative), and is
+      less-than otherwise. So `a <b`, `a < b` and `(a` / `< b)` are
+      comparisons, as they were; only a `<` read as type arguments is
+      checked for the space (`twice <Int>(a)`, `List <Int>(1, 2)`). In a
+      type every `<` after a name is its type arguments.
+  * **A form's `!` or `?` is part of its name** (user decision
+    2026-11-12): `assert!`, `unreachable!`, `todo!`, `refuse!`, `type!`,
+    `type?`, `whynot?`, `replyto!`, and the operators `as!` and `as?`. A
+    space or a line break before the suffix is `syntax-space:inside-name`
+    ("`assert!` is one name: no space or line break may come inside it,
+    write `assert!`"), at the suffix, as a space inside any name would be
+    refused, and the form is read all the same (`as !` and `as ?`
+    included, which were no operator before: on one line, or across a line
+    break inside brackets; outside brackets a tier-3 operator spans no line
+    [expr-wrap], so `x as` / `! Q` is a parse error at the `as`). The `(`
+    after the suffix touches it as any argument list's does (`assert! (x)`
+    is `before-args`).
   * The printer [ast-print] writes every argument list touching its name, a
     space after each qualifier, and a space between a keyword and a group.
 * [fn-ref-table] The checker records every fn-*name* reference —
