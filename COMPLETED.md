@@ -152,6 +152,79 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — An operator spelled with two tokens is one ([syntax-space])
+
+User decision 2026-11-12, closing ROADMAP §0av's "left by the spacing
+rule's second round": an operator spelled with more than one token is one
+operator, so no space or line break may come inside it, as none may inside
+a form's name. `a ? : 0`, `p ? .f`, `x ? > f(_)` and `b ! is Q` checked
+clean; each is now `syntax-space:inside-operator` ("`?:` is one operator:
+no space or line break may come inside it, write `?:`"), at the second
+token, the operator read all the same, so the slip is reported once.
+
+- **The inventory** (the lexer's `symbol` and every place the parser
+  matches two tokens in sequence). One lexer token each, so out of scope (a
+  space leaves two tokens that form nothing, a parse error as before,
+  probed for `+ =`, `* * =`, `** =`, `| >`, `= =`, `! =`, `< =`, `& &`,
+  `+ +`, `| |`): `->`, `=>`, `...`, `||`, `&&`, `|>`, `==`, `!=`, `<=`,
+  `>=`, `**`, `**=`, `++`, `--`, `+=`, `-=`, `*=`, `/=`, `:=`. There is no
+  `..`, `::` or `%=`, and the pick's `??:` and `:?` were retired in
+  2026-10-14. Read by the parser from two (`Parser::op_touch` at the
+  second): `?:` (`parse_elvis_tail`), `?>` (`infix_bp`,
+  `parse_safe_pipe_tail`), `?.` (`parse_postfix_from`, the `?` on the
+  operand's line), `!is` (`infix_bp`/`parse_is_tail` in an expression,
+  `binary_leads_line` for one leading a line, a fn's and a refn's `-> x
+  !is Q` claim, a comptime test's `comp_is_or_not_is`), `as!` and `as?`
+  (`parse_as_tail`), and a type's array `[]` (`parse_type_postfix`).
+- **How each is told from two separate tokens**, unchanged: after an
+  operand in an expression a `?` has no meaning but `?:`, `?>` and `?.`
+  (there is no postfix `?`), and a `!` none but `!is` (a postfix `!` is
+  refused, `assert-op:postfix-bang`, and a prefix `!` is followed by its
+  operand); so the check runs only where the parser already read the
+  operator, and nothing that parsed as separate tokens became an error. A
+  type's `?` before a generic list's `>` (`List<Int?>`, `first<Int?>(x)`)
+  is read by the type parser, and an empty effect list `[ ]` is a list.
+  Line breaks were glued too, outside brackets (`a ?` / `: 0`, `x ?` / `>
+  f(_)`, `b !` / `is Q`, `p ?` / `.f`) and in: all refused now.
+- **Agent's calls, to confirm** (ROADMAP §0av): the array `[]` counts as
+  an operator (`Int[ ]` was accepted); `as!` and `as?`, `inside-name` since
+  the entry below, are `inside-operator` now; a `! is` leading a line is
+  both `expr-wrap:tier3-leading` and `inside-operator`. Left free, for the
+  user (probed: each checks clean): a space before a type's suffix (`Int
+  ?`, `Int []`), around a call's `@` selector (`g @ main(1)`), around a
+  `.` (`ys . size()`), after a fn slot's `?` (`(? cmp)`), after a
+  deduction's mark (`=> ! xs`, `xs: + NonEmpty`) and after a negative
+  constant's sign (`InRange(- 5, 5)`).
+- **The sweep** (`tmp/sweep3/`: HEAD's `salvo-syntax` as a second crate,
+  the sweep program of `tmp/sweep2/` with Rust strings holding a `?`, a
+  `[` or `!is` added): 14,384 parses from 912 files, every `.sv` file whole
+  and each `//---` program and `// FILE:` on its own, every Salvo fence of
+  the Markdown files and of comments, and every Rust string holding
+  Salvo-like text, each also wrapped in a `fn`. Nothing differs but
+  `syntax/spacing.sv`'s `as ! ` cases (their id): nothing in the
+  repository wrote a spaced operator, so no source was rewritten.
+  `demo/demo.sv` (the user's, read only) parses the same under both.
+- **Nothing to reformat**: `salvo fmt --check` over stage H's scope (92
+  files) reports nothing; std analyzes clean.
+- **Tests**: check data `syntax/spacing.sv` gained
+  `an_operator_written_whole` (each operator touching, with and without
+  spaces around it, `?:` and `?>` leading a line, a fn's and a refn's
+  `!is` claim, a comptime `!is`, and the tokens apart where they form
+  nothing: `List<Int?>`, `first<Int?>(None)`, `!(n is …)`, `[ ]`) and
+  `a_space_inside_an_operator_is_refused` (each spaced, each broken across
+  a line inside brackets, `?:` broken outside them, the claim, the refn,
+  the comptime test, `Int[ ]`, `Int[` / `]` across a line, a leading `!
+  is`, and `?>`, `?.` and `!is` broken outside brackets); the `as` cases moved there
+  from `a_form_s_suffix_is_part_of_its_name`.
+- **Docs**: [syntax-space] (the operator bullet, the decision per
+  operator); `Control-Flow.md`'s precedence section, `Collections.md`'s
+  arrays, `Formatting.md`.
+- **Checked**: `cargo build` warning-free; 765 tests under `cargo nextest
+  run --no-fail-fast`, all green twice: 3m27 wall (nextest's 174s; the
+  `salvo-syntax` change relinks every binary and misses every CLI stamp,
+  `run_data` 69s, the std test runs 36–67s), and after the review's
+  fixes (test data and docs only) 2m08 wall (nextest's 126s).
+
 ### 2026-11-12 — The tree keeps the parentheses written around an `is` head's types ([expr-group] [ast-print] [is-union] [when-union-head])
 
 User decision 2026-11-12, reversing the agent's call (3) of the operator
@@ -268,9 +341,10 @@ spacing rule (the entry below):
   brackets `x as` / `! Q` stays a parse error, since a tier-3 operator
   spans no line there). All of these are listed in ROADMAP §0av as the
   agent's calls to confirm. `name_suffix_touch` names the fix from the source text.
-  `assert! (x)` is still `before-args`, as before. Not covered (ROADMAP
-  §0av): two-token operators, `a ? : 0`, `a ? .f()`, `x ? > f(_)`, `b ! is
-  Q`, each probed and accepted.
+  `assert! (x)` is still `before-args`, as before. Not covered: two-token
+  operators, `a ? : 0`, `a ? .f()`, `x ? > f(_)`, `b ! is
+  Q`, each probed and accepted (since refused, the entry "An operator
+  spelled with two tokens is one" above).
 - **The counts** (`validate_quals`): a qualifier with value slots needs
   exactly one argument per slot (constants and places alike); a slotless
   qualifier's type arguments are all-or-none, `NonEmpty<Int, Str>

@@ -4,7 +4,9 @@
 // arguments — touches the name, and a qualifier is a space away from what it
 // qualifies. Keywords are not names: `if (a)` and `return (x)` keep their
 // space. A type argument list's `<` touches its name as a `(` does, and a
-// form's `!` or `?` (`assert!`, `type?`, `as!`) is part of its name. Each
+// form's `!` or `?` (`assert!`, `type?`) is part of its name. An operator
+// the parser reads from two tokens (`?:`, `?.`, `?>`, `!is`, `as!`, `as?`, a
+// type's `[]`) is one operator, with nothing inside it. Each
 // slip is one error, and the parentheses are read as the rule says the
 // author meant, so what follows is still parsed. A qualifier's arguments
 // are counted in a type as an `is` test counts them.
@@ -324,14 +326,6 @@ fn forms(a: Int) -> Int {
     type !(a: Int)
     //~ error[syntax-space:inside-name]
     let _w = whynot ?(a is InRange(0, 5))
-    //~ error[syntax-space:inside-name]
-    let _r = a as ! InRange(0, 9)
-    //~ error[syntax-space:inside-name]
-    let _o = a as ? InRange(0, 9)
-    // Inside brackets a line break is refused as a space is.
-    let _b = (a as
-        //~ error[syntax-space:inside-name]
-        ! InRange(0, 9))
     if a > 9 {
         //~ error[syntax-space:inside-name]
         //~ warning[assert-fn:todo]
@@ -418,4 +412,162 @@ fn fetch(out: Reply<Int>) [Counter] -> None => !out {
     //~ error[syntax-space:inside-name]
     //~ error[task-mint:gated-free-send]
     total(replyto ! finish(out))
+}
+
+//--- an_operator_written_whole
+// `?:`, `?.`, `?>`, `!is`, `as!`, `as?` and a type's `[]` are each one
+// operator the parser reads from two tokens: written whole they check, with
+// any spacing around them, and a tier-1 one may lead a line.
+struct P { f: Int }
+
+fn g(x: Int) -> Int {
+    return x
+}
+
+fn first<T>(x: T) -> T => !x {
+    return x
+}
+
+fn filled<T>(list: List<T>) -> list is NonEmpty => list {
+    return list is NonEmpty
+}
+
+fn empty<T>(list: List<T>) -> list !is NonEmpty => list {
+    return list !is NonEmpty
+}
+
+qualifier Bare<T> for List<T> {
+    refn is_empty<T>(list: List<T>) -> list !is Bare
+}
+
+comptime fn kinds(p: P) [] -> Int => p {
+    [for f in P.fields] {
+        [if f.type !is Str] {}
+    }
+    return 0
+}
+
+fn whole(a: Int?, p: P?, n: Int, xs: Int[]) -> Int {
+    let b = a ?: 0
+    //~ type[Int]
+    type?(b)
+    let c = a?:0
+    let d = p?.f
+    //~ type[Int?]
+    type?(d)
+    let e = a ?> g(_)
+    //~ type[Int?]
+    type?(e)
+    let _t = n !is InRange(0, 5)
+    //~ type[Bool]
+    type?(_t)
+    let _q = n as? InRange(0, 9)
+    let h = a
+        ?: 0
+    let k = a
+        ?> g(_)
+    return b + c + (d ?: 0) + (e ?: 0) + h + (k ?: 0) + size(xs)
+}
+
+// The same tokens apart, where the parser reads no operator from them: a
+// type's `?` before a generic list's `>`, a `!` before a group, an effect
+// list with nothing in it.
+fn apart(n: Int) [ ] -> Bool {
+    let _a: List<Int?>? = None
+    let _b = first<Int?>(None)
+    //~ type[Int?]
+    type?(_b)
+    return !(n is InRange(0, 5))
+}
+
+//--- a_space_inside_an_operator_is_refused
+// A space or a line break inside one is refused as inside a name, and the
+// operator read all the same, so the slip is reported once.
+struct P { f: Int }
+
+fn g(x: Int) -> Int {
+    return x
+}
+
+//~ error[syntax-space:inside-operator]
+fn empty<T>(list: List<T>) -> list ! is NonEmpty => list {
+    return list !is NonEmpty
+}
+
+qualifier Full<T> for List<T> {
+    //~ error[syntax-space:inside-operator]
+    refn is_empty<T>(list: List<T>) -> list ! is Full
+}
+
+comptime fn kinds(p: P) [] -> Int => p {
+    [for f in P.fields] {
+        //~ error[syntax-space:inside-operator]
+        [if f.type ! is Str] {}
+    }
+    return 0
+}
+
+//~ error[syntax-space:inside-operator]
+fn spaced(a: Int?, p: P?, n: Int, _xs: Int[ ]) -> Int {
+    //~ error[syntax-space:inside-operator]
+    let b = a ? : 0
+    //~ type[Int]
+    type?(b)
+    //~ error[syntax-space:inside-operator]
+    let d = p ? .f
+    //~ type[Int?]
+    type?(d)
+    //~ error[syntax-space:inside-operator]
+    let e = a ? > g(_)
+    //~ type[Int?]
+    type?(e)
+    //~ error[syntax-space:inside-operator]
+    let _t = n ! is InRange(0, 5)
+    //~ type[Bool]
+    type?(_t)
+    //~ error[syntax-space:inside-operator]
+    let _r = n as ! InRange(0, 9)
+    //~ error[syntax-space:inside-operator]
+    let _o = n as ? InRange(0, 9)
+    // A line break is refused as a space is, inside brackets and out.
+    let c = (a ?
+        //~ error[syntax-space:inside-operator]
+        : 0)
+    let h = a ?
+        //~ error[syntax-space:inside-operator]
+        : 0
+    let i = (p ?
+        //~ error[syntax-space:inside-operator]
+        .f)
+    let j = (a ?
+        //~ error[syntax-space:inside-operator]
+        > g(_))
+    let _f = (n !
+        //~ error[syntax-space:inside-operator]
+        is InRange(0, 5))
+    let _h = (n as
+        //~ error[syntax-space:inside-operator]
+        ! InRange(0, 9))
+    let l = a ?
+        //~ error[syntax-space:inside-operator]
+        > g(_)
+    let m = p ?
+        //~ error[syntax-space:inside-operator]
+        .f
+    let _z = n !
+        //~ error[syntax-space:inside-operator]
+        is InRange(0, 5)
+    // A tier-3 operator leading its line is its own slip.
+    let k = n
+        //~ error[expr-wrap:tier3-leading]
+        //~ error[syntax-space:inside-operator]
+        ! is InRange(0, 5)
+    return b + c + h + (d ?: 0) + (e ?: 0) + (i ?: 0) + (j ?: 0) + k + (l ?: 0) + (m ?: 0)
+}
+
+fn broken(
+    _xs: Int[
+        //~ error[syntax-space:inside-operator]
+        ],
+) -> None {
 }

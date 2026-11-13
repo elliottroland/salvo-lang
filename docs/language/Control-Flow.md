@@ -442,6 +442,11 @@ also binds tighter than a `-` on its left
 ([Power](Data-and-Types.md#power)). A union's `|` (`x is A | B`, a union
 type) binds tighter than `is`: `x is A | B` tests `x` against `A | B`.
 
+Each operator is written whole: no space or line break may come inside
+`?:`, `?.`, `?>`, `!is`, `as!`, `as?` or any other, so `a ? : 0` and `b !
+is Q` are errors naming the operator to write. The spaces around an
+operator are free (`a?:0` is `a ?: 0`).
+
 The pick sits just inside the pipe, looser than `||` and `&&` (where Kotlin's
 `?:` is tighter than comparison), so its right side is a whole condition or
 sum: `n ?: 0 > 5` is `n ?: (0 > 5)`, `ok && done ?: false` is

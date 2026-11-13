@@ -467,7 +467,9 @@ An array (`T[]`) is a fixed-size sequence, and it exists mostly for the
 *variadic* boundary: `...elems: T[]` is what a variadic parameter receives
 ([Lambdas and variadics](Lambdas-and-Variadics.md)). Arrays have no literal
 syntax, and `List(1, 2)` builds a list, not an array, so arrays are constructed
-by function ([std.core.array](../../lib/std/core/array.sv)):
+by function ([std.core.array](../../lib/std/core/array.sv)). The `[]` of the
+type is one operator, written whole: `Int[ ]` is an error (an empty effect
+list, `fn f() [ ] -> Int`, is a list and may hold a space):
 
 ```salvo
 // From its elements

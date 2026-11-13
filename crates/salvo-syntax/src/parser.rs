@@ -605,9 +605,9 @@ impl<'s> Parser<'s> {
     }
 
     /// [syntax-space] At the `!` or `?` that ends a compiler-known name
-    /// (`assert!`, `type?`, `as!`, `replyto!`): the suffix is part of the
-    /// name, so a space or a line break before it is refused as one inside
-    /// a name would be, and the form read all the same.
+    /// (`assert!`, `type?`, `replyto!`): the suffix is part of the name, so a
+    /// space or a line break before it is refused as one inside a name would
+    /// be, and the form read all the same.
     fn name_suffix_touch(&mut self) {
         if matches!(self.kind(), TokenKind::Bang | TokenKind::Question) && self.pos > 0 && !self.touches_prev() {
             let prev = &self.tokens[self.pos - 1];
@@ -615,6 +615,17 @@ impl<'s> Parser<'s> {
             let suffix = if matches!(self.kind(), TokenKind::Bang) { "!" } else { "?" };
             let span = self.peek().span;
             self.error(messages::syntax_space_inside_name(&format!("{head}{suffix}")), span);
+        }
+    }
+
+    /// [syntax-space] At the second token of an operator the lexer leaves as
+    /// two and the parser reads as one (`?:`, `?.`, `?>`, `!is`, `as!`,
+    /// `as?`, a type's `[]`): the operator is one, so a space or a line break
+    /// inside it is refused, and it is read all the same.
+    fn op_touch(&mut self, op: &str) {
+        if self.pos > 0 && !self.touches_prev() {
+            let span = self.peek().span;
+            self.error(messages::syntax_space_inside_operator(op), span);
         }
     }
 
@@ -666,6 +677,7 @@ impl<'s> Parser<'s> {
         // A type follows `is`, `as!` and `|`: the rest of the line is skipped.
         if matches!(op, "is" | "!is" | "as!" | "as?" | "|") {
             if op != "is" && op != "|" {
+                self.op_touch(op);
                 self.bump();
             }
             self.recover_in_block();
@@ -2525,6 +2537,7 @@ impl<'s> Parser<'s> {
                 let subject = self.ident()?;
                 let negated = if self.at(&TokenKind::Bang) {
                     self.bump();
+                    self.op_touch("!is");
                     true
                 } else {
                     false
@@ -3183,6 +3196,7 @@ impl<'s> Parser<'s> {
                     let subject = self.ident()?;
                     let negated = if self.at(&TokenKind::Bang) {
                         self.bump();
+                        self.op_touch("!is");
                         true
                     } else {
                         false
@@ -3969,6 +3983,7 @@ impl<'s> Parser<'s> {
                 && matches!(self.peek_at(1).kind, TokenKind::RBracket)
             {
                 self.bump();
+                self.op_touch("[]");
                 let end = self.bump().span;
                 let span = ty.span().to(end);
                 ty = Type::Array {
@@ -5964,6 +5979,7 @@ impl<'s> Parser<'s> {
     fn comp_is_or_not_is(&mut self) -> Option<bool> {
         if self.at(&TokenKind::Bang) && matches!(self.peek_at(1).kind, TokenKind::KwIs) {
             self.bump();
+            self.op_touch("!is");
             self.bump();
             return Some(true);
         }
@@ -6609,8 +6625,8 @@ impl<'s> Parser<'s> {
             TokenKind::KwIs => (12, InfixKind::Is),
             // [expr-as-qual] `as!` and `as?`, the bang or question mark written
             // against the `as`; written after a space, or a line break inside
-            // brackets, it is refused as a name split in two
-            // (`parse_as_tail`).
+            // brackets, it is refused as an operator split in two
+            // (`parse_as_tail`) [syntax-space].
             TokenKind::KwAs
                 if matches!(self.peek_at(1).kind, TokenKind::Bang | TokenKind::Question)
                     && (self.group_depth > 0 || !self.peek_at(1).newline_before) =>
@@ -6636,6 +6652,9 @@ impl<'s> Parser<'s> {
     /// and the guard rule all reach it unchanged.
     fn parse_is_tail(&mut self, lhs: Expr, not: bool) -> Option<Expr> {
         let not = not.then(|| self.bump().span);
+        if not.is_some() {
+            self.op_touch("!is");
+        }
         let is = self.bump().span; // `is`
         let across = self.group_depth == 0 && self.peek().newline_before;
         self.refuse_trailing(if not.is_some() { "!is" } else { "is" }, not.unwrap_or(is).to(is));
@@ -6728,9 +6747,9 @@ impl<'s> Parser<'s> {
     /// stands for is written before resolution (`desugar::lower_sugar`).
     fn parse_as_tail(&mut self, lhs: Expr) -> Option<Expr> {
         let op = self.bump().span; // `as`
-        self.name_suffix_touch();
+        let trap = matches!(self.kind(), TokenKind::Bang);
+        self.op_touch(if trap { "as!" } else { "as?" });
         let mark = self.bump(); // `!` or `?`
-        let trap = matches!(mark.kind, TokenKind::Bang);
         let across = self.group_depth == 0 && self.peek().newline_before;
         self.refuse_trailing(if trap { "as!" } else { "as?" }, op.to(mark.span));
         let (check, binding) = self.parse_is_check_from(across)?;
@@ -6863,6 +6882,7 @@ impl<'s> Parser<'s> {
             return Some(None);
         }
         self.bump(); // `?`
+        self.op_touch("?:");
         self.expect(&TokenKind::Colon)?;
         // The right side is an operand one level up (`||`, bp 5+), *not* a
         // recursive elvis: that is what makes the chain left-associative. It
@@ -6901,6 +6921,7 @@ impl<'s> Parser<'s> {
     /// side is parsed at bp 3 (every tighter operator).
     fn parse_safe_pipe_tail(&mut self, lhs: Expr) -> Option<Expr> {
         self.bump(); // `?`
+        self.op_touch("?>");
         self.bump(); // `>`
         let rhs = self.sub_expr(|p| p.parse_binary(3))?;
         let span = lhs.span().to(rhs.span());
@@ -7282,6 +7303,7 @@ impl<'s> Parser<'s> {
                         && matches!(self.peek_at(1).kind, TokenKind::Dot) =>
                 {
                     self.bump(); // `?`
+                    self.op_touch("?.");
                     self.bump(); // `.`
                     let field = self.ident()?;
                     let (access, end) = if self.at(&TokenKind::LParen) && self.same_line() {

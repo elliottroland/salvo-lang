@@ -15342,18 +15342,49 @@ replaced the working document TESTING.md).
       type every `<` after a name is its type arguments.
   * **A form's `!` or `?` is part of its name** (user decision
     2026-11-12): `assert!`, `unreachable!`, `todo!`, `refuse!`, `type!`,
-    `type?`, `whynot?`, `replyto!`, and the operators `as!` and `as?`. A
-    space or a line break before the suffix is `syntax-space:inside-name`
+    `type?`, `whynot?` and `replyto!`. A space or a line break before the
+    suffix is `syntax-space:inside-name`
     ("`assert!` is one name: no space or line break may come inside it,
     write `assert!`"), at the suffix, as a space inside any name would be
-    refused, and the form is read all the same (`as !` and `as ?`
-    included, which were no operator before: on one line, or across a line
-    break inside brackets; outside brackets a tier-3 operator spans no line
-    [expr-wrap], so `x as` / `! Q` is a parse error at the `as`). The `(`
-    after the suffix touches it as any argument list's does (`assert! (x)`
-    is `before-args`).
+    refused, and the form is read all the same. The `(` after the suffix
+    touches it as any argument list's does (`assert! (x)` is
+    `before-args`).
+  * **An operator spelled with two tokens is one operator** (user decision
+    2026-11-12): nothing may come inside it, as nothing may inside a form's
+    name. The lexer makes one token of `->`, `=>`, `...`, `||`, `&&`, `|>`,
+    `==`, `!=`, `<=`, `>=`, `**`, `**=`, `++`, `--`, `+=`, `-=`, `*=`, `/=`
+    and `:=`, so a space inside one of those leaves two tokens that form no
+    operator, a parse error as before. The parser reads seven from two
+    tokens, and a space or a line break between the two is
+    `syntax-space:inside-operator` ("`?:` is one operator: no space or line
+    break may come inside it, write `?:`"), at the second token, the
+    operator read all the same, so the slip is reported once:
+    * `?:`, `?>`: after an operand in an expression, a `?` followed by `:`
+      is the pick and by `>` the null-safe pipe, wherever the second token
+      is (`a ? : 0`, `x ? > f(_)`, and across a line break, inside brackets
+      or out). Nothing else in an expression is a `?` after an operand.
+    * `?.`: a `?` on the operand's line followed by `.` (`p ? .f`, or the
+      `.` on the next line). A `?` beginning a line is no `?.`.
+    * `!is`: after an operand, a `!` followed by `is`, in an expression
+      (`b ! is Q`), a fn's or a refn's claim (`-> list ! is NonEmpty`) and
+      a compile-time test (`[if f.type ! is Str]`). A postfix `!` is no
+      Salvo, and a prefix `!` is followed by its operand, never by `is`, so
+      `!(n is Q)` is untouched. A `! is` beginning a line outside brackets
+      is `expr-wrap:tier3-leading` as well.
+    * `as!`, `as?`: `as` followed by `!` or `?` on its line, or across a
+      line break inside brackets (`x as ! Q`, which was a parse error
+      before; outside brackets `x as` / `! Q` stays one, since a tier-3
+      operator spans no line [expr-wrap]).
+    * A type's `[]`: `[` followed by `]` after a type is the array
+      (`Int[ ]`). An effect list is a list, so an empty one may hold a
+      space (`fn f() [ ] -> Int`), and a type's `?` followed by a generic
+      list's `>` is two tokens (`List<Int?>`, `first<Int?>(x)`).
+
+    What lies around an operator is free: `a?:0`, `a ?: 0` and a tier-1
+    operator leading its line are all `?:`.
   * The printer [ast-print] writes every argument list touching its name, a
-    space after each qualifier, and a space between a keyword and a group.
+    space after each qualifier, a space between a keyword and a group, and
+    every operator whole.
 * [fn-ref-table] The checker records every fn-*name* reference —
   declaration names, call-site callees (incl. dot-notation), and
   fn-by-name uses — as `Checked::fn_refs: Key -> DeclId`, keyed by the

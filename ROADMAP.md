@@ -1146,24 +1146,34 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     literals (`[if n == 1_000]`: `CompExpr::Int`, `Char`, `Str`). Both print
     in the printer's spelling, which parses to the same value; giving them a
     spelling is the same field the expression literals have.
-- **Left by the spacing rule's second round** [syntax-space] (2026-11-12,
-  COMPLETED.md): operators spelled as two tokens still accept a space
-  inside: `a ? : 0` is `a ?: 0`, `a ? .f()` is `a?.f()`, `x ? > f(_)` is
-  `x ?> f(_)`, and `b ! is Q` is `b !is Q` (each probed: checks clean).
-  **DECISION**: refuse them as `syntax-space:inside-name` refuses `as !`
-  (the lexer keeps them apart; the parser would compare spans as
-  `name_suffix_touch` does), or leave operators free.
 - **DECISION: the agent's calls inside the spacing rule's second round, to
   confirm** (built 2026-11-12, COMPLETED.md's entry of that day): (1) the
   `<` slip is its own id, `syntax-space:before-type-args`, beside
-  `before-args`; (2) `replyto!`, `as!` and `as?` are forms whose suffix is
-  part of the name, like the ones the user listed (`replyto ! k(…)` was
-  accepted, `x as ! Q` was a parse error; both are now `inside-name`, read
-  as the form); (3) a slotless qualifier's type arguments are counted
+  `before-args`; (2) `replyto!` is a form whose suffix is part of the name,
+  like the ones the user listed (`replyto ! k(…)` was accepted; now
+  `inside-name`, read as the form); `as!` and `as?` were too, and are
+  `inside-operator` since the operator rule below; (3) a slotless
+  qualifier's type arguments are counted
   (`qual-value-arg:partial-type-args`, or `qual-value-arg:no-type-args`
   for one that declares none), and a type with no fn slots given a `(…)`
   block is `qual-depend:no-value-args`; (4) a bare dependent qualifier in
   a type (`InRange Int`) is refused as an unfilled one is.
+- **DECISION: the agent's calls inside the operator rule, to confirm**
+  (built 2026-11-12, COMPLETED.md's entry "An operator spelled with two
+  tokens is one"): (1) a type's array `[]` counts as an operator (`Int[ ]`
+  is `inside-operator`; an empty effect list `[ ]` stays a list); (2) `as!`
+  and `as?` moved from `inside-name` to `inside-operator`; (3) a `! is`
+  beginning a line outside brackets reports both `expr-wrap:tier3-leading`
+  and `inside-operator`, one per slip.
+- **DECISION: spacing the operator rule leaves free** (found probing it,
+  2026-11-12; each checks clean today): a space before a type's suffix
+  (`a: Int ?`, `xs: Int []`, where the suffix is one token or the `[]`
+  pair), around a call's `@` selector (`g @ main(1)`), around a `.`
+  (`ys . size()`), after a fn slot's `?` (`Heap<T>(? cmp)`), after a
+  deduction's mark (`=> ! xs`, `=> xs: + NonEmpty`, so a re-typing's `-Q`
+  too) and after a negative constant's sign (`InRange(- 5, 5)`). Each is
+  one token against a name, a type or a literal, as a form's `!` is;
+  refuse them as `inside-name` refuses `assert !`, or leave them.
 - **Members on one line** (left by [stmt-line], 2026-11-11): a statement,
   and a module's or a namespace's declaration, now starts on its own line,
   but a declaration's member lists are separate loops (an effect's, a

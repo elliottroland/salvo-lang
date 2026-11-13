@@ -1165,9 +1165,15 @@ messages! {
          type parameters: write `{name}<`"
     );
     /// A space or a line break between a compiler-known name and the `!` or
-    /// `?` that ends it (`assert !(x)`, `type ?(x)`, `x as ! Q`).
+    /// `?` that ends it (`assert !(x)`, `type ?(x)`, `replyto ! k(…)`).
     syntax_space_inside_name = "syntax-space:inside-name" (name: &str) => format!(
         "`{name}` is one name: no space or line break may come inside it, write `{name}`"
+    );
+    /// A space or a line break between the tokens of an operator the parser
+    /// reads from two (`a ? : 0`, `p ? .f`, `x ? > f(_)`, `b ! is Q`, `x as !
+    /// Q`, `Int[ ]`).
+    syntax_space_inside_operator = "syntax-space:inside-operator" (op: &str) => format!(
+        "`{op}` is one operator: no space or line break may come inside it, write `{op}`"
     );
     /// A qualifier written against what it qualifies: a `(` touching its
     /// name that holds a type rather than its arguments (`Mut(Str)`), or the
