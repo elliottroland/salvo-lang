@@ -118,8 +118,8 @@ The standard library is formatted like any project: run `salvo fmt` in
   there), and those breaks are kept, the operator leading each
   continuation line. A union the author broke inside its parentheses
   prints one arm per line, `|` leading, with `(` ending the line before
-  and `)` on a line of its own; an `is A | B` head the author broke that
-  way prints in parentheses of its own, `is (` … `)`.
+  and `)` on a line of its own; an `is (A | B)` head the author broke
+  inside its parentheses prints the same way, `is (` … `)`.
 - **Comments**: every comment is kept, as written, where it was written: a
   run above a declaration or a statement, a comment at the end of a line,
   one before a closing `}`. A comment inside a bracketed list breaks the
@@ -129,7 +129,8 @@ The standard library is formatted like any project: run `salvo fmt` in
   them, except two one-line declarations (imports, aliases) written on
   consecutive lines, which stay together.
 - **Kept as written**: grouping parentheses, even redundant ones (`(a + b)`
-  stays), and the spelling of a literal (`1_000`, `0.50`, an escape in a
+  stays, and so does `x is (A | B)` or `x is (A)` around an `is` test's
+  types), and the spelling of a literal (`1_000`, `0.50`, an escape in a
   string). Parentheses are added only where precedence needs them.
 - **Canonical spellings** where the program reads the same either way: a
   handler with no parameters is written without brackets (`handler H for

@@ -6639,7 +6639,7 @@ impl<'s> Parser<'s> {
         let is = self.bump().span; // `is`
         let across = self.group_depth == 0 && self.peek().newline_before;
         self.refuse_trailing(if not.is_some() { "!is" } else { "is" }, not.unwrap_or(is).to(is));
-        let (mut checks, binding, mut end) = self.parse_is_head(across)?;
+        let (mut checks, binding, end, head) = self.parse_is_head(across)?;
         // [is-union] `s is "json" | "text"`, `x is Int | Str`: the
         // disjunction of the tests, which narrows to the union of what they
         // test (the CLI design record X4, Q9). Written over a place, read once per
@@ -6653,7 +6653,6 @@ impl<'s> Parser<'s> {
                 self.error(messages::is_union_subject_not_place(), lhs.span());
             }
         } else {
-            end = binding.as_ref().map(|b| b.span).unwrap_or(end);
             // A negated test narrows nothing in its *then* branch, so there
             // is no value for a binding to name.
             if let (Some(b), Some(_)) = (&binding, not) {
@@ -6663,31 +6662,45 @@ impl<'s> Parser<'s> {
         let span = lhs.span().to(end);
         if checks.len() == 1 && not.is_none() {
             let check = checks.pop()?;
-            return Some(Expr::Is { subject: Box::new(lhs), check, binding, span });
+            return Some(Expr::Is { subject: Box::new(lhs), check, binding, head, span });
         }
-        Some(Expr::Sugar(Box::new(Sugar::Is { subject: lhs, checks, binding, not, span })))
+        Some(Expr::Sugar(Box::new(Sugar::Is { subject: lhs, checks, binding, not, head, span })))
     }
 
     /// [is-union] [when-union-head] The tests of an `is` head, `A`, `A | B`
     /// or `(A | B)`, with the first test's binding (a later test's is
-    /// refused) and where the head ends. Outside brackets the `|`s stay on
-    /// the head's line [expr-wrap]; in parentheses, which group the tests as
-    /// they would a union type, the head may break before each `|`. `across`
-    /// reads the first test from the next line, after an `is` that ended its
-    /// line (already refused).
-    fn parse_is_head(&mut self, across: bool) -> Option<(Vec<Vec<TypeRef>>, Option<Ident>, Span)> {
-        let open = self.at(&TokenKind::LParen).then(|| self.bump().span);
-        if open.is_some() {
-            self.group_depth += 1;
+    /// refused), where the head ends, and the head itself: the span of its
+    /// tests and binding, with the parentheses written around them counted
+    /// [expr-group]. Outside brackets the `|`s stay on the head's line
+    /// [expr-wrap]; in parentheses, which group the tests as they would a
+    /// union type, the head may break before each `|`. `across` reads the
+    /// first test from the next line, after an `is` that ended its line
+    /// (already refused).
+    fn parse_is_head(&mut self, across: bool) -> Option<(Vec<Vec<TypeRef>>, Option<Ident>, Span, Span)> {
+        let mut opens = Vec::new();
+        while self.at(&TokenKind::LParen) {
+            opens.push(self.bump().span);
         }
-        let first = self.parse_is_check_from(across || open.is_some());
-        let Some((check, binding)) = first else {
-            if open.is_some() {
-                self.group_depth -= 1;
-            }
-            return None;
-        };
-        let mut end = check.last().map(|r| r.span).or(open).unwrap_or(self.peek().span);
+        let depth = opens.len() as u32;
+        self.group_depth += depth;
+        let out = self.parse_is_tests(across || depth > 0);
+        self.group_depth -= depth;
+        let (checks, binding, mut head) = out?;
+        let mut end = head;
+        for _ in &opens {
+            end = self.expect(&TokenKind::RParen)?.span;
+            head = head.grouped();
+        }
+        Some((checks, binding, end, head))
+    }
+
+    /// The tests of an `is` head inside the parentheses written around it,
+    /// if any, with the first test's binding and their span.
+    fn parse_is_tests(&mut self, across: bool) -> Option<(Vec<Vec<TypeRef>>, Option<Ident>, Span)> {
+        let at = self.peek().span;
+        let (check, binding) = self.parse_is_check_from(across)?;
+        let start = check.first().map(|r| r.span).unwrap_or(at);
+        let mut end = binding.as_ref().map(|b| b.span).or(check.last().map(|r| r.span)).unwrap_or(at);
         let mut checks = vec![check];
         // A `|` beginning the next line, outside brackets, is refused and
         // read on, so the slip is reported once (a line cannot begin with
@@ -6699,23 +6712,15 @@ impl<'s> Parser<'s> {
             }
             let bar = self.bump().span;
             self.refuse_trailing("|", bar);
-            let Some((more, b)) = self.parse_is_check_after_bar() else {
-                if open.is_some() {
-                    self.group_depth -= 1;
-                }
-                return None;
-            };
+            let (more, b) = self.parse_is_check_after_bar()?;
             if let Some(b) = b {
                 self.error(messages::is_union_binding(), b.span);
+                end = b.span;
             }
-            end = more.last().map(|r| r.span).unwrap_or(end);
+            end = more.last().map(|r| r.span).filter(|r| r.end > end.end).unwrap_or(end);
             checks.push(more);
         }
-        if open.is_some() {
-            self.group_depth -= 1;
-            end = self.expect(&TokenKind::RParen)?.span;
-        }
-        Some((checks, binding, end))
+        Some((checks, binding, start.to(end)))
     }
 
     /// [expr-as-qual] `x as! Q` and `x as? Q` (user decision 2026-11-05): `x`
@@ -8794,7 +8799,7 @@ impl<'s> Parser<'s> {
             // [when-union-head] `is A | B { … }`: one arm for every
             // alternative (user decision 2026-10-30, option 1a), as `x is A
             // | B` is in a condition [is-union]: no binding.
-            let (mut or, binding, _) = self.parse_is_head(false)?;
+            let (mut or, binding, _, head) = self.parse_is_head(false)?;
             let check = or.remove(0);
             if !or.is_empty() {
                 if let Some(b) = &binding {
@@ -8808,6 +8813,7 @@ impl<'s> Parser<'s> {
                 or,
                 hole: None,
                 binding,
+                head,
                 body,
                 span,
             });

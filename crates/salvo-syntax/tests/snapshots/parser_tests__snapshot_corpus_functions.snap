@@ -174,6 +174,7 @@ Module {
                                                                         },
                                                                     ],
                                                                     binding: None,
+                                                                    head: 96..100,
                                                                     span: 89..100,
                                                                 },
                                                                 rhs: Binary {
@@ -441,6 +442,7 @@ Module {
                                                         },
                                                     ],
                                                     binding: None,
+                                                    head: 266..269,
                                                     span: 254..269,
                                                 },
                                                 rhs: Binary {

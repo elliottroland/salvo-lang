@@ -3130,6 +3130,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 8855..8859,
                                                 span: 8850..8859,
                                             },
                                             Block {

@@ -5338,6 +5338,7 @@ impl<'w> Expander<'w> {
                         or: Vec::new(),
                         hole: None,
                         binding: None,
+                        head: bspan.ungrouped(),
                         body,
                         span: bspan,
                     });

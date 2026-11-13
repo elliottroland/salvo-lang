@@ -677,7 +677,8 @@ Conventions:
       head may be parenthesized for that, `x is (A\n    | B)` and a `when`
       arm's `is (A\n    | B) { … }` (`Parser::parse_is_head`): the same
       head as `x is A | B`, the parentheses grouping its tests as they
-      would a union type's arms; the tree keeps no record of them.
+      would a union type's arms; the tree counts them on the head's span
+      [expr-group], and the printer keeps them as written [ast-print].
     * **Not after a `}`** (outside brackets): a line that begins with `||`
       or `&&` directly after a `}` — a block's, a `when`'s or an `if`'s
       used as a value, a struct literal's — is an error,
@@ -3504,7 +3505,9 @@ Conventions:
   * **The tests may be parenthesized**, `x is (A | B)` (user decision
     2026-11-12): the same head, so a long one breaks inside the parentheses
     before each `|` [expr-wrap]; outside brackets its `|` neither begins
-    nor ends a line. The `|` binds tighter than `is`.
+    nor ends a line. The `|` binds tighter than `is`. Any number of pairs
+    may be written, around one test too (`x is ((A))`), and the tree keeps
+    them as written [expr-group].
   * **A literal test on a plain base compares the value** (fixed
     2026-10-20): `s is "json"` on a `Str` records a value test with no
     wrapper (`UnionTest` of size 1 with a value condition) and narrows `s` to
@@ -13422,7 +13425,13 @@ replaced the working document TESTING.md).
   `tests/print/breaks.sv` (each breakable construct on one line, broken
   by its author and broken by the width) print back to their own text,
   byte for byte, and each `tests/print/canonical/<name>.in.sv` prints as
-  its `<name>.out.sv`.
+  its `<name>.out.sv`. An `is` head prints inside the parentheses counted
+  on its `head` [expr-group], on one line, or, when the author broke it
+  inside them, one test per line, one level in, `|` leading, `)` on a line
+  of its own, as a broken union type prints; it gets a pair of the
+  printer's only where none was written and the parser needs one (a head
+  broken outside brackets, which no parse holds). The repository walk's
+  `bare` printing forgets an `is` head's parentheses with a type's.
 * [expr-group] **Grouping parentheses are kept as written, as spelling**
   (user decision 2026-11-11, for `salvo fmt`: "KEEP what was written").
   `(x)`, `((a + b))`, `(a && b) || c`, a parenthesized condition, a grouped
@@ -13444,7 +13453,14 @@ replaced the working document TESTING.md).
   precedence or a condition's struct literal needs it, so a written group
   also shields a struct literal in a condition (`if p == (Point { x }) {`).
   `(x.f)` keeps its meaning as a callee [fn-member-call] (`Expr::Field`'s
-  `grouped`, set beside the count). The same-tree comparisons of the print
+  `grouped`, set beside the count). The parentheses written around an `is`
+  head's types (`x is (A | B)`, `x is (A)`, `x !is ((A))`, `is (A | B) { …
+  }` in a `when`, broken inside them or not) are kept the same way (user
+  decision 2026-11-12): the head has no node of its own, so it has a span,
+  `head` on `Expr::Is`, `Sugar::Is` and `WhenBranch` — its tests and the
+  binding read with them, `Str s` in `x is (Str s)` — and the pairs are
+  counted on it; the parser reads any number of them, and the lowering of
+  a union `is` keeps none. The same-tree comparisons of the print
   tests leave the count aside, with the spans; the fixtures' text test is
   what holds the printer to it.
 * [lit-spelling] **A literal keeps its spelling** (user decision

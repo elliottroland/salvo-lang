@@ -13707,6 +13707,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 33264..33268,
                                                 span: (33238..33268),
                                             },
                                             span: 33236..33268,
@@ -16474,6 +16475,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 37322..37326,
                                                 span: 37314..37326,
                                             },
                                             Block {
@@ -17390,6 +17392,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 38718..38722,
                                                 span: 38710..38722,
                                             },
                                             Block {
@@ -18757,6 +18760,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 41359..41363,
                                                 span: 41351..41363,
                                             },
                                             Block {
@@ -21813,6 +21817,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 49420..49429,
                                                 span: 49411..49429,
                                             },
                                             Block {
@@ -22300,6 +22305,7 @@ Module {
                                                                     },
                                                                 ],
                                                                 binding: None,
+                                                                head: 50392..50398,
                                                                 span: 50387..50398,
                                                             },
                                                             Block {
@@ -22794,6 +22800,7 @@ Module {
                                                                     },
                                                                 ],
                                                                 binding: None,
+                                                                head: 51100..51106,
                                                                 span: 51095..51106,
                                                             },
                                                             Block {

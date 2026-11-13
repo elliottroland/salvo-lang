@@ -29322,6 +29322,7 @@ impl<'p, 'r> Checker<'p, 'r> {
             check,
             binding,
             span,
+            ..
         } = is_expr
         else {
             unreachable!("is_info called on non-is expression")

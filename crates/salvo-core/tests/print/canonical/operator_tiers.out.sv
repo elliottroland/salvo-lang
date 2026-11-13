@@ -55,8 +55,8 @@ fn f(a: Int, b: Int, ok: Bool, done: Bool, m: Int? | Str, xs: List<Int>) -> Int 
         first_condition_of_the_test(a) && second_condition_of_the_test(b) && third_condition_of_the_test(ok)
     )
     let compared = (m ?: 0) > 5
-    // An `is` head the author broke prints in parentheses of its own, and a
-    // `when` arm's the same; on one line its parentheses go.
+    // An `is` head the author broke in its parentheses prints one test per
+    // line, and a `when` arm's the same; on one line its parentheses stay.
     let head = m is (
         Int
         | Str
@@ -65,7 +65,7 @@ fn f(a: Int, b: Int, ok: Bool, done: Bool, m: Int? | Str, xs: List<Int>) -> Int 
         Int
         | Str
     )
-    let flat_head = m is Int | Str
+    let flat_head = m is (Int | Str)
     when m {
         is (
             Int

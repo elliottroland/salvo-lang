@@ -152,6 +152,77 @@ stamping, file writing); it lowers every `intrinsic` std declares (its
 
 ## Decision log — newest first
 
+### 2026-11-12 — The tree keeps the parentheses written around an `is` head's types ([expr-group] [ast-print] [is-union] [when-union-head])
+
+User decision 2026-11-12, reversing the agent's call (3) of the operator
+tiers (the entry "The operators break lines by tier" below, ROADMAP §0av):
+parentheses written around an `is` head's types (`x is (A | B)`, `x is
+(A)`, `x !is (…)`, a `when` arm's `is (A | B) { … }`, the multi-line `is (A`
+/ `| B)`) are recorded in the tree like every other written group, and the
+printer prints them back exactly as written; it adds none where none were
+written and the parser needs none. The same-tree guarantee ignores them, as
+it does every written pair.
+
+- **The representation** (agent's call, to confirm): the head has no node
+  of its own (`Expr::Is`'s `check` is a `Vec<TypeRef>`, `Sugar::Is`'s
+  `checks` and `WhenBranch`'s `check` + `or` lists of them), and no span
+  either: `span` is the whole test, from its subject, where a count would
+  mean `(x is A)`. So each of the three gained one field, `head: Span`,
+  the span of the tests and the binding read with them (`Str s` in `x is
+  (Str s)`), carrying the count as c9234131's groups do (`Span::parens`,
+  added by `Span::grouped`, no part of `==`, written `((12..20))` in a
+  debug form, a span to the same-tree check). Rejected: the count on the
+  first test's first `TypeRef` span, which needs no new field but would
+  read as `(A) | B`, a type ref's own group, and would ride every copy of
+  that ref; and choosing `Sugar::Is` for a parenthesized plain test, which
+  would have made `x is (A)` and `x is A` different trees. `head` is
+  visited with its node's other spans (`visit`, `visit_mut`), so an
+  expansion tags it and numbering gives it an ordinal like `!is`'s `not`.
+- **The parser** (`Parser::parse_is_head`, now over `parse_is_tests`)
+  reads any number of `(`, the tests inside with `group_depth` raised by as
+  many, and as many `)`, counting each on `head`; a parenthesized single
+  test's span now ends at its last `)` (for `x is (Str s)` it ended at the
+  binding, inside the `)`). `x is ((A) | B)` is a parse error ("expected
+  `)`, found `|`"): a pair round one test of several is no head's.
+- **The printer** (`Printer::is_tests`, now the printing of every `is`
+  head, `Expr::Is`'s included): the counted pairs, on one line, or, broken
+  by the author inside them, `(` / one test per line, one level in, `|`
+  leading / `)`, as a broken union type prints (`Printer::ty`); a doubled
+  pair prints `((` / … / `))`, as a doubled union type does. Inside
+  brackets with none written a broken head breaks where it is, as before;
+  a pair of the printer's goes only round a head broken outside brackets
+  with none, which no parse holds. Printing a lowered tree, a union `is`
+  keeps none (`desugar::lower_is` gives each test of the `||` chain the
+  span of its own refs; a single test keeps its `head`).
+- **What changed**: `m is (Int | Str)` on one line printed `m is Int | Str`
+  and now stays (`canonical/operator_tiers.out.sv`'s `flat_head`, and its
+  comment). Nothing in std, the examples, `bench/` or `modules/aws` writes
+  an `is (` head, so nothing was reformatted.
+- **Nothing to reformat**: `salvo fmt --check` over stage H's scope (`lib/std`,
+  `examples/*/salvo`, `bench/*/salvo`, `modules/aws`'s `salvo/aws.sv`,
+  examples and demos: 92 files) reports nothing, so nothing derived was
+  regenerated. (The generated `modules/aws/salvo/aws/{ddb,s3,sqs}.sv`,
+  outside that scope, would lose their fields' trailing commas: the
+  generator's spelling, no `is` head.)
+- **Tests**: canonical fixture `is_head_parens` (one line and broken, `is`
+  and `!is`, a single test, a binding inside the pair, doubled pairs on one
+  line and broken, a head broken trailing `|` inside its pair, inside
+  brackets with and without one, `when` arms on one line, doubled, and
+  broken); the repo walk's `bare` printing (`forget_type_parens`) forgets
+  an `is` head's pairs with a type's and still parses back to the same
+  tree; 12 parser snapshots gained each `head:` line, and nothing else.
+  Checked by hand on both backends (`salvo run`): `if m is (Int n)`, `m !is
+  ((Str | Bool))` and a broken `is (Str` / `| Bool) {` arm narrow and run as
+  without the pairs.
+- **Docs**: [expr-group], [ast-print], [is-union], [expr-wrap]; `Formatting.md` (kept
+  as written; a broken head).
+- **Checked**: `cargo build` warning-free; 765 tests under `cargo nextest
+  run --no-fail-fast`, all green on the first run: 3m06 wall (25.8s of it
+  building test binaries after the `salvo-syntax` change relinked them,
+  nextest's 154.7s; load average 90–180), over the warm budget, the slow
+  five the usual toolchain ones (`run_data`, the std tests on both
+  backends, a host library).
+
 ### 2026-11-12 — A type argument list touches its name, a form's suffix is part of its name, and a qualifier's arguments are counted in a type ([syntax-space] [qual-value-arg] [qual-depend] [qual-const])
 
 User decisions 2026-11-12, closing ROADMAP §0av's three items left by the
@@ -469,7 +540,9 @@ tiers by where a line may break.
 - **An `is` head may be parenthesized**, `x is (A` / `| B)` and a `when`
   arm's `is (A` / `| B) {` (`Parser::parse_is_head`, now the one reader of
   both heads): `is (` was a parse error before, so nothing changed meaning.
-  The tree keeps no record of the parentheses (an agent's call).
+  The tree kept no record of the parentheses (an agent's call; reversed by
+  the user the same day: the entry "The tree keeps the parentheses written
+  around an `is` head's types" above).
 - **The formatter** (`print.rs`): tier 1 breaks leading as before; tier 2
   breaks leading at its own level, one level in per nested run; tier 3, a
   union and an `is` head are never broken for the width, nor is anything

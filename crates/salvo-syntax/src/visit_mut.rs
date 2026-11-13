@@ -651,6 +651,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
             subject,
             check,
             binding,
+            head,
             span,
         } => {
             v.visit_span(span);
@@ -661,6 +662,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
             if let Some(b) = binding {
                 v.visit_ident(b);
             }
+            v.visit_span(head);
         }
         Expr::Retype { subject, retype, span } => {
             v.visit_span(span);
@@ -758,6 +760,7 @@ pub fn walk_expr<V: MutVisitor>(v: &mut V, e: &mut Expr) {
                 if let Some(b) = &mut br.binding {
                     v.visit_ident(b);
                 }
+                v.visit_span(&mut br.head);
                 walk_block(v, &mut br.body);
             }
         }
@@ -959,7 +962,7 @@ pub fn walk_sugar<V: MutVisitor>(v: &mut V, sugar: &mut Sugar) {
             v.visit_span(op);
             v.visit_span(mark);
         }
-        Sugar::Is { subject, checks, binding, not, span } => {
+        Sugar::Is { subject, checks, binding, not, head, span } => {
             v.visit_span(span);
             walk_expr(v, subject);
             for c in checks.iter_mut().flatten() {
@@ -971,6 +974,7 @@ pub fn walk_sugar<V: MutVisitor>(v: &mut V, sugar: &mut Sugar) {
             if let Some(n) = not {
                 v.visit_span(n);
             }
+            v.visit_span(head);
         }
         Sugar::Pair { key, value, span } => {
             v.visit_span(span);

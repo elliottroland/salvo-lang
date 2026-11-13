@@ -1758,7 +1758,7 @@ impl crate::visit_mut::MutVisitor for LowerSugar {
 fn lower_one(sugar: Sugar) -> Expr {
     match sugar {
         Sugar::AsQual { subject, check, trap, op, mark, span } => lower_as_qual(subject, check, trap, op, mark, span),
-        Sugar::Is { subject, checks, binding, not, span } => lower_is(subject, checks, binding, not, span),
+        Sugar::Is { subject, checks, binding, not, head, span } => lower_is(subject, checks, binding, not, head, span),
         // [col-pairs] The 2-tuple, spanning the key and the value only: a
         // written tuple's span starts at its `(`, which is how a printing
         // tells the two apart.
@@ -1801,8 +1801,10 @@ fn lower_one(sugar: Sugar) -> Expr {
 /// A || x is B` (each test spanning from the subject to its last name, so
 /// the second starts where the `||` does: how a printing tells it from a
 /// written one), `!is` negating the whole. The binding is kept on a single
-/// test, refused by the parser on a negated one, and dropped from a union.
-fn lower_is(subject: Expr, mut checks: Vec<Vec<TypeRef>>, binding: Option<Ident>, not: Option<Span>, span: Span) -> Expr {
+/// test, refused by the parser on a negated one, and dropped from a union;
+/// so is the head's span, with its parentheses [expr-group], each of a
+/// union's tests getting its own.
+fn lower_is(subject: Expr, mut checks: Vec<Vec<TypeRef>>, binding: Option<Ident>, not: Option<Span>, head: Span, span: Span) -> Expr {
     let union = checks.len() > 1;
     let mut end = checks[0].last().map(|r| r.span).unwrap_or_else(|| subject.span());
     for c in &checks[1..] {
@@ -1812,18 +1814,24 @@ fn lower_is(subject: Expr, mut checks: Vec<Vec<TypeRef>>, binding: Option<Ident>
         let at = subject.span();
         let mut tests = checks.into_iter().map(|c| {
             let s = c.last().map(|r| at.to(r.span)).unwrap_or(span);
-            Expr::Is { subject: Box::new(subject.clone()), check: c, binding: None, span: s }
+            let head = check_span(&c).unwrap_or(head.ungrouped());
+            Expr::Is { subject: Box::new(subject.clone()), check: c, binding: None, head, span: s }
         });
         let first = tests.next().expect("a union has tests");
         tests.fold(first, |out, t| Expr::Binary { op: BinaryOp::Or, lhs: Box::new(out), rhs: Box::new(t), span })
     } else {
         end = binding.as_ref().map(|b| b.span).unwrap_or(end);
-        Expr::Is { subject: Box::new(subject), check: checks.pop().unwrap_or_default(), binding, span }
+        Expr::Is { subject: Box::new(subject), check: checks.pop().unwrap_or_default(), binding, head, span }
     };
     match not {
         Some(n) => Expr::Unary { op: UnaryOp::Not, operand: Box::new(test), span: n.to(end) },
         None => test,
     }
+}
+
+/// The span of a test's type refs, from its first to its last.
+fn check_span(check: &[TypeRef]) -> Option<Span> {
+    Some(check.first()?.span.to(check.last()?.span))
 }
 
 /// [expr-as-qual] `x as! Q` and `x as? Q`, written out as the code they stand
@@ -1847,7 +1855,8 @@ fn lower_as_qual(lhs: Expr, check: Vec<TypeRef>, trap: bool, as_span: Span, mark
     let block = |stmts: Vec<Stmt>| Block { stmts, span, terminal: false };
     if trap {
         let bind = Stmt::Let { pattern: Pattern::Ident(Ident { name: name.clone(), span: decl_at }), ty: None, value: lhs, span };
-        let test = Expr::Is { subject: Box::new(var(test_at)), check, binding: None, span };
+        let head = check_span(&check).unwrap_or(mark);
+        let test = Expr::Is { subject: Box::new(var(test_at)), check, binding: None, head, span };
         let assertion = Stmt::Expr(Expr::Assert { cond: Box::new(test), message: None, span });
         let then = block(vec![bind, assertion, Stmt::Expr(var(tail_at))]);
         let never = block(vec![Stmt::Expr(Expr::Unreachable { message: None, span })]);
@@ -1856,7 +1865,8 @@ fn lower_as_qual(lhs: Expr, check: Vec<TypeRef>, trap: bool, as_span: Span, mark
     // As if written `x is Q name`: the binding follows the qualifier.
     let end = check.last().map(|r| r.span).unwrap_or(mark);
     let bind_at = end.at(end.end, end.end);
-    let test = Expr::Is { subject: Box::new(lhs), check, binding: Some(Ident { name: name.clone(), span: bind_at }), span };
+    let head = check_span(&check).unwrap_or(mark);
+    let test = Expr::Is { subject: Box::new(lhs), check, binding: Some(Ident { name: name.clone(), span: bind_at }), head, span };
     let then = block(vec![Stmt::Expr(var(tail_at))]);
     let none = block(vec![Stmt::Expr(Expr::Ident(Ident { name: "None".to_string(), span }))]);
     Expr::If { branches: vec![(test, then)], else_block: Some(none), span }
@@ -1921,6 +1931,7 @@ impl crate::visit_mut::MutVisitor for LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
+            head: span.ungrouped(),
             body: Block { stmts: vec![Stmt::Expr(value)], span, terminal: false },
             span,
         };
@@ -1955,6 +1966,7 @@ impl LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
+            head: span.ungrouped(),
             body: Block { stmts: vec![Stmt::Expr(value)], span, terminal: false },
             span,
         };
@@ -2006,6 +2018,7 @@ impl LowerPicks {
             or: Vec::new(),
             hole: Some(hole),
             binding: None,
+            head: span.ungrouped(),
             body: Block { stmts: vec![Stmt::Expr(value)], span, terminal: false },
             span,
         };

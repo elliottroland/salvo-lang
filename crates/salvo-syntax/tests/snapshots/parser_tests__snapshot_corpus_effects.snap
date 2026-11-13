@@ -1479,6 +1479,7 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
+                                            head: 1335..1337,
                                             body: Block {
                                                 stmts: [
                                                     Expr(
@@ -1539,6 +1540,7 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
+                                            head: 1402..1408,
                                             body: Block {
                                                 stmts: [
                                                     Expr(

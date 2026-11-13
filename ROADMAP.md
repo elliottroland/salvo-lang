@@ -1050,11 +1050,9 @@ the pipeline record B4 built [round-trip] over the examples and the corpus (P5 (
     `-` is its own error, `expr-wrap:tier3-leading`, naming the fix, where
     it was "expected expression, found `==`" (`-` begins a negation, as
     decided); (2) a trailing tier-3 operator's operand is read from the
-    next line after the error, so the slip is reported once; (3) an `is`
-    head may be parenthesized, `x is (A` / `| B)` and a `when` arm's `is (A`
-    / `| B) {`, the tree keeping no record of the parentheses: the
-    formatter drops them from a head on one line and writes them round one
-    the author broke outside brackets; (4) inside brackets an author's
+    next line after the error, so the slip is reported once; (3) settled by
+    the user 2026-11-12: an `is` head's parentheses are recorded and printed
+    as written (COMPLETED.md's entry of that day); (4) inside brackets an author's
     broken tier-3 run prints its operator leading each line, one level in,
     as tiers 1 and 2 do; (5) the width breaks nothing inside a tier-3
     expression, a union or an `is` head either (a call's arguments there

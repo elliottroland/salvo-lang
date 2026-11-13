@@ -988,6 +988,7 @@ Module {
                                                         },
                                                     ],
                                                     binding: None,
+                                                    head: 579..582,
                                                     span: 561..582,
                                                 },
                                             ),
@@ -1451,6 +1452,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 1049..1056,
                                                 span: 1044..1056,
                                             },
                                             Block {
@@ -1509,6 +1511,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 1106..1112,
                                                 span: 1101..1112,
                                             },
                                             Block {
@@ -2014,6 +2017,7 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
+                                            head: 1566..1568,
                                             body: Block {
                                                 stmts: [
                                                     Retype {
@@ -2076,6 +2080,7 @@ Module {
                                                                     or: [],
                                                                     hole: None,
                                                                     binding: None,
+                                                                    head: 1644..1646,
                                                                     body: Block {
                                                                         stmts: [
                                                                             Expr(
@@ -2136,6 +2141,7 @@ Module {
                                                                     or: [],
                                                                     hole: None,
                                                                     binding: None,
+                                                                    head: 1734..1737,
                                                                     body: Block {
                                                                         stmts: [
                                                                             Expr(
@@ -2207,6 +2213,7 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
+                                            head: 1847..1850,
                                             body: Block {
                                                 stmts: [
                                                     Expr(

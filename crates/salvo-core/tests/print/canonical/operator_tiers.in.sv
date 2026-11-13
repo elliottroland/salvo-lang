@@ -49,8 +49,8 @@ fn f(a: Int, b: Int, ok: Bool, done: Bool, m: Int? | Str, xs: List<Int>) -> Int 
     let long = first_summand_of_the_total(a) * second_summand_of_the_total(b) + third_summand_of_the_total(a) * fourth(b)
     let deep = check(first_condition_of_the_test(a) && second_condition_of_the_test(b) && third_condition_of_the_test(ok))
     let compared = (m ?: 0) > 5
-    // An `is` head the author broke prints in parentheses of its own, and a
-    // `when` arm's the same; on one line its parentheses go.
+    // An `is` head the author broke in its parentheses prints one test per
+    // line, and a `when` arm's the same; on one line its parentheses stay.
     let head = m is (Int
         | Str)
     let not_head = m !is (Int |

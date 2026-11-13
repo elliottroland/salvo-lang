@@ -1547,6 +1547,7 @@ Module {
                                             },
                                         ],
                                         binding: None,
+                                        head: 6964..6968,
                                         span: 6956..6968,
                                     },
                                     message: None,
@@ -2203,6 +2204,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 7944..7948,
                                                 span: 7937..7948,
                                             },
                                             Block {
@@ -8921,6 +8923,7 @@ Module {
                                                         span: 20645..20646,
                                                     },
                                                 ),
+                                                head: 20641..20646,
                                                 span: 20635..20646,
                                             },
                                             Block {
@@ -9371,6 +9374,7 @@ Module {
                                                         span: 21192..21193,
                                                     },
                                                 ),
+                                                head: 21188..21193,
                                                 span: 21182..21193,
                                             },
                                             Block {

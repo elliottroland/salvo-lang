@@ -135,6 +135,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 74..77,
                                                 span: (56..77),
                                             },
                                             Block {
@@ -372,6 +373,7 @@ Module {
                                                         span: 266..267,
                                                     },
                                                 ),
+                                                head: 262..267,
                                                 span: 242..267,
                                             },
                                             Block {
@@ -438,6 +440,7 @@ Module {
                                                 span: 329..330,
                                             },
                                         ),
+                                        head: 325..330,
                                         span: 305..330,
                                     },
                                     body: Block {
@@ -680,6 +683,7 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
+                                            head: 475..477,
                                             body: Block {
                                                 stmts: [
                                                     Expr(
@@ -716,6 +720,7 @@ Module {
                                             or: [],
                                             hole: None,
                                             binding: None,
+                                            head: 520..523,
                                             body: Block {
                                                 stmts: [
                                                     Expr(
@@ -1005,6 +1010,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 711..718,
                                                 span: 701..718,
                                             },
                                             Block {
@@ -1071,6 +1077,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 776..779,
                                                 span: 766..779,
                                             },
                                             Block {
@@ -1465,6 +1472,7 @@ Module {
                                                         span: 1389..1390,
                                                     },
                                                 ),
+                                                head: 1385..1390,
                                                 span: 1376..1390,
                                             },
                                             Block {
@@ -2115,6 +2123,7 @@ Module {
                                                     },
                                                 ],
                                                 binding: None,
+                                                head: 1874..1877,
                                                 span: 1856..1877,
                                             },
                                             Block {

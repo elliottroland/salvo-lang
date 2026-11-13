@@ -2274,6 +2274,9 @@ pub enum Expr {
         /// base type, e.g. `Str`, `Err Str`, `Surname`.
         check: Vec<TypeRef>,
         binding: Option<Ident>,
+        /// [expr-group] The head: the test and its binding, with the
+        /// parentheses written around them counted, `x is (Str s)`.
+        head: Span,
         span: Span,
     },
     /// [qual-retype] `expr: -Ok`, `expr: NonEmpty List` — the value of
@@ -2659,8 +2662,10 @@ pub enum Sugar {
     /// B` and `x !is A | B` (`checks`, one per alternative): `!(x is Q)`,
     /// `x is A || x is B`, `!(x is A || x is B)`. A plain `x is Q` is an
     /// `Expr::Is`. `binding` is the one written after the first check, which
-    /// the parser refuses for all three; `span` runs from the subject.
-    Is { subject: Expr, checks: Vec<Vec<TypeRef>>, binding: Option<Ident>, not: Option<Span>, span: Span },
+    /// the parser refuses for all three; `head` is the tests', with the
+    /// parentheses written around them counted [expr-group], `x is (A |
+    /// B)`; `span` runs from the subject.
+    Is { subject: Expr, checks: Vec<Vec<TypeRef>>, binding: Option<Ident>, not: Option<Span>, head: Span, span: Span },
     /// [col-pairs] A `key: value` call argument (`Map("a": 1)`): the 2-tuple
     /// `(key, value)` filling a `...pairs: (K, V)[]` variadic.
     Pair { key: Expr, value: Expr, span: Span },
@@ -2795,6 +2800,9 @@ pub struct WhenBranch {
     /// only in a `when` lowered from an operator.
     pub hole: Option<ArmHole>,
     pub binding: Option<Ident>,
+    /// [expr-group] The head after `is`: its tests and binding, with the
+    /// parentheses written around them counted, `is (A | B) { … }`.
+    pub head: Span,
     pub body: Block,
     pub span: Span,
 }

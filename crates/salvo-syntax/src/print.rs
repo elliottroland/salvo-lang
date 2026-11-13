@@ -861,17 +861,24 @@ impl<'n> Printer<'n> {
     }
 
     /// [is-union] [when-union-head] An `is` head's tests, the first one's
-    /// binding after it, on one line unless the author broke them before a
-    /// `|` [fmt-author-breaks]: inside brackets they then break where they
-    /// are, and outside them in parentheses of their own, which the parser
-    /// reads as the same head, one test per line and the `)` on a line of
-    /// its own [expr-wrap].
-    fn is_tests(&mut self, checks: &[&[TypeRef]], binding: Option<&Ident>, anchor: Span) {
+    /// binding after it, inside the parentheses written around them, `head`'s
+    /// count [expr-group]; on one line unless the author broke them before a
+    /// `|` [fmt-author-breaks]. Broken inside their parentheses, they print
+    /// one test per line, one level in, and the `)` on a line of its own, as
+    /// a union type does [expr-wrap]; inside brackets with none, they break
+    /// where they are; and outside both, where the parser needs a pair to
+    /// read the break, they get one of the printer's.
+    fn is_tests(&mut self, checks: &[&[TypeRef]], binding: Option<&Ident>, head: Span, anchor: Span) {
         let gaps: Vec<(u32, u32)> = checks.windows(2).filter_map(|w| Some((w[0].last()?.span.end, w[1].first()?.span.start))).collect();
-        let wrap = checks.len() > 1 && self.group == 0 && self.written_broken(anchor, &gaps);
-        if wrap {
+        let written = head.parens;
+        let added = u8::from(written == 0 && checks.len() > 1 && self.group == 0 && self.written_broken(anchor, &gaps));
+        let parens = written + added;
+        for _ in 0..parens {
             self.push("(");
-            self.group += 1;
+        }
+        self.group += u32::from(parens);
+        let wrap = parens > 0 && checks.len() > 1 && self.written_broken(anchor, &gaps);
+        if wrap {
             self.indent += 1;
             self.newline();
             self.indent -= 1;
@@ -886,7 +893,9 @@ impl<'n> Printer<'n> {
         });
         if wrap {
             self.newline();
-            self.group -= 1;
+        }
+        self.group -= u32::from(parens);
+        for _ in 0..parens {
             self.push(")");
         }
     }
@@ -3391,17 +3400,13 @@ impl<'n> Printer<'n> {
                 }
                 self.frozen -= frozen;
             }
-            Expr::Is { subject, check, binding, .. } => {
+            Expr::Is { subject, check, binding, head, span } => {
                 self.frozen += 1;
                 self.expr(subject, COMPARE);
                 self.push(" is ");
-                self.list(check, " ", |p, r| p.type_ref(r));
-                if let Some(b) = binding {
-                    // [expr-as-qual] `as?`'s binder is the compiler's name;
-                    // written, it is a binder like any other.
-                    self.push(" ");
-                    self.ident(b);
-                }
+                // [expr-as-qual] `as?`'s binder is the compiler's name;
+                // written, it is a binder like any other.
+                self.is_tests(&[check.as_slice()], binding.as_ref(), *head, *span);
                 self.frozen -= 1;
             }
             Expr::Retype { subject, retype, .. } => {
@@ -3701,12 +3706,12 @@ impl<'n> Printer<'n> {
                 self.list(check, " ", |p, r| p.type_ref(r));
                 self.frozen -= 1;
             }
-            Sugar::Is { subject, checks, binding, not, span } => {
+            Sugar::Is { subject, checks, binding, not, head, span } => {
                 self.frozen += 1;
                 self.expr(subject, COMPARE);
                 self.push(if not.is_some() { " !is " } else { " is " });
                 let checks: Vec<&[TypeRef]> = checks.iter().map(Vec::as_slice).collect();
-                self.is_tests(&checks, binding.as_ref(), *span);
+                self.is_tests(&checks, binding.as_ref(), *head, *span);
                 self.frozen -= 1;
             }
             Sugar::Pair { key, value, .. } => {
@@ -4200,7 +4205,7 @@ impl<'n> Printer<'n> {
                 }
                 None => {
                     let checks: Vec<&[TypeRef]> = std::iter::once(br.check.as_slice()).chain(br.or.iter().map(Vec::as_slice)).collect();
-                    self.is_tests(&checks, br.binding.as_ref(), br.span);
+                    self.is_tests(&checks, br.binding.as_ref(), br.head, br.span);
                 }
             }
             if let (Some(b), Some(_)) = (&br.binding, br.hole) {
@@ -4270,18 +4275,18 @@ fn as_qual_name(branches: &[(Expr, Block)]) -> Option<String> {
 fn sugar_origin(e: &Expr) -> Option<Sugar> {
     match e {
         Expr::Unary { op: UnaryOp::Not, operand, span } if span.start > operand.span().start => {
-            let (subject, checks, binding) = match operand.as_ref() {
-                Expr::Is { subject, check, binding, .. } => ((**subject).clone(), vec![check.clone()], binding.clone()),
+            let (subject, checks, binding, head) = match operand.as_ref() {
+                Expr::Is { subject, check, binding, head, .. } => ((**subject).clone(), vec![check.clone()], binding.clone(), *head),
                 other => {
-                    let (subject, checks) = union_tests(other)?;
-                    (subject, checks, None)
+                    let (subject, checks, head) = union_tests(other)?;
+                    (subject, checks, None, head)
                 }
             };
-            Some(Sugar::Is { subject, checks, binding, not: Some(*span), span: *span })
+            Some(Sugar::Is { subject, checks, binding, not: Some(*span), head, span: *span })
         }
         Expr::Binary { op: BinaryOp::Or, span, .. } => {
-            let (subject, checks) = union_tests(e)?;
-            Some(Sugar::Is { subject, checks, binding: None, not: None, span: *span })
+            let (subject, checks, head) = union_tests(e)?;
+            Some(Sugar::Is { subject, checks, binding: None, not: None, head, span: *span })
         }
         // [col-pairs] A pair's tuple spans its two sides only.
         Expr::Tuple { elems, span } if elems.len() == 2 && elems[0].span().start == span.start => {
@@ -4320,22 +4325,23 @@ fn sugar_origin(e: &Expr) -> Option<Sugar> {
 }
 
 /// [is-union] The subject and the tests of an `||` chain a union `is` was
-/// lowered to.
-fn union_tests(e: &Expr) -> Option<(Expr, Vec<Vec<TypeRef>>)> {
+/// lowered to, and the span of its head (no parentheses: the lowering keeps
+/// none for a union).
+fn union_tests(e: &Expr) -> Option<(Expr, Vec<Vec<TypeRef>>, Span)> {
     let Expr::Binary { op: BinaryOp::Or, lhs, rhs, span } = e else { return None };
-    let Expr::Is { subject: last, check, binding: None, span: at } = rhs.as_ref() else { return None };
+    let Expr::Is { subject: last, check, binding: None, head: end, span: at } = rhs.as_ref() else { return None };
     if at.start != span.start {
         return None;
     }
-    let (subject, mut checks) = match lhs.as_ref() {
-        Expr::Is { subject, check, binding: None, .. } => ((**subject).clone(), vec![check.clone()]),
+    let (subject, mut checks, head) = match lhs.as_ref() {
+        Expr::Is { subject, check, binding: None, head, .. } => ((**subject).clone(), vec![check.clone()], *head),
         other => union_tests(other)?,
     };
     if subject != **last {
         return None;
     }
     checks.push(check.clone());
-    Some((subject, checks))
+    Some((subject, checks, head.to(*end)))
 }
 
 /// [op-compound] [syntax-lowered] The `x += e` an assignment the sugar

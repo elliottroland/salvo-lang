@@ -528,13 +528,29 @@ fn file_failures(name: &str, text: &str) -> Option<Vec<String>> {
 const NOT_YET_PRINTED: &[&str] = &[];
 
 /// [expr-group] [ast-print] `module` with no parentheses written around any
-/// of its types: printed, it holds only those the printer adds.
+/// of its types or `is` heads: printed, it holds only those the printer adds.
 fn forget_type_parens(module: &mut salvo_syntax::ast::Module) {
-    use salvo_syntax::ast::Type;
+    use salvo_syntax::ast::{Expr, Sugar, Type};
     struct V;
     impl salvo_syntax::visit_mut::MutVisitor for V {
         fn visit_type(&mut self, t: &mut Type) {
             t.ungroup();
+        }
+        fn visit_expr(&mut self, e: &mut Expr) {
+            match e {
+                Expr::Is { head, .. } => *head = head.ungrouped(),
+                Expr::Sugar(s) => {
+                    if let Sugar::Is { head, .. } = s.as_mut() {
+                        *head = head.ungrouped();
+                    }
+                }
+                Expr::When { branches, .. } => {
+                    for br in branches {
+                        br.head = br.head.ungrouped();
+                    }
+                }
+                _ => {}
+            }
         }
     }
     salvo_syntax::node_id::walk_module(&mut V, module);
@@ -569,7 +585,8 @@ const DOCS_ON_A_SHARED_LINE: &[&str] = &[
 ///   moved comment, sorted imports, a type's parentheses only where the
 ///   parser needs them (`type_parens`), a deduction's `+Q` before the
 ///   claims it keeps (`deduction_deltas`), a parameterless handler without
-///   brackets (`handler_brackets`);
+///   brackets (`handler_brackets`), an `is` head's parentheses as written
+///   (`is_head_parens`);
 /// - the example of `docs/language/Formatting.md` (its first two `salvo`
 ///   fences) formats as the page shows.
 #[test]
